@@ -20,11 +20,10 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: npm
+          node-version: 20
 
-      - name: Instalar dependências (falha se o lock estiver inconsistente)
-        run: npm ci
-
-      - name: Lint + tipos + testes
-        run: npm run verificar   # = eslint && tsc --noEmit && vitest run
+      - name: Sintaxe dos scripts do app
+        run: |
+          for f in app.js store.js auth.js config.js sw.js; do
+            node --check "$f"
+          done

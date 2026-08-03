@@ -29,20 +29,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      # npm ci falha de propósito se o package-lock não bater com o package.json
-      # — inconsistência que já deixou site congelado em deploy velho sem aviso.
-      - run: npm ci
-      - run: npm run build
-
-      # SPA no Pages: não há rewrite de servidor. O 404.html = cópia do index
-      # faz refresh/bookmark de subpágina funcionar; o Router (com basename)
-      # assume dali. App vanilla por hash NÃO precisa disto.
-      - run: cp dist/index.html dist/404.html
+      # App vanilla sem build: separa o SITE do que é ferramenta de repositório
+      # (supabase/, seed/, sql.sh não são página). Navegação por hash: sem 404.html.
+      - name: Separar os arquivos do site
+        run: |
+          mkdir -p dist
+          rsync -a ./ dist/ \
+            --exclude dist/ --exclude .git/ --exclude .github/ \
+            --exclude supabase/ --exclude seed/ --exclude sql.sh
+          ls dist
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

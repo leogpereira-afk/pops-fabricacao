@@ -1,0 +1,60 @@
+# Publica no GitHub Pages a cada push na main. MOLDE — dois sabores:
+#   React+Vite: mantém o job como está (build + 404.html).
+#   Vanilla (sem build): apague os passos de node/build e publique a pasta do
+#     app direto (path: . ou path: publico) — e apague o passo do 404.html se o
+#     app navega por hash (não precisa) ou mantenha se usa caminhos reais.
+#
+# Backend é o Supabase — nenhum segredo entra aqui. As chaves públicas (URL +
+# anon key) podem ir versionadas em .env.production: são públicas por design,
+# protegidas por RLS no servidor.
+name: Deploy (GitHub Pages)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # npm ci falha de propósito se o package-lock não bater com o package.json
+      # — inconsistência que já deixou site congelado em deploy velho sem aviso.
+      - run: npm ci
+      - run: npm run build
+
+      # SPA no Pages: não há rewrite de servidor. O 404.html = cópia do index
+      # faz refresh/bookmark de subpágina funcionar; o Router (com basename)
+      # assume dali. App vanilla por hash NÃO precisa disto.
+      - run: cp dist/index.html dist/404.html
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

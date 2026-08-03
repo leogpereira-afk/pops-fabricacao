@@ -1,0 +1,30 @@
+# Confere o código a cada envio, ANTES de o Pages publicar. Já aconteceu de a
+# publicação quebrar por erro de tipo ou lock inconsistente — e só se descobrir
+# com o site fora do ar. Aqui o erro aparece no GitHub, com o app no ar intacto.
+#
+# App vanilla sem testes: manter mesmo assim com um passo mínimo (por exemplo,
+# `node --check` nos .js) — o workflow existir é o que lembra de criar testes.
+name: Verificar
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Instalar dependências (falha se o lock estiver inconsistente)
+        run: npm ci
+
+      - name: Lint + tipos + testes
+        run: npm run verificar   # = eslint && tsc --noEmit && vitest run

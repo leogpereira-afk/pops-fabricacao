@@ -1,0 +1,196 @@
+[
+ {
+  "id": "pop-fluxo-pedido",
+  "sla": "24h",
+  "ordem": 1,
+  "blocos": [
+   {
+    "tipo": "paragrafo",
+    "texto": "Objetivo: todo pedido entra completo e rastreável."
+   },
+   {
+    "tipo": "subtitulo",
+    "texto": "Antes de o PCP assumir"
+   },
+   {
+    "tipo": "passos",
+    "itens": [
+     "O que será feito está claro.",
+     "Medidas informadas.",
+     "Material definido.",
+     "Arquivos enviados.",
+     "Prazo informado."
+    ]
+   },
+   {
+    "tipo": "lista",
+    "itens": [
+     "❌ Pedido incompleto não entra.",
+     "✔ Completo segue."
+    ]
+   },
+   {
+    "tipo": "destaque",
+    "texto": "SLA: 24h."
+   }
+  ],
+  "titulo": "POP — Fluxo de Pedido (Comercial → PCP → Produção)",
+  "versao": "1.0",
+  "descricao": "Todo pedido entra completo e rastreável.",
+  "atualizadoEm": "2026-07-24T19:08:48.259Z"
+ },
+ {
+  "id": "pop-design-revisao",
+  "sla": "12h úteis",
+  "ordem": 2,
+  "blocos": [
+   {
+    "tipo": "paragrafo",
+    "texto": "O design só trabalha com pedido validado."
+   },
+   {
+    "tipo": "subtitulo",
+    "texto": "Antes de liberar"
+   },
+   {
+    "tipo": "passos",
+    "itens": [
+     "Arte final conferida.",
+     "Medidas corretas.",
+     "Material certo.",
+     "Nenhum ajuste pendente."
+    ]
+   },
+   {
+    "tipo": "lista",
+    "itens": [
+     "❌ Sem revisão não produz."
+    ]
+   },
+   {
+    "tipo": "destaque",
+    "texto": "SLA: 12h úteis."
+   }
+  ],
+  "titulo": "POP — Fluxo de Design e Revisão",
+  "versao": "1.0",
+  "descricao": "O design só trabalha com pedido validado.",
+  "atualizadoEm": "2026-07-24T19:08:48.259Z"
+ },
+ {
+  "id": "pop-producao",
+  "ordem": 3,
+  "blocos": [
+   {
+    "tipo": "paragrafo",
+    "texto": "Produção trabalha com previsibilidade:"
+   },
+   {
+    "tipo": "lista",
+    "itens": [
+     "Só recebe pedido liberado.",
+     "Ordem respeitada.",
+     "Mudança de prioridade controlada.",
+     "Tudo via PCP."
+    ]
+   },
+   {
+    "tipo": "destaque",
+    "texto": "A produção executa — não corrige erro de entrada."
+   }
+  ],
+  "titulo": "POP — Fluxo de Produção",
+  "versao": "1.0",
+  "descricao": "Produção trabalha com previsibilidade.",
+  "atualizadoEm": "2026-07-24T19:08:48.259Z"
+ },
+ {
+  "id": "pop-urgencia",
+  "sla": "4h úteis",
+  "ordem": 4,
+  "blocos": [
+   {
+    "tipo": "paragrafo",
+    "texto": "Nem tudo é urgente. É urgente quando:"
+   },
+   {
+    "tipo": "lista",
+    "itens": [
+     "Impacta o prazo do cliente agora.",
+     "O PCP avaliou o impacto.",
+     "A liderança está ciente."
+    ]
+   },
+   {
+    "tipo": "lista",
+    "itens": [
+     "❌ Sem validação → pedido normal."
+    ]
+   },
+   {
+    "tipo": "destaque",
+    "texto": "SLA de retorno: 4h úteis."
+   }
+  ],
+  "titulo": "POP — Fluxo de Urgência",
+  "versao": "1.0",
+  "descricao": "Nem tudo é urgente.",
+  "atualizadoEm": "2026-07-24T19:08:48.259Z"
+ },
+ {
+  "id": "pop-rotinas-comunicacao",
+  "ordem": 5,
+  "blocos": [
+   {
+    "tipo": "subtitulo",
+    "texto": "Reunião semanal operacional"
+   },
+   {
+    "tipo": "paragrafo",
+    "texto": "Semanal, até 15 min, com PCP/Comercial/Produção."
+   },
+   {
+    "tipo": "lista",
+    "itens": [
+     "Pauta: pedidos em andamento.",
+     "Prioridades da semana.",
+     "Pontos críticos.",
+     "Ajustes."
+    ]
+   },
+   {
+    "tipo": "subtitulo",
+    "texto": "Reunião mensal de alinhamento"
+   },
+   {
+    "tipo": "paragrafo",
+    "texto": "Mensal, 30–60 min, lideranças e responsáveis de setor."
+   },
+   {
+    "tipo": "lista",
+    "itens": [
+     "Pauta: resultados.",
+     "Erros e aprendizados.",
+     "Ajustes de processo.",
+     "Melhorias no fluxo."
+    ]
+   },
+   {
+    "tipo": "subtitulo",
+    "texto": "Rotinas"
+   },
+   {
+    "tipo": "lista",
+    "itens": [
+     "Validação de pedidos (PCP, diária).",
+     "Revisão técnica (Design, sob demanda).",
+     "Controle de urgência (PCP + liderança)."
+    ]
+   }
+  ],
+  "titulo": "POP — Rotinas de Comunicação e Alinhamento",
+  "versao": "1.0",
+  "descricao": "Reuniões e rotinas de alinhamento entre as áreas.",
+  "atualizadoEm": "2026-07-24T19:08:48.259Z"
+ }
+]

@@ -167,3 +167,37 @@ ul.bloco-lista li { margin: 5px 0; }
 .porta .ico { font-size: 40px; }
 .porta h2 { margin: 8px 0 4px; color: var(--azul-escuro); }
 .porta p { margin: 0; color: var(--cinza); font-size: 14.5px; }
+
+/* ── fluxo da linha de produção ─────────────────────────────────────────── */
+.fluxo { margin-top: 10px; }
+.fx-link { text-decoration: none; color: inherit; display: block; }
+.fx-etapa {
+  display: flex; align-items: center; gap: 11px;
+  padding: 11px 12px; border: 1px solid var(--borda); border-radius: 12px;
+  margin-bottom: 6px; background: var(--branco); position: relative;
+}
+/* a setinha que liga uma etapa na outra: é a peça andando pela fábrica */
+.fx-etapa::after {
+  content: ''; position: absolute; left: 28px; bottom: -7px;
+  width: 2px; height: 7px; background: var(--borda);
+}
+.fluxo > *:last-child .fx-etapa::after { display: none; }
+.fx-n {
+  width: 30px; height: 30px; flex: 0 0 30px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 14px; background: var(--azul-claro); color: var(--azul-escuro);
+}
+.fx-t { flex: 1; min-width: 0; }
+.fx-t b { display: block; font-size: 15px; }
+.fx-t span { font-size: 12.5px; color: var(--cinza-4); }
+.fx-st { font-size: 12.5px; font-weight: 700; color: var(--azul); white-space: nowrap; }
+.fx-etapa.feita .fx-n { background: var(--verde); color: #fff; }
+.fx-etapa.feita { border-color: var(--verde); }
+.fx-etapa.andando .fx-n { background: var(--amarelo-claro); color: var(--amarelo); }
+/* etapa sem jornada: apagada de propósito — é o buraco no treinamento */
+.fx-etapa.sem { background: var(--fundo); border-style: dashed; }
+.fx-etapa.sem .fx-n { background: var(--borda); color: var(--cinza-4); }
+.fx-etapa.sem .fx-t b { color: var(--cinza); }
+.fx-etapa.sem .fx-st { color: var(--cinza-4); font-weight: 600; }
+/* setor sem POP nenhum */
+.chip.vazio { color: var(--cinza-4); border-style: dashed; }

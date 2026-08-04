@@ -19,11 +19,34 @@ const fmtDataHora = iso => { if (!iso) return ''; const d = new Date(iso); retur
 
 let SESSAO = STORE.getUser();
 
-const SETORES_PADRAO = ['Instalação', 'Serralheria', 'Impressão', 'Acabamento & Pintura',
-  'Design', 'Comercial', 'PCP & Expedição', 'Financeiro', 'Administrativo'];
+// A estrutura da empresa (4 macroáreas × 21 setores e as 4 linhas de produção)
+// vem do servidor, no cfg. O padrão abaixo é só o primeiro boot, antes do pull.
+const AREAS_PADRAO = [
+  { nome: 'Mercado e Vendas', ic: '📣', setores: ['Comercial', 'Marketing', 'Pós-venda'] },
+  { nome: 'Criação e Engenharia', ic: '✏️', setores: ['Design de criação', 'Arte-final e pré-impressão', 'Projetos técnicos'] },
+  { nome: 'Operações', ic: '🏭', setores: ['PCP e Expedição', 'Compras e almoxarifado', 'Impressão digital e recorte',
+    'DTF UV e brindes', 'Corte de chapas e usinagem', 'Metalurgia', 'Pintura', 'Montagem de letras',
+    'Portas de ACM', 'Acabamento', 'Instalação de placas'] },
+  { nome: 'Apoio e Gestão', ic: '🧭', setores: ['Financeiro', 'RH e DP', 'TI e sistemas', 'Manutenção'] },
+];
+function areas() {
+  const a = STORE.getCFG().areas;
+  return (a && a.length ? a : AREAS_PADRAO);
+}
 function setores() {
   const cfg = STORE.getCFG();
-  return (cfg.setores && cfg.setores.length ? cfg.setores : SETORES_PADRAO);
+  if (cfg.setores && cfg.setores.length) return cfg.setores;
+  return areas().reduce((t, a) => t.concat(a.setores || []), []);
+}
+function areaDoSetor(setor) {
+  return areas().find(a => (a.setores || []).some(x => norm(x) === norm(setor)));
+}
+function resumoDoSetor(setor) {
+  return (STORE.getCFG().resumoSetor || {})[setor] || '';
+}
+function linhas() {
+  const l = STORE.getCFG().linhas;
+  return (l && l.length ? l.slice().sort((x, y) => (x.ordem || 0) - (y.ordem || 0)) : []);
 }
 function souAdmin() { return SESSAO && SESSAO.papel === 'admin'; }
 function meusSetores() {
@@ -204,16 +227,51 @@ function renderInicio(app) {
   ligarTopo();
 }
 
-function renderPops(app, setorAtivo) {
-  const todos = STORE.col('pops').sort((a, b) => String(a.codigo || '').localeCompare(String(b.codigo || '')));
-  const atual = setorAtivo || ROTA.arg || '';
-  const daTela = atual ? todos.filter(p => norm(p.setor) === norm(atual)) : todos;
+// A lista de POPs com 21 setores não cabe numa fileira de chips no celular.
+// Então são dois níveis: primeiro a MACROÁREA, depois os setores dela — e cada
+// setor mostra quantos POPs tem, inclusive ZERO. Ver o vazio é o mais útil:
+// é assim que se enxerga onde falta procedimento escrito.
+function renderPops(app) {
+  const todos = STORE.col('pops');
+  const alvo = ROTA.arg || '';                 // pode ser área OU setor
+  const asAreas = areas();
+  const areaSel = asAreas.find(a => norm(a.nome) === norm(alvo));
+  const setorSel = !areaSel && alvo ? alvo : '';
+  const areaDoSel = setorSel ? areaDoSetor(setorSel) : null;
+  const areaAberta = areaSel || areaDoSel;
+
+  const quantos = st => todos.filter(p => norm(p.setor) === norm(st)).length;
+  const daTela = setorSel
+    ? todos.filter(p => norm(p.setor) === norm(setorSel))
+    : (areaAberta ? todos.filter(p => (areaAberta.setores || []).some(x => norm(x) === norm(p.setor))) : todos);
+  daTela.sort((a, b) => String(a.codigo || 'zz').localeCompare(String(b.codigo || 'zz')));
+
+  const lidos = todos.filter(p => minhaLeitura(p.id)).length;
+
   app.innerHTML = htmlTopo('pops') +
     '<div class="miolo">' +
+    // nível 1: macroáreas
     '<div class="chips">' +
-    '<button class="chip' + (!atual ? ' marcado' : '') + '" data-setor="">Todos</button>' +
-    setores().map(s => '<button class="chip' + (norm(s) === norm(atual) ? ' marcado' : '') + '" data-setor="' + esc(s) + '">' + esc(s) + '</button>').join('') +
+    '<button class="chip' + (!alvo ? ' marcado' : '') + '" data-ir="">Todos · ' + todos.length + '</button>' +
+    asAreas.map(a => {
+      const n = (a.setores || []).reduce((t, st) => t + quantos(st), 0);
+      const on = areaAberta && norm(areaAberta.nome) === norm(a.nome);
+      return '<button class="chip' + (on ? ' marcado' : '') + '" data-ir="' + esc(a.nome) + '">' +
+        (a.ic || '') + ' ' + esc(a.nome) + ' · ' + n + '</button>';
+    }).join('') +
     '</div>' +
+    // nível 2: setores da área aberta (com os vazios à vista)
+    (areaAberta ? '<div class="chips" style="margin-top:-6px">' +
+      (areaAberta.setores || []).map(st => {
+        const n = quantos(st);
+        const on = norm(st) === norm(setorSel);
+        return '<button class="chip' + (on ? ' marcado' : '') + (n ? '' : ' vazio') + '" data-ir="' + esc(st) + '">' +
+          esc(st) + ' · ' + n + '</button>';
+      }).join('') + '</div>' : '') +
+    (setorSel && resumoDoSetor(setorSel)
+      ? '<div class="aviso azul" style="margin-top:0">' + esc(resumoDoSetor(setorSel)) + '</div>' : '') +
+    (!alvo ? '<div class="card"><div class="sub">Seus POPs</div>' +
+      '<p class="bloco-par">Você já leu <b>' + lidos + ' de ' + todos.length + '</b>. Toque numa área acima para ver os setores dela.</p></div>' : '') +
     (daTela.length ? daTela.map(p => {
       const li = minhaLeitura(p.id);
       const desatualizada = li && li.versaoLida !== (p.versao || '1.0');
@@ -225,12 +283,17 @@ function renderPops(app, setorAtivo) {
         (desatualizada ? '<span class="selo pendente">mudou — releia</span>' : '') +
         (!li ? '<span class="selo pendente">não lido</span>' : '') +
         '<span>v' + esc(p.versao || '1.0') + '</span></div></a>';
-    }).join('') : '<div class="card">Nenhum POP neste setor ainda.</div>') +
+    }).join('')
+      : '<div class="card"><b>Nenhum POP aqui ainda.</b>' +
+        (setorSel ? '<p class="bloco-par" style="margin-bottom:0">Este setor ainda não tem procedimento escrito. ' +
+          (souAdmin() || meusSetores().some(x => norm(x) === norm(setorSel))
+            ? 'Toque em “Novo POP” para começar.' : 'Fale com a gestão do setor.') + '</p>' : '') +
+        '</div>') +
     (souAdmin() || meusSetores().length ? '<div class="acoes"><a class="botao suave largo" href="#/editor/pop/novo">➕ Novo POP</a></div>' : '') +
     '</div>';
   ligarTopo();
-  $$('[data-setor]').forEach(c => c.onclick = () => {
-    location.hash = c.dataset.setor ? '#/pops/' + encodeURIComponent(c.dataset.setor) : '#/pops';
+  $$('[data-ir]').forEach(c => c.onclick = () => {
+    location.hash = c.dataset.ir ? '#/pops/' + encodeURIComponent(c.dataset.ir) : '#/pops';
   });
 }
 
@@ -273,26 +336,55 @@ function renderPop(app) {
   if (bt) bt.onclick = () => { registrarLeitura(p); toast('Leitura registrada ✓', 'sucesso'); renderApp(); };
 }
 
+// A fabricação não é uma lista de cursos: é a PEÇA andando pela fábrica. Por
+// isso a tela é organizada pelas 4 linhas de produção, mostrando o fluxo real
+// (Corte → Metalurgia → Pintura → ...) e, em cada etapa, a jornada que a
+// ensina. Etapa sem jornada aparece assim mesmo — o buraco no treinamento fica
+// visível em vez de escondido.
 function renderFab(app) {
-  const js = STORE.col('jornadas').sort((a, b) => (a.ordem || 0) - (b.ordem || 0));
+  const js = STORE.col('jornadas');
+  const ls = linhas();
+  const jornadaDe = setor => js.find(j => norm(j.setor) === norm(setor));
+  const pctDe = j => {
+    if (!j) return null;
+    const total = (j.etapas || []).length;
+    const feitas = Object.keys(meuProgresso(j.id).etapas || {}).length;
+    return total ? Math.round(feitas / total * 100) : 0;
+  };
+  const semLinha = js.filter(j => !j.linha);
+
   app.innerHTML = htmlTopo('fab') +
     '<div class="miolo">' +
-    '<div class="card"><div class="sub">Jornadas de fabricação</div>' +
-    '<p class="bloco-par">Cada jornada ensina um processo técnico da Impresilk do começo ao fim. Conclua as etapas em ordem — no fim você domina o processo.</p></div>' +
-    (js.length ? js.map(j => {
-      const pr = meuProgresso(j.id);
-      const total = (j.etapas || []).length;
-      const feitas = Object.keys(pr.etapas || {}).length;
-      const pct = total ? Math.round(feitas / total * 100) : 0;
-      return '<a class="item-lista" href="#/jornada/' + j.id + '">' +
-        '<h3>' + esc(j.titulo) + '</h3>' +
-        '<div class="meta"><span>' + total + ' etapas</span>' +
-        (j.nivel ? '<span class="selo setor">' + esc(j.nivel) + '</span>' : '') +
-        (pct >= 100 ? '<span class="selo lido">🎓 concluída</span>' : (feitas ? '<span class="selo pendente">' + pct + '%</span>' : '')) +
-        '</div>' +
-        '<div class="prog-barra"><i style="width:' + pct + '%"></i></div>' +
-        '<div class="meta">' + esc(j.descricao || '') + '</div></a>';
-    }).join('') : '<div class="card">Nenhuma jornada publicada ainda.</div>') +
+    '<div class="card"><div class="sub">Como a peça é feita</div>' +
+    '<p class="bloco-par">A Impresilk tem <b>' + ls.length + ' linhas de produção</b>. Cada etapa abaixo tem uma jornada que ensina aquele processo do começo ao fim — na ordem em que a peça anda pela fábrica.</p></div>' +
+    ls.map(l => {
+      const fluxo = l.fluxo || [];
+      const comJornada = fluxo.filter(f => jornadaDe(f.setor)).length;
+      return '<div class="card">' +
+        '<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">' +
+        '<h3 style="margin:0;font-size:17.5px">' + (l.ic || '') + ' ' + esc(l.nome) + '</h3>' +
+        '<span class="selo setor">' + comJornada + '/' + fluxo.length + ' com jornada</span></div>' +
+        (l.resumo ? '<p class="bloco-par" style="margin-top:4px">' + esc(l.resumo) + '</p>' : '') +
+        '<div class="fluxo">' +
+        fluxo.map((f, i) => {
+          const j = jornadaDe(f.setor);
+          const pct = pctDe(j);
+          const cls = !j ? ' sem' : (pct >= 100 ? ' feita' : (pct ? ' andando' : ''));
+          const dentro =
+            '<div class="fx-etapa' + cls + '">' +
+            '<div class="fx-n">' + (i + 1) + '</div>' +
+            '<div class="fx-t"><b>' + esc(f.etapa) + '</b>' +
+            '<span>' + esc(f.setor) + '</span></div>' +
+            '<div class="fx-st">' + (!j ? 'sem jornada'
+              : (pct >= 100 ? '🎓' : (pct ? pct + '%' : 'começar'))) + '</div>' +
+            '</div>';
+          return j ? '<a href="#/jornada/' + j.id + '" class="fx-link">' + dentro + '</a>' : dentro;
+        }).join('') +
+        '</div></div>';
+    }).join('') +
+    (semLinha.length ? '<div class="card"><div class="sub">Fora das linhas</div>' +
+      semLinha.map(j => '<a class="item-lista" href="#/jornada/' + j.id + '" style="margin-bottom:6px">' +
+        '<h3>' + esc(j.titulo) + '</h3></a>').join('') + '</div>' : '') +
     (souAdmin() ? '<div class="acoes"><a class="botao suave largo" href="#/editor/jornada/novo">➕ Nova jornada</a></div>' : '') +
     '</div>';
   ligarTopo();

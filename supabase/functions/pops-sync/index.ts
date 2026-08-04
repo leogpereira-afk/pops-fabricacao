@@ -71,7 +71,23 @@ Deno.serve(async (req) => {
         return resp({ rev: data?.valor ?? { rev: 0, porColecao: {} } });
       }
 
+      // ── Protocolo do BACKUP DO HUB (painel-backup) ───────────────────────
+      // O Painel puxa {action:"list", after} até nextAfter null e depois
+      // {action:"getCfg"}. O list SEM colecao é o modo backup: devolve TODAS
+      // as coleções, com _col em cada linha (mesmo desenho do Compras).
       case "list": {
+        if (body.colecao == null) {
+          const PASSO = 500;
+          const de = Number(body.after ?? 0) || 0;
+          const { data, error } = await sb.from(T_REG)
+            .select("colecao, id, registro, apagado")
+            .order("colecao").order("id").range(de, de + PASSO - 1);
+          if (error) throw error;
+          const linhas = (data ?? []).filter((l: any) => !l.apagado)
+            .map((l: any) => ({ _col: l.colecao, ...l.registro }));
+          // nextAfter só com página CHEIA (página parcial é o fim).
+          return resp({ registros: linhas, nextAfter: (data ?? []).length === PASSO ? de + PASSO : null });
+        }
         // Keyset por atualizado_em: estável sob escrita concorrente, e o banco
         // pagina — nunca "traz tudo e corta".
         const colecao = String(body.colecao ?? "");
@@ -121,7 +137,8 @@ Deno.serve(async (req) => {
 
       case "getCfg": {
         const { data } = await sb.from(T_CFG).select("config").eq("id", true).maybeSingle();
-        return resp({ config: data?.config ?? null });
+        // `cfg` é o nome que o backup do Hub espera; `config` é o do app.
+        return resp({ config: data?.config ?? null, cfg: data?.config ?? null });
       }
       case "setCfg": {
         const { error } = await sb.from(T_CFG).upsert({

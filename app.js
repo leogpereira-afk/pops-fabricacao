@@ -174,10 +174,11 @@ function renderLogin(app) {
     const bt = $('#lg-entrar'); bt.disabled = true; bt.textContent = 'Entrando…';
     try {
       const r = await AUTH.login(u, s);
-      STORE.setUser({ usuario: r.usuario, nome: r.nome, papel: r.papel });
+      STORE.setUser({ usuario: r.usuario, nome: r.nome, papel: r.papel, trocarSenha: !!r.trocarSenha });
       SESSAO = STORE.getUser();
       STORE.pull();
-      location.hash = '#/';
+      // Senha feita por outra pessoa: trocar é a primeira coisa.
+      location.hash = r.trocarSenha ? '#/senha' : '#/';
     } catch (e) {
       bt.disabled = false; bt.textContent = 'Entrar';
       $('#lg-erro').innerHTML = '<div class="aviso vermelho">' +
@@ -517,6 +518,55 @@ function renderEditorJornada(app) {
   };
 }
 
+/* ══════════ trocar a senha ══════════ */
+// Senha criada por outra pessoa (a Central) nasce TEMPORÁRIA: a pessoa é
+// obrigada a trocar antes de usar. Assim ninguém trabalha com uma senha que
+// um terceiro conhece.
+function renderTrocarSenha(app) {
+  const obrigado = !!(SESSAO && SESSAO.trocarSenha);
+  document.title = 'Trocar a senha';
+  app.innerHTML =
+    '<div class="tela-login"><div class="cartao-login">' +
+    '<img src="./logo-impresilk.png" alt="Impresilk">' +
+    '<h1>' + (obrigado ? 'Crie a sua senha' : 'Trocar a senha') + '</h1>' +
+    '<div class="sub2">' + (obrigado
+      ? 'A senha atual foi criada por outra pessoa. Escolha a sua para continuar.'
+      : esc((SESSAO && SESSAO.nome) || '')) + '</div>' +
+    (obrigado ? '' : '<div class="campo"><label>Senha atual</label><input id="sn-atual" type="password" autocomplete="current-password"></div>') +
+    '<div class="campo"><label>Senha nova (mínimo 6)</label><input id="sn-nova" type="password" autocomplete="new-password"></div>' +
+    '<div class="campo"><label>Repita a senha nova</label><input id="sn-rep" type="password" autocomplete="new-password"></div>' +
+    '<div id="sn-erro"></div>' +
+    '<button class="botao largo" id="sn-salvar">Salvar</button>' +
+    (obrigado
+      // Sem esta saída, quem cai aqui sem saber a senha fica preso na tela.
+      ? '<button class="botao fantasma largo" id="sn-outro" style="margin-top:10px">Entrar com outro usuário</button>'
+      : '<a href="#/menu" class="botao fantasma largo" style="margin-top:10px">← voltar</a>') +
+    '</div></div>';
+  const outro = $('#sn-outro');
+  if (outro) outro.onclick = () => {
+    AUTH.esquecer(); STORE.setUser(null); SESSAO = null; location.hash = '#/'; renderApp();
+  };
+  const erro = html => { $('#sn-erro').innerHTML = '<div class="aviso vermelho">' + html + '</div>'; };
+  $('#sn-salvar').onclick = async () => {
+    const atual = obrigado ? '' : ($('#sn-atual').value || '');
+    const nova = $('#sn-nova').value || '';
+    if (nova.length < 6) { erro('A senha nova precisa de ao menos 6 caracteres.'); return; }
+    if (nova !== ($('#sn-rep').value || '')) { erro('As duas senhas novas não são iguais.'); return; }
+    const bt = $('#sn-salvar'); bt.disabled = true; bt.textContent = 'Salvando…';
+    try {
+      await AUTH.trocarMinhaSenha(atual, nova);
+    } catch (e) {
+      bt.disabled = false; bt.textContent = 'Salvar';
+      erro(esc(e.erro || 'Não consegui trocar a senha agora. Tente de novo com internet.'));
+      return;
+    }
+    STORE.setUser(Object.assign({}, SESSAO, { trocarSenha: false }));
+    SESSAO = STORE.getUser();
+    toast('Senha trocada ✓', 'sucesso');
+    location.hash = '#/';
+  };
+}
+
 /* ══════════ menu ══════════ */
 function renderMenu(app) {
   app.innerHTML = htmlTopo('menu') +
@@ -524,7 +574,8 @@ function renderMenu(app) {
     '<div class="card"><div class="sub">Sua conta</div>' +
     '<p class="bloco-par"><b>' + esc(SESSAO.nome) + '</b> · ' + esc(SESSAO.papel) + '</p>' +
     '<p class="dica">Última sincronização: ' + (STORE.lastSync() ? fmtDataHora(STORE.lastSync()) : 'ainda não sincronizou') + '</p>' +
-    '<div class="acoes"><button class="botao fantasma" id="bt-sair">Sair</button></div></div>' +
+    '<div class="acoes"><a class="botao suave" href="#/senha">🔑 Trocar a minha senha</a>' +
+    '<button class="botao fantasma" id="bt-sair">Sair</button></div></div>' +
     (souAdmin() ? '<div class="card"><div class="sub">Gestores por setor</div>' +
       '<p class="dica">Formato: um por linha, <b>usuario: Setor A, Setor B</b>. Gestor edita os POPs dos setores dele.</p>' +
       '<div class="campo"><textarea id="cfg-gestores" style="min-height:120px">' +
@@ -566,6 +617,8 @@ function renderApp() {
   const app = $('#app');
   if (!SESSAO) { renderLogin(app); return; }
   lerRota();
+  // Enquanto a senha for a temporária, o app inteiro fica atrás desta tela.
+  if (SESSAO.trocarSenha && ROTA.nome !== 'senha') { location.hash = '#/senha'; return; }
   const R = {
     'inicio': renderInicio, '': renderInicio,
     'pops': (a) => renderPops(a),
@@ -575,6 +628,7 @@ function renderApp() {
     'etapa': renderEtapa,
     'mapa': renderMapa,
     'menu': renderMenu,
+    'senha': renderTrocarSenha,
     'editor': (a) => {
       const [tipo] = (ROTA.arg || '').split('~');
       ROTA.arg = (ROTA.arg || '').split('~').slice(1).join('~');

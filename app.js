@@ -144,6 +144,75 @@ function meuProgresso(jId) {
     { id: 'j-' + norm(SESSAO.usuario) + '-' + jId, usuario: norm(SESSAO.usuario), nome: SESSAO.nome, jornadaId: jId, etapas: {} };
 }
 
+/* ══════════ pessoas, atribuições e treinamentos ══════════ */
+// A pessoa vem do RH (espelho mínimo). A CONTA vem da Central. O elo entre as
+// duas é o campo `usuario` da pessoa — é ele que faz "o treinamento do Fulano"
+// virar "o que EU tenho para fazer" quando o Fulano entra no app.
+function pessoas() { return STORE.col('pessoas').sort((a, b) => a.nome.localeCompare(b.nome)); }
+function minhaPessoa() {
+  if (!SESSAO) return null;
+  return pessoas().find(p => p.usuario && norm(p.usuario) === norm(SESSAO.usuario)) || null;
+}
+// Sugestão de vínculo: nome da pessoa parecido com o nome/usuário da conta.
+// É só sugestão — quem confirma é o admin (nome igual não é prova).
+function sugerirUsuario(pessoa, contas) {
+  const alvo = norm(pessoa.nome).split(' ').filter(Boolean);
+  if (!alvo.length) return '';
+  const achou = contas.find(c => {
+    const n = norm(c.nome || c.usuario).split(' ').filter(Boolean);
+    return n.length && n[0] === alvo[0] && (n.length === 1 || alvo.length === 1 || n[1] === alvo[1]);
+  });
+  return achou ? achou.usuario : '';
+}
+
+const TIPOS_CONTEUDO = {
+  pop: { rot: 'POP', col: 'pops', rota: '#/pop/' },
+  jornada: { rot: 'Jornada', col: 'jornadas', rota: '#/jornada/' },
+  treinamento: { rot: 'Treinamento', col: 'treinamentos', rota: '#/treinamento/' },
+};
+function conteudoDe(a) {
+  const t = TIPOS_CONTEUDO[a.tipo];
+  return t ? STORE.um(t.col, a.refId) : null;
+}
+function atribuicoesDe(pessoaId) {
+  return STORE.col('atribuicoes').filter(a => a.pessoaId === pessoaId);
+}
+// Concluído? Cada tipo tem a sua prova: POP = leitura; jornada = todas as
+// etapas; treinamento = registro de conclusão (com aceite, quando exigido).
+function conclusaoDe(a, usuario) {
+  const u = norm(usuario);
+  if (a.tipo === 'pop') {
+    const l = STORE.um('leituras', 'l-' + u + '-' + a.refId);
+    const pop = STORE.um('pops', a.refId);
+    if (!l) return null;
+    if (pop && l.versaoLida !== (pop.versao || '1.0')) return { em: l.em, desatualizado: true };
+    return { em: l.em };
+  }
+  if (a.tipo === 'jornada') {
+    const pr = STORE.um('progresso', 'j-' + u + '-' + a.refId);
+    const j = STORE.um('jornadas', a.refId);
+    if (!pr || !j) return null;
+    const feitas = Object.keys(pr.etapas || {}).length;
+    return feitas >= (j.etapas || []).length ? { em: pr.concluidaEm } : null;
+  }
+  const l = STORE.um('leituras', 't-' + u + '-' + a.refId);
+  if (!l) return null;
+  const t = STORE.um('treinamentos', a.refId);
+  // Reciclagem: treinamento com validade vence e volta a aparecer como pendente.
+  if (t && t.validadeMeses && l.em) {
+    const venceEm = new Date(l.em);
+    venceEm.setMonth(venceEm.getMonth() + Number(t.validadeMeses));
+    if (venceEm < new Date()) return { em: l.em, vencido: true, venceuEm: venceEm.toISOString() };
+  }
+  return { em: l.em };
+}
+function minhasPendencias() {
+  const p = minhaPessoa();
+  if (!p) return [];
+  return atribuicoesDe(p.id).map(a => ({ a, c: conclusaoDe(a, SESSAO.usuario), item: conteudoDe(a) }))
+    .filter(x => x.item && (!x.c || x.c.vencido || x.c.desatualizado));
+}
+
 /* ══════════ shell ══════════ */
 function rotuloSync(st) {
   if (!st || st.status === 'ok') return 'Sincronizado';
@@ -169,7 +238,10 @@ function htmlTopo(aba) {
     '<div class="abas">' +
     '<a href="#/pops" class="' + (aba === 'pops' ? 'ativa' : '') + '">📋 POPs</a>' +
     '<a href="#/fab" class="' + (aba === 'fab' ? 'ativa' : '') + '">🏭 Fabricação</a>' +
-    ((souAdmin() || meusSetores().length) ? '<a href="#/mapa" class="' + (aba === 'mapa' ? 'ativa' : '') + '">🎓 Mapa</a>' : '') +
+    '<a href="#/meus" class="' + (aba === 'meus' ? 'ativa' : '') + '">🎓 Meus' +
+    (minhasPendencias().length ? ' <b>(' + minhasPendencias().length + ')</b>' : '') + '</a>' +
+    ((souAdmin() || meusSetores().length) ? '<a href="#/pessoas" class="' + (aba === 'pessoas' ? 'ativa' : '') + '">👥 Pessoas</a>' : '') +
+    ((souAdmin() || meusSetores().length) ? '<a href="#/mapa" class="' + (aba === 'mapa' ? 'ativa' : '') + '">📊 Mapa</a>' : '') +
     '<a href="#/menu" class="' + (aba === 'menu' ? 'ativa' : '') + '">☰</a>' +
     '</div>';
 }
@@ -458,6 +530,191 @@ function renderEtapa(app) {
   };
 }
 
+/* ══════════ treinamento: ler, aceitar, concluir ══════════ */
+function renderTreinamento(app) {
+  const t = STORE.um('treinamentos', ROTA.arg);
+  if (!t) { location.hash = '#/meus'; return; }
+  const u = norm(SESSAO.usuario);
+  const feito = STORE.um('leituras', 't-' + u + '-' + t.id);
+  const venc = feito && t.validadeMeses ? (() => {
+    const d = new Date(feito.em); d.setMonth(d.getMonth() + Number(t.validadeMeses)); return d;
+  })() : null;
+  const vencido = venc && venc < new Date();
+  app.innerHTML = htmlTopo('meus') +
+    '<div class="miolo">' +
+    '<div class="card pop-cab">' +
+    '<div class="cod" style="color:var(--cinza-4);font-weight:700;font-size:12.5px">' +
+    (t.tipo === 'etica' ? 'CÓDIGO DE ÉTICA' : t.tipo === 'norma' ? 'NORMA' : 'TREINAMENTO') + '</div>' +
+    '<h1>' + esc(t.titulo) + '</h1>' +
+    '<div class="linha-meta"><span>versão ' + esc(t.versao || '1.0') + '</span>' +
+    (t.validadeMeses ? '<span>reciclagem a cada ' + esc(t.validadeMeses) + ' meses</span>' : '') + '</div>' +
+    (t.resumo ? '<div class="aviso azul" style="margin-bottom:0">' + esc(t.resumo) + '</div>' : '') +
+    '</div>' +
+    '<div class="card">' + blocosParaHtml(t.blocos) + '</div>' +
+    (vencido ? '<div class="aviso amarelo">Sua confirmação venceu em ' + fmtData(venc.toISOString()) + '. Releia e confirme de novo.</div>' : '') +
+    '<div class="acoes">' +
+    (feito && !vencido
+      ? '<div class="aviso verde" style="flex:1">✓ ' + (t.exigeAceite ? 'Aceito' : 'Concluído') + ' em ' + fmtDataHora(feito.em) +
+        (venc ? ' · vale até ' + fmtData(venc.toISOString()) : '') + '</div>'
+      : '<button class="botao verde largo" id="bt-ok">' +
+        (t.exigeAceite ? '✔ Li, entendi e me comprometo' : '✔ Concluí este treinamento') + '</button>') +
+    '</div></div>';
+  ligarTopo();
+  const bt = $('#bt-ok');
+  if (bt) bt.onclick = () => {
+    if (t.exigeAceite && !confirm('Confirmar o aceite de "' + t.titulo + '"?\n\nFica registrado com o seu nome, a data e a versão do documento.')) return;
+    STORE.salvar('leituras', {
+      id: 't-' + u + '-' + t.id, usuario: u, nome: SESSAO.nome, treinamentoId: t.id,
+      versaoLida: t.versao || '1.0', aceite: !!t.exigeAceite, em: new Date().toISOString(),
+    });
+    toast(t.exigeAceite ? 'Aceite registrado ✓' : 'Treinamento concluído ✓', 'sucesso');
+    renderApp();
+  };
+}
+
+/* ══════════ meus treinamentos ══════════ */
+function renderMeus(app) {
+  const p = minhaPessoa();
+  const ts = STORE.col('treinamentos').sort((a, b) => (a.ordem || 99) - (b.ordem || 99));
+  const atrib = p ? atribuicoesDe(p.id) : [];
+  const linha = (item, tipo, refId, obrigatorio) => {
+    const c = conclusaoDe({ tipo, refId }, SESSAO.usuario);
+    const t = TIPOS_CONTEUDO[tipo];
+    const ok = c && !c.vencido && !c.desatualizado;
+    return '<a class="item-lista" href="' + t.rota + refId + '">' +
+      '<div class="cod">' + t.rot + (obrigatorio ? ' · ATRIBUÍDO A VOCÊ' : '') + '</div>' +
+      '<h3>' + esc(item.titulo) + '</h3>' +
+      '<div class="meta">' +
+      (ok ? '<span class="selo lido">✓ feito</span>'
+          : c && c.vencido ? '<span class="selo pendente">venceu — refazer</span>'
+          : c && c.desatualizado ? '<span class="selo pendente">mudou — releia</span>'
+          : '<span class="selo pendente">pendente</span>') +
+      (item.setor ? '<span class="selo setor">' + esc(item.setor) + '</span>' : '') +
+      '</div></a>';
+  };
+  const pend = minhasPendencias();
+  app.innerHTML = htmlTopo('meus') +
+    '<div class="miolo">' +
+    (!p ? '<div class="aviso amarelo">Sua conta ainda não está ligada a uma ficha de colaborador. ' +
+      'A gestão faz esse vínculo em <b>Pessoas</b> — depois disso, o que for atribuído a você aparece aqui.</div>' : '') +
+    (p ? '<div class="card"><div class="sub">Você</div>' +
+      '<p class="bloco-par" style="margin:0"><b>' + esc(p.nome) + '</b>' +
+      (p.funcao ? ' · ' + esc(p.funcao) : '') + (p.area ? ' · ' + esc(p.area) : '') + '</p>' +
+      (pend.length
+        ? '<div class="aviso amarelo" style="margin-bottom:0">Você tem <b>' + pend.length + '</b> pendência(s) de treinamento.</div>'
+        : (atrib.length ? '<div class="aviso verde" style="margin-bottom:0">Tudo em dia ✓</div>' : '')) +
+      '</div>' : '') +
+    (atrib.length ? '<div class="card"><div class="sub">Atribuído a você</div>' +
+      atrib.map(a => { const it = conteudoDe(a); return it ? linha(it, a.tipo, a.refId, true) : ''; }).join('') +
+      '</div>' : '') +
+    '<div class="card"><div class="sub">Treinamentos da empresa</div>' +
+    (ts.length ? ts.map(t => linha(t, 'treinamento', t.id, false)).join('')
+      : '<p class="bloco-par">Nenhum treinamento publicado.</p>') +
+    '</div></div>';
+  ligarTopo();
+}
+
+/* ══════════ pessoas: vincular conta e atribuir treinamento ══════════ */
+function renderPessoas(app) {
+  if (!souAdmin() && !meusSetores().length) { location.hash = '#/'; return; }
+  const ps = pessoas();
+  const conteudos = []
+    .concat(STORE.col('treinamentos').map(t => ({ tipo: 'treinamento', id: t.id, titulo: t.titulo, grupo: 'Treinamentos' })))
+    .concat(STORE.col('jornadas').map(j => ({ tipo: 'jornada', id: j.id, titulo: j.titulo, grupo: 'Jornadas' })))
+    .concat(STORE.col('pops').map(o => ({ tipo: 'pop', id: o.id, titulo: (o.codigo ? o.codigo + ' · ' : '') + o.titulo, grupo: 'POPs' })));
+  app.innerHTML = htmlTopo('pessoas') +
+    '<div class="miolo">' +
+    '<div class="card"><div class="sub">Pessoas</div>' +
+    '<p class="bloco-par">Vindas do RH (' + ps.length + ' ativas). Ligue cada pessoa à conta dela para que os treinamentos apareçam no app dela.</p>' +
+    (souAdmin() ? '<button class="botao suave" id="bt-sinc-pessoas">🔄 Atualizar do RH</button>' : '') + '</div>' +
+    (ps.length ? ps.map(p => {
+      const at = atribuicoesDe(p.id);
+      const feitos = p.usuario ? at.filter(a => { const c = conclusaoDe(a, p.usuario); return c && !c.vencido && !c.desatualizado; }).length : 0;
+      return '<div class="item-lista" data-pessoa="' + p.id + '">' +
+        '<h3>' + esc(p.nome) + '</h3>' +
+        '<div class="meta">' +
+        (p.funcao ? '<span>' + esc(p.funcao) + '</span>' : '') +
+        (p.area ? '<span class="selo setor">' + esc(p.area) + '</span>' : '') +
+        (p.usuario ? '<span class="selo lido">conta: ' + esc(p.usuario) + '</span>'
+                   : '<span class="selo pendente">sem conta</span>') +
+        (at.length ? '<span class="selo ' + (feitos >= at.length ? 'lido' : 'pendente') + '">' +
+          feitos + '/' + at.length + ' treinamentos</span>' : '') +
+        '</div></div>';
+    }).join('') : '<div class="card">Nenhuma pessoa ainda. Toque em “Atualizar do RH”.</div>') +
+    '</div>';
+  ligarTopo();
+  const bs = $('#bt-sinc-pessoas');
+  if (bs) bs.onclick = async () => {
+    bs.disabled = true; bs.textContent = 'Atualizando…';
+    try {
+      const r = await STORE.api('sincronizarPessoas');
+      await STORE.pull();
+      toast(r.ativos + ' pessoa(s) do RH ✓', 'sucesso');
+      renderApp();
+    } catch { toast('Não consegui falar com o servidor agora.', 'erro'); bs.disabled = false; bs.textContent = '🔄 Atualizar do RH'; }
+  };
+  $$('[data-pessoa]').forEach(el => el.onclick = () => abrirPessoa(el.dataset.pessoa, conteudos));
+}
+
+function abrirPessoa(pessoaId, conteudos) {
+  const p = STORE.um('pessoas', pessoaId);
+  if (!p) return;
+  const at = atribuicoesDe(p.id);
+  const grupos = [...new Set(conteudos.map(c => c.grupo))];
+  const m = abrirModal(
+    '<h3>' + esc(p.nome) + '</h3>' +
+    '<p class="dica">' + esc([p.funcao, p.area].filter(Boolean).join(' · ')) + '</p>' +
+    '<div class="campo"><label>Conta no app (Central de Acessos)</label>' +
+    '<input type="text" id="pe-usuario" value="' + esc(p.usuario || '') + '" placeholder="ex.: barbara" autocapitalize="none">' +
+    '<div class="dica">É o usuário com que a pessoa entra. Sem isso, o treinamento não chega até ela.</div></div>' +
+    '<div class="sub" style="margin-top:16px">Treinamentos atribuídos</div>' +
+    '<div id="pe-lista">' +
+    (at.length ? at.map(a => {
+      const it = conteudoDe(a);
+      const c = p.usuario ? conclusaoDe(a, p.usuario) : null;
+      const ok = c && !c.vencido && !c.desatualizado;
+      return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px dashed var(--borda)">' +
+        '<span style="flex:1;font-size:14.5px">' + esc(it ? it.titulo : '(removido)') + '</span>' +
+        '<span class="selo ' + (ok ? 'lido' : 'pendente') + '">' + (ok ? '✓' : 'pendente') + '</span>' +
+        '<button class="botao mini fantasma" data-tirar="' + a.id + '">tirar</button></div>';
+    }).join('') : '<p class="dica">Nada atribuído ainda.</p>') +
+    '</div>' +
+    '<div class="campo" style="margin-top:14px"><label>Adicionar</label>' +
+    '<select id="pe-novo">' + grupos.map(g =>
+      '<optgroup label="' + esc(g) + '">' + conteudos.filter(c => c.grupo === g)
+        .map(c => '<option value="' + c.tipo + '|' + c.id + '">' + esc(c.titulo) + '</option>').join('') +
+      '</optgroup>').join('') + '</select></div>' +
+    '<div class="acoes-modal" style="display:flex;gap:10px;margin-top:14px">' +
+    '<button class="botao fantasma btn-fechar">Fechar</button>' +
+    '<button class="botao suave btn-add">➕ Atribuir</button>' +
+    '<button class="botao btn-salvar">Salvar conta</button></div>'
+  );
+  $('.btn-fechar', m).onclick = () => m.remove();
+  $('.btn-salvar', m).onclick = () => {
+    const u = norm($('#pe-usuario', m).value);
+    STORE.salvar('pessoas', Object.assign({}, p, { usuario: u }));
+    toast(u ? 'Conta vinculada ✓' : 'Vínculo removido', 'sucesso');
+    m.remove(); renderApp();
+  };
+  $('.btn-add', m).onclick = () => {
+    const [tipo, refId] = $('#pe-novo', m).value.split('|');
+    if (atribuicoesDe(p.id).some(a => a.tipo === tipo && a.refId === refId)) {
+      toast('Já está atribuído.', 'erro'); return;
+    }
+    STORE.salvar('atribuicoes', {
+      id: 'a-' + p.id + '-' + tipo + '-' + refId,
+      pessoaId: p.id, tipo, refId,
+      atribuidoPor: SESSAO.nome, em: new Date().toISOString(),
+    });
+    toast('Atribuído ✓', 'sucesso');
+    m.remove(); abrirPessoa(pessoaId, conteudos);
+  };
+  $$('[data-tirar]', m).forEach(b => b.onclick = () => {
+    STORE.apagar('atribuicoes', b.dataset.tirar);
+    m.remove(); abrirPessoa(pessoaId, conteudos);
+  });
+}
+
 /* ══════════ mapa de treinamento (admin/gestor) ══════════ */
 function renderMapa(app) {
   if (!souAdmin() && !meusSetores().length) { location.hash = '#/'; return; }
@@ -719,6 +976,9 @@ function renderApp() {
     'jornada': renderJornada,
     'etapa': renderEtapa,
     'mapa': renderMapa,
+    'meus': renderMeus,
+    'treinamento': renderTreinamento,
+    'pessoas': renderPessoas,
     'menu': renderMenu,
     'senha': renderTrocarSenha,
     'editor': (a) => {

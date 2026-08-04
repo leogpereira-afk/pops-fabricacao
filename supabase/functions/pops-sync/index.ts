@@ -175,6 +175,57 @@ Deno.serve(async (req) => {
         return resp({ ok: true });
       }
 
+      // ── pessoas: espelho MÍNIMO dos colaboradores do RH ──────────────────
+      // O RH é a base de gente da empresa (tabela `registros`, coleção
+      // `colaboradores`). Aqui só se LÊ — escrever no RH a partir daqui seria
+      // invadir o sistema do vizinho.
+      //
+      // PRIVACIDADE: copia-se APENAS o que treinamento precisa (nome, função,
+      // área, gestor e um id estável). Salário, endereço, CPF, dados do cônjuge
+      // e avaliação comportamental NÃO passam para cá — quem precisa disso é o
+      // RH, e é lá que eles ficam.
+      case "sincronizarPessoas": {
+        const { data, error } = await sb.from("registros")
+          .select("id, registro").eq("colecao", "colaboradores");
+        if (error) throw error;
+        const areas = await sb.from("registros").select("id, registro").eq("colecao", "areas");
+        const nomeArea = new Map((areas.data ?? []).map((a: any) => [a.id, a.registro?.nome ?? null]));
+        const agora = new Date().toISOString();
+        let ativos = 0, desligados = 0;
+        const linhas: any[] = [];
+        for (const r of data ?? []) {
+          const c = r.registro ?? {};
+          if (!c.nome) continue;
+          const saiu = String(c.dataDesligamento ?? "").trim() !== "";
+          if (saiu) { desligados++; continue; }   // desligado não entra no espelho
+          ativos++;
+          linhas.push({
+            colecao: "pessoas", id: "p-" + r.id, apagado: false, atualizado_em: agora,
+            registro: {
+              id: "p-" + r.id, nome: c.nome, funcao: c.funcao ?? c.cargoLivre ?? "",
+              area: nomeArea.get(c.areaId) ?? null, gestorId: c.gestorId ? "p-" + c.gestorId : null,
+              admissao: c.dataAdmissao ?? null, origem: "rh", atualizadoEm: agora,
+              // usuario: preenchido pelo admin ao vincular com a conta da Central
+            },
+          });
+        }
+        if (linhas.length) {
+          const { error: e2 } = await sb.from(T_REG).upsert(linhas, { onConflict: "colecao,id" });
+          if (e2) throw e2;
+        }
+        // Quem saiu do RH (ou foi desligado) vira lápide aqui: some da lista de
+        // atribuição, mas o histórico de treinamento dele continua existindo.
+        const vivos = new Set(linhas.map((l) => l.id));
+        const { data: aqui } = await sb.from(T_REG).select("id").eq("colecao", "pessoas").eq("apagado", false);
+        const sumiram = (aqui ?? []).map((x: any) => x.id).filter((id: string) => !vivos.has(id));
+        if (sumiram.length) {
+          await sb.from(T_REG).update({ apagado: true, atualizado_em: agora })
+            .eq("colecao", "pessoas").in("id", sumiram);
+        }
+        await bump("pessoas");
+        return resp({ ok: true, ativos, desligados, arquivados: sumiram.length });
+      }
+
       case "saude": {
         const { count } = await sb.from(T_REG).select("id", { count: "exact", head: true });
         return resp({ ok: true, registros: count ?? 0 });

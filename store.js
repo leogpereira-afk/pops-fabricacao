@@ -19,7 +19,7 @@ const STORE = (() => {
     USER: 'pops_user',
     SYNCEM: 'pops_lastsync',
   };
-  const COLS = ['pops', 'jornadas', 'leituras', 'progresso'];
+  const COLS = ['pops', 'jornadas', 'treinamentos', 'pessoas', 'atribuicoes', 'leituras', 'progresso'];
 
   function lsGet(k, fb) {
     try { const v = localStorage.getItem(k); return v !== null ? JSON.parse(v) : fb; }

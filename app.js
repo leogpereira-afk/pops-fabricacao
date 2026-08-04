@@ -177,6 +177,14 @@ function conteudoDe(a) {
 function atribuicoesDe(pessoaId) {
   return STORE.col('atribuicoes').filter(a => a.pessoaId === pessoaId);
 }
+// Atribuição cujo conteúdo foi APAGADO depois (o POP saiu do ar, a jornada foi
+// removida). Ela não some sozinha: sem tratar, a pessoa nunca consegue concluir
+// (a tela nem mostra) e o gestor vê "0/1" para sempre, sem entender por quê.
+// Então: não conta contra a pessoa, e aparece para o gestor limpar.
+function atribuicaoOrfa(a) { return !conteudoDe(a); }
+function atribuicoesValidasDe(pessoaId) {
+  return atribuicoesDe(pessoaId).filter(a => !atribuicaoOrfa(a));
+}
 // Concluído? Cada tipo tem a sua prova: POP = leitura; jornada = todas as
 // etapas; treinamento = registro de conclusão (com aceite, quando exigido).
 function conclusaoDe(a, usuario) {
@@ -209,8 +217,8 @@ function conclusaoDe(a, usuario) {
 function minhasPendencias() {
   const p = minhaPessoa();
   if (!p) return [];
-  return atribuicoesDe(p.id).map(a => ({ a, c: conclusaoDe(a, SESSAO.usuario), item: conteudoDe(a) }))
-    .filter(x => x.item && (!x.c || x.c.vencido || x.c.desatualizado));
+  return atribuicoesValidasDe(p.id).map(a => ({ a, c: conclusaoDe(a, SESSAO.usuario), item: conteudoDe(a) }))
+    .filter(x => !x.c || x.c.vencido || x.c.desatualizado);
 }
 
 /* ══════════ shell ══════════ */
@@ -628,7 +636,8 @@ function renderPessoas(app) {
     '<p class="bloco-par">Vindas do RH (' + ps.length + ' ativas). Ligue cada pessoa à conta dela para que os treinamentos apareçam no app dela.</p>' +
     (souAdmin() ? '<button class="botao suave" id="bt-sinc-pessoas">🔄 Atualizar do RH</button>' : '') + '</div>' +
     (ps.length ? ps.map(p => {
-      const at = atribuicoesDe(p.id);
+      const at = atribuicoesValidasDe(p.id);
+      const orfas = atribuicoesDe(p.id).length - at.length;
       const feitos = p.usuario ? at.filter(a => { const c = conclusaoDe(a, p.usuario); return c && !c.vencido && !c.desatualizado; }).length : 0;
       return '<div class="item-lista" data-pessoa="' + p.id + '">' +
         '<h3>' + esc(p.nome) + '</h3>' +
@@ -639,6 +648,7 @@ function renderPessoas(app) {
                    : '<span class="selo pendente">sem conta</span>') +
         (at.length ? '<span class="selo ' + (feitos >= at.length ? 'lido' : 'pendente') + '">' +
           feitos + '/' + at.length + ' treinamentos</span>' : '') +
+        (orfas ? '<span class="selo pendente">' + orfas + ' sem conteúdo</span>' : '') +
         '</div></div>';
     }).join('') : '<div class="card">Nenhuma pessoa ainda. Toque em “Atualizar do RH”.</div>') +
     '</div>';
@@ -692,6 +702,13 @@ function abrirPessoa(pessoaId, conteudos) {
   $('.btn-fechar', m).onclick = () => m.remove();
   $('.btn-salvar', m).onclick = () => {
     const u = norm($('#pe-usuario', m).value);
+    // Uma conta = uma pessoa. Com a mesma conta em duas fichas, minhaPessoa()
+    // pega a primeira e os treinamentos da outra ficam invisíveis PARA SEMPRE.
+    const jaTem = u && pessoas().find(x => x.id !== p.id && norm(x.usuario || '') === u);
+    if (jaTem) {
+      toast('A conta "' + u + '" já está ligada a ' + jaTem.nome + '. Tire de lá antes.', 'erro');
+      return;
+    }
     STORE.salvar('pessoas', Object.assign({}, p, { usuario: u }));
     toast(u ? 'Conta vinculada ✓' : 'Vínculo removido', 'sucesso');
     m.remove(); renderApp();

@@ -153,7 +153,7 @@ const STORE = (() => {
         if ((deles[c] || 0) === (meu.porColecao[c] || 0)) continue;
         if (c === 'cfg') {
           const rc = await api('getCfg');
-          if (rc.config) lsSet(K.CFG, rc.config);
+          if (rc.config && !lsSet(K.CFG, rc.config)) continue;
         } else {
           // baixa a coleção inteira em páginas (bases pequenas; POP é texto)
           let desde = '', tudo = [];
@@ -174,7 +174,10 @@ const STORE = (() => {
             const atual = porId.get(reg.id);
             if (!atual || String(reg.atualizadoEm || '') >= String(atual.atualizadoEm || '')) porId.set(reg.id, reg);
           }
-          _gravarCol(c, [...porId.values()]);
+          // Se a gravação falhar (memória cheia), NÃO avança o rev: senão o
+          // app anota "já tenho a versão N" sem ter os dados, e o POP nunca
+          // mais desce -- some da bancada e ninguém entende por quê.
+          if (!_gravarCol(c, [...porId.values()])) continue;
         }
         meu.porColecao[c] = deles[c] || 0;
       }

@@ -191,6 +191,14 @@ Deno.serve(async (req) => {
         const areas = await sb.from("registros").select("id, registro").eq("colecao", "areas");
         const nomeArea = new Map((areas.data ?? []).map((a: any) => [a.id, a.registro?.nome ?? null]));
         const agora = new Date().toISOString();
+        // O QUE É NOSSO NÃO PODE SER APAGADO PELA SINCRONIZAÇÃO. O vínculo com
+        // a conta da Central (`usuario`) é decisão do admin, mora só aqui e não
+        // existe no RH — um upsert cru o apagaria a cada rodada, e com a
+        // sincronização automática isso viraria "todo dia de manhã ninguém tem
+        // treinamento atribuído". Por isso lemos o que já existe e preservamos.
+        const { data: jaAqui } = await sb.from(T_REG).select("id, registro").eq("colecao", "pessoas");
+        const local = new Map((jaAqui ?? []).map((x: any) => [x.id, x.registro ?? {}]));
+        const CAMPOS_NOSSOS = ["usuario", "observacao"];
         let ativos = 0, desligados = 0;
         const linhas: any[] = [];
         for (const r of data ?? []) {
@@ -199,15 +207,19 @@ Deno.serve(async (req) => {
           const saiu = String(c.dataDesligamento ?? "").trim() !== "";
           if (saiu) { desligados++; continue; }   // desligado não entra no espelho
           ativos++;
-          linhas.push({
-            colecao: "pessoas", id: "p-" + r.id, apagado: false, atualizado_em: agora,
-            registro: {
-              id: "p-" + r.id, nome: c.nome, funcao: c.funcao ?? c.cargoLivre ?? "",
-              area: nomeArea.get(c.areaId) ?? null, gestorId: c.gestorId ? "p-" + c.gestorId : null,
-              admissao: c.dataAdmissao ?? null, origem: "rh", atualizadoEm: agora,
-              // usuario: preenchido pelo admin ao vincular com a conta da Central
-            },
-          });
+          const id = "p-" + r.id;
+          const antes = local.get(id) ?? {};
+          const registro: Record<string, unknown> = {
+            id, nome: c.nome, funcao: c.funcao ?? c.cargoLivre ?? "",
+            area: nomeArea.get(c.areaId) ?? null, gestorId: c.gestorId ? "p-" + c.gestorId : null,
+            admissao: c.dataAdmissao ?? null, origem: "rh", atualizadoEm: agora,
+          };
+          for (const campo of CAMPOS_NOSSOS) {
+            if (antes[campo] !== undefined && antes[campo] !== null && antes[campo] !== "") {
+              registro[campo] = antes[campo];
+            }
+          }
+          linhas.push({ colecao: "pessoas", id, apagado: false, atualizado_em: agora, registro });
         }
         if (linhas.length) {
           const { error: e2 } = await sb.from(T_REG).upsert(linhas, { onConflict: "colecao,id" });
@@ -222,8 +234,21 @@ Deno.serve(async (req) => {
           await sb.from(T_REG).update({ apagado: true, atualizado_em: agora })
             .eq("colecao", "pessoas").in("id", sumiram);
         }
-        await bump("pessoas");
-        return resp({ ok: true, ativos, desligados, arquivados: sumiram.length });
+        // Bump só quando algo mudou de verdade: sem isto, a rodada diária faria
+        // TODO aparelho rebaixar as 38 pessoas toda manhã, sem novidade nenhuma.
+        const mudou = linhas.some((l) => {
+          const antes = local.get(l.id);
+          if (!antes) return true;
+          // Comparação por chave ORDENADA: o jsonb do Postgres devolve as
+          // chaves em ordem própria e o objeto montado aqui vem na ordem de
+          // escrita — sem ordenar, "igual" nunca dá igual e o bump acontecia
+          // toda rodada (que é exatamente o que se queria evitar).
+          const semCarimbo = (o: any) => JSON.stringify(
+            Object.keys(o).filter((k) => k !== "atualizadoEm").sort().map((k) => [k, o[k]]));
+          return semCarimbo(antes) !== semCarimbo(l.registro);
+        }) || sumiram.length > 0;
+        if (mudou) await bump("pessoas");
+        return resp({ ok: true, ativos, desligados, arquivados: sumiram.length, mudou });
       }
 
       case "saude": {

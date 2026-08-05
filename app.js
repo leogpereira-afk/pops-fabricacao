@@ -807,6 +807,7 @@ function abrirLote(conteudos) {
     '<button class="botao mini fantasma" id="lo-nenhum">Limpar</button></div>' +
     '<div id="lo-lista" class="lista-lote"></div>' +
     '<div id="lo-aviso"></div>' +
+    '<button class="botao mini fantasma" id="lo-tirar" style="margin-top:10px;display:none"></button>' +
     '<div class="acoes-modal" style="display:flex;gap:10px;margin-top:14px">' +
     '<button class="botao fantasma btn-fechar">Fechar</button>' +
     '<button class="botao btn-ok" id="lo-ok">Atribuir</button></div>'
@@ -835,6 +836,13 @@ function abrirLote(conteudos) {
     const ok = $('#lo-ok', m);
     ok.textContent = novos.length ? 'Atribuir a ' + novos.length + ' pessoa(s)' : 'Atribuir';
     ok.disabled = !novos.length;
+    // Volta atrás. Sem isto, atribuir o conteúdo errado a 38 pessoas custava 38
+    // idas à ficha pra desfazer — e ninguém desfaz, fica todo mundo com uma
+    // pendência falsa no mapa pra sempre.
+    const tirar = $('#lo-tirar', m);
+    const quemTem = itens.filter(x => x.jaTem).length;
+    tirar.style.display = quemTem ? '' : 'none';
+    tirar.textContent = 'Tirar de ' + quemTem + ' que já tem';
     $$('[data-lote]', m).forEach(cb => cb.onchange = () => {
       if (cb.checked) marcados.add(cb.dataset.lote); else marcados.delete(cb.dataset.lote);
       pintar();
@@ -847,6 +855,28 @@ function abrirLote(conteudos) {
   $('#lo-todos', m).onclick = () => { alvo().forEach(x => { if (!x.jaTem) marcados.add(x.p.id); }); pintar(); };
   $('#lo-nenhum', m).onclick = () => { marcados.clear(); pintar(); };
   $('.btn-fechar', m).onclick = () => m.remove();
+
+  $('#lo-tirar', m).onclick = () => {
+    const [tipo, refId] = escolhido.split('|');
+    const item = conteudos.find(c => c.tipo === tipo && c.id === refId);
+    const tem = alvo().filter(x => x.jaTem);
+    if (!tem.length) return;
+    // Quem já CONCLUIU não entra: tirar a atribuição apagaria a pendência, mas o
+    // registro de conclusão continua no banco — e a pessoa sumiria do mapa como
+    // se nunca tivesse feito. Prova que existe não se esconde.
+    const feitos = tem.filter(({ p }) => p.usuario &&
+      conclusaoDe({ tipo, refId }, p.usuario));
+    const podem = tem.filter(x => !feitos.includes(x));
+    if (!podem.length) {
+      toast('Todos já concluíram — não dá pra tirar sem esconder a prova.', 'erro');
+      return;
+    }
+    if (!confirm('Tirar “' + (item ? item.titulo : '') + '” de ' + podem.length + ' pessoa(s)?' +
+      (feitos.length ? '\n\n' + feitos.length + ' já concluíram e ficam como estão.' : ''))) return;
+    podem.forEach(({ p }) => STORE.apagar('atribuicoes', 'a-' + p.id + '-' + tipo + '-' + refId));
+    toast('Tirado de ' + podem.length + ' pessoa(s)', 'sucesso');
+    m.remove(); renderApp();
+  };
 
   $('#lo-ok', m).onclick = () => {
     const [tipo, refId] = escolhido.split('|');

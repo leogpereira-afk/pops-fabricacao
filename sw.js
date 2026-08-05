@@ -1,6 +1,6 @@
 // Service worker do Pops & Fabricação. Shell cacheado pra abrir sem sinal no
 // chão de fábrica; API NUNCA passa pelo cache (bypass por host supabase.co).
-const CACHE = 'pops-shell-v9';
+const CACHE = 'pops-shell-v10';
 const SHELL = ['./', './index.html', './styles.css', './config.js', './auth.js',
   './store.js', './app.js', './logo-impresilk.png', './manifest.webmanifest'];
 self.addEventListener('install', e => {

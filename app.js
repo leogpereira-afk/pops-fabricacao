@@ -128,6 +128,84 @@ function textoParaBlocos(txt) {
   return out;
 }
 
+/* ══════════ enviar por WhatsApp ══════════ */
+// O POP mora no app (é lá que ele fica versionado e a leitura fica registrada),
+// mas a conversa da empresa acontece no WhatsApp. Este botão faz a ponte: manda
+// o TRECHO que interessa agora — "olha o ponto de atenção antes de sair" — com
+// o link para abrir o resto no app. Sem número de telefone: quem escolhe o
+// destinatário é o próprio WhatsApp, com os contatos do aparelho.
+const LINK_APP = 'https://impresilk.com.br/pops';
+
+// Formatação do WhatsApp: *negrito*, e nada de HTML.
+function blocosParaWhats(blocos) {
+  return (blocos || []).map(b => {
+    if (b.tipo === 'subtitulo') return '*' + b.texto + '*';
+    if (b.tipo === 'passos') return (b.itens || []).map((i, n) => (n + 1) + '. ' + i).join('\n');
+    if (b.tipo === 'lista') return (b.itens || []).map(i => '• ' + i).join('\n');
+    if (b.tipo === 'checklist') return (b.itens || []).map(i => '☐ ' + i).join('\n');
+    if (b.tipo === 'destaque') return '👉 ' + b.texto;
+    if (b.tipo === 'alerta') return '⚠️ ' + b.texto;
+    return b.texto || '';
+  }).filter(Boolean).join('\n\n');
+}
+
+// Fatia o conteúdo em seções pelos subtítulos — são elas que viram as opções
+// de envio ("Passo a passo", "Pontos de atenção", "Checklist final"...).
+function secoesDe(blocos) {
+  const out = [];
+  let atual = { titulo: 'Início', blocos: [] };
+  (blocos || []).forEach(b => {
+    if (b.tipo === 'subtitulo') {
+      if (atual.blocos.length) out.push(atual);
+      atual = { titulo: b.texto, blocos: [] };
+    } else atual.blocos.push(b);
+  });
+  if (atual.blocos.length) out.push(atual);
+  return out;
+}
+
+const LIMITE_WHATS = 1500;   // acima disso a mensagem vira parede no celular
+
+function abrirEnviarWhats(item, tipo) {
+  const rota = tipo === 'pop' ? '#/pop/' : tipo === 'treinamento' ? '#/treinamento/' : '#/jornada/';
+  const link = LINK_APP + rota + item.id;
+  const cab = '*' + (item.codigo ? item.codigo + ' · ' : '') + item.titulo + '*' +
+    (item.setor ? '\n_' + item.setor + ' · v' + (item.versao || '1.0') + '_' : '');
+  const secoes = secoesDe(item.blocos);
+  const opcoes = [{ k: 'resumo', rot: '📌 Resumo + link (recomendado)', corpo: item.objetivo || item.resumo || '' }]
+    .concat(item.epis && item.epis.length ? [{ k: 'epi', rot: '🦺 EPIs obrigatórios', corpo: '*EPIs obrigatórios*\n' + item.epis.map(e => '• ' + e).join('\n') }] : [])
+    .concat(secoes.map((sc, i) => ({ k: 's' + i, rot: '📄 ' + sc.titulo, corpo: '*' + sc.titulo + '*\n' + blocosParaWhats(sc.blocos) })))
+    .concat([{ k: 'tudo', rot: '📚 O conteúdo inteiro', corpo: blocosParaWhats(item.blocos) }]);
+
+  const m = abrirModal(
+    '<h3>Enviar por WhatsApp</h3>' +
+    '<p class="dica">Escolha o que mandar. O link para abrir no app vai junto — assim quem recebe lê a versão sempre atualizada.</p>' +
+    '<div class="campo"><label>Recado (opcional)</label>' +
+    '<input type="text" id="wa-nota" placeholder="Ex.: Marcos, confere isso antes de sair"></div>' +
+    '<div class="campo"><label>O que enviar</label><div id="wa-ops">' +
+    opcoes.map(o => '<button class="botao suave largo" style="margin-bottom:8px;text-align:left" data-wa="' + o.k + '">' +
+      esc(o.rot) + '</button>').join('') + '</div></div>' +
+    '<div class="acoes-modal"><button class="botao fantasma btn-fechar">Cancelar</button></div>'
+  );
+  $('.btn-fechar', m).onclick = () => m.remove();
+  $$('[data-wa]', m).forEach(b => b.onclick = () => {
+    const o = opcoes.find(x => x.k === b.dataset.wa);
+    const nota = ($('#wa-nota', m).value || '').trim();
+    let corpo = o.corpo || '';
+    let cortado = false;
+    if (corpo.length > LIMITE_WHATS) { corpo = corpo.slice(0, LIMITE_WHATS).replace(/\s+\S*$/, ''); cortado = true; }
+    const txt = [
+      nota, cab, corpo,
+      cortado ? '_(trecho — o conteúdo completo está no app)_' : '',
+      'Abrir no app: ' + link,
+    ].filter(Boolean).join('\n\n');
+    // wa.me SEM número: o próprio WhatsApp pergunta para quem — nenhum telefone
+    // sai do RH para cá, e quem escolhe o destinatário é quem está enviando.
+    window.open('https://wa.me/?text=' + encodeURIComponent(txt), '_blank', 'noopener');
+    m.remove();
+  });
+}
+
 /* ══════════ leituras e progresso ══════════ */
 function minhaLeitura(popId) {
   return STORE.um('leituras', 'l-' + norm(SESSAO.usuario) + '-' + popId);
@@ -405,7 +483,8 @@ function renderPop(app) {
       ? '<div class="aviso verde" style="flex:1">✓ Você leu e confirmou em ' + fmtDataHora(li.em) + '</div>'
       : '<button class="botao verde largo" id="bt-li">✔ Li e entendi este procedimento</button>') +
     '</div>' +
-    (possoEditar(p) ? '<div class="acoes"><a class="botao suave" href="#/editor/pop/' + p.id + '">✏️ Editar</a></div>' : '') +
+    '<div class="acoes"><button class="botao suave" id="bt-whats">💬 Enviar por WhatsApp</button>' +
+    (possoEditar(p) ? '<a class="botao suave" href="#/editor/pop/' + p.id + '">✏️ Editar</a>' : '') + '</div>' +
     (quemLeu.length ? '<div class="card"><div class="sub">Quem já leu (' + quemLeu.length + ')</div>' +
       quemLeu.map(l => '<div style="padding:4px 0; border-bottom:1px dashed var(--borda); font-size:14.5px">' +
         esc(l.nome || l.usuario) + ' · v' + esc(l.versaoLida) + ' · ' + fmtDataHora(l.em) +
@@ -414,6 +493,7 @@ function renderPop(app) {
   ligarTopo();
   const bt = $('#bt-li');
   if (bt) bt.onclick = () => { registrarLeitura(p); toast('Leitura registrada ✓', 'sucesso'); renderApp(); };
+  $('#bt-whats').onclick = () => abrirEnviarWhats(p, 'pop');
 }
 
 // A fabricação não é uma lista de cursos: é a PEÇA andando pela fábrica. Por
@@ -497,9 +577,18 @@ function renderJornada(app) {
         '<div>›</div></div>';
     }).join('') +
     '</div>' +
-    (souAdmin() ? '<div class="acoes"><a class="botao suave" href="#/editor/jornada/' + j.id + '">✏️ Editar</a></div>' : '') +
+    '<div class="acoes"><button class="botao suave" id="bt-whats">💬 Enviar por WhatsApp</button>' +
+    (souAdmin() ? '<a class="botao suave" href="#/editor/jornada/' + j.id + '">✏️ Editar</a>' : '') + '</div>' +
     '</div>';
   ligarTopo();
+  // A jornada não tem `blocos` — o conteúdo mora nas etapas. Manda a trilha:
+  // título, descrição e a lista das etapas, com o link para fazer no app.
+  $('#bt-whats').onclick = () => abrirEnviarWhats({
+    id: j.id, titulo: j.titulo, versao: j.versao, setor: j.setor,
+    objetivo: j.descricao || '',
+    blocos: [{ tipo: 'subtitulo', texto: 'Etapas' },
+             { tipo: 'passos', itens: (j.etapas || []).map(e => e.titulo) }],
+  }, 'jornada');
   $$('[data-etapa]').forEach(l => l.onclick = () => {
     location.hash = '#/etapa/' + j.id + '/' + l.dataset.etapa;
   });
@@ -566,8 +655,11 @@ function renderTreinamento(app) {
         (venc ? ' · vale até ' + fmtData(venc.toISOString()) : '') + '</div>'
       : '<button class="botao verde largo" id="bt-ok">' +
         (t.exigeAceite ? '✔ Li, entendi e me comprometo' : '✔ Concluí este treinamento') + '</button>') +
-    '</div></div>';
+    '</div>' +
+    '<div class="acoes"><button class="botao suave" id="bt-whats">💬 Enviar por WhatsApp</button></div>' +
+    '</div>';
   ligarTopo();
+  $('#bt-whats').onclick = () => abrirEnviarWhats(t, 'treinamento');
   const bt = $('#bt-ok');
   if (bt) bt.onclick = () => {
     if (t.exigeAceite && !confirm('Confirmar o aceite de "' + t.titulo + '"?\n\nFica registrado com o seu nome, a data e a versão do documento.')) return;

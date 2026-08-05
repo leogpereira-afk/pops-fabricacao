@@ -1,10 +1,16 @@
 // Service worker do Pops & Fabricação. Shell cacheado pra abrir sem sinal no
 // chão de fábrica; API NUNCA passa pelo cache (bypass por host supabase.co).
-const CACHE = 'pops-shell-v7';
+const CACHE = 'pops-shell-v8';
 const SHELL = ['./', './index.html', './styles.css', './config.js', './auth.js',
   './store.js', './app.js', './logo-impresilk.png', './manifest.webmanifest'];
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  // cache:'reload' em cada arquivo: sem isto o SW guarda o que estiver no cache
+  // HTTP do navegador (o Pages manda max-age=600) e passa a SERVIR a versão
+  // velha até o próximo bump — ou seja, a equipe não recebe a correção que
+  // acabou de subir. Buscar da rede na instalação é o que garante o shell novo.
+  e.waitUntil(caches.open(CACHE)
+    .then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(ks => Promise.all(

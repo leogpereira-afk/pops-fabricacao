@@ -201,3 +201,19 @@ ul.bloco-lista li { margin: 5px 0; }
 .fx-etapa.sem .fx-st { color: var(--cinza-4); font-weight: 600; }
 /* setor sem POP nenhum */
 .chip.vazio { color: var(--cinza-4); border-style: dashed; }
+
+/* ── Atribuir em lote ─────────────────────────────────────────────────────── */
+/* Lista alta com rolagem própria: com 38 pessoas, sem isto o botão "Atribuir"
+   ficava empurrado pra fora da tela do celular e ninguém chegava nele. */
+.lista-lote {
+  max-height: 42vh; overflow-y: auto; border: 1px solid var(--borda);
+  border-radius: 10px; padding: 4px 10px;
+}
+.linha-lote {
+  display: flex; align-items: center; gap: 9px; padding: 9px 2px;
+  border-bottom: 1px dashed var(--borda); cursor: pointer;
+}
+.linha-lote:last-child { border-bottom: 0; }
+.linha-lote input { width: 19px; height: 19px; flex: none; accent-color: var(--azul); }
+.linha-lote .nome { flex: 1; font-size: 14.5px; }
+.linha-lote.ja { opacity: .6; cursor: default; }

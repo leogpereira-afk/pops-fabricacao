@@ -726,7 +726,8 @@ function renderPessoas(app) {
     '<div class="miolo">' +
     '<div class="card"><div class="sub">Pessoas</div>' +
     '<p class="bloco-par">Vindas do RH (' + ps.length + ' ativas). Ligue cada pessoa à conta dela para que os treinamentos apareçam no app dela.</p>' +
-    (souAdmin() ? '<button class="botao suave" id="bt-sinc-pessoas">🔄 Atualizar do RH</button>' : '') + '</div>' +
+    (souAdmin() ? '<button class="botao suave" id="bt-sinc-pessoas">🔄 Atualizar do RH</button> ' +
+      '<button class="botao suave" id="bt-lote">📤 Atribuir em lote</button>' : '') + '</div>' +
     (ps.length ? ps.map(p => {
       const at = atribuicoesValidasDe(p.id);
       const orfas = atribuicoesDe(p.id).length - at.length;
@@ -755,7 +756,115 @@ function renderPessoas(app) {
       renderApp();
     } catch { toast('Não consegui falar com o servidor agora.', 'erro'); bs.disabled = false; bs.textContent = '🔄 Atualizar do RH'; }
   };
+  const bl = $('#bt-lote');
+  if (bl) bl.onclick = () => abrirLote(conteudos);
   $$('[data-pessoa]').forEach(el => el.onclick = () => abrirPessoa(el.dataset.pessoa, conteudos));
+}
+
+/* ══════════ atribuir em lote ══════════ */
+// O Código de Ética vale para as 38 pessoas da casa. Uma a uma são 38 vezes
+// abrir ficha, escolher no select, tocar em Atribuir — e no meio disso alguém
+// fica de fora sem ninguém notar. Aqui é uma escolha e uma confirmação.
+//
+// Só admin: dar isto ao gestor exigiria casar `p.area` (texto do RH) com os
+// setores dos POPs, e os nomes não batem sempre. Um alcance que o gestor não
+// consegue conferir na tela é pior que não ter o botão.
+//
+// Grava pela fila normal (STORE.salvar, um registro por pessoa): é mais lento
+// que um pedido único, mas é o caminho que sobrevive a sinal ruim e que repete
+// item a item sem duplicar — o id da atribuição é derivado de pessoa+conteúdo.
+function abrirLote(conteudos) {
+  const grupos = [...new Set(conteudos.map(c => c.grupo))];
+  const areas = [...new Set(pessoas().map(p => p.area).filter(Boolean))].sort();
+  let escolhido = conteudos[0] ? conteudos[0].tipo + '|' + conteudos[0].id : '';
+  let area = '';
+  let busca = '';
+  const marcados = new Set();
+
+  const alvo = () => {
+    const [tipo, refId] = escolhido.split('|');
+    return pessoas().filter(p =>
+      (!area || p.area === area) &&
+      (!busca || norm(p.nome).includes(norm(busca)))
+    ).map(p => ({
+      p, jaTem: atribuicoesDe(p.id).some(a => a.tipo === tipo && a.refId === refId),
+    }));
+  };
+
+  const m = abrirModal(
+    '<h3>Atribuir em lote</h3>' +
+    '<div class="campo"><label>O que atribuir</label>' +
+    '<select id="lo-conteudo">' + grupos.map(g =>
+      '<optgroup label="' + esc(g) + '">' + conteudos.filter(c => c.grupo === g)
+        .map(c => '<option value="' + c.tipo + '|' + c.id + '">' + esc(c.titulo) + '</option>').join('') +
+      '</optgroup>').join('') + '</select></div>' +
+    '<div class="campo"><label>Filtrar</label>' +
+    '<select id="lo-area"><option value="">Todas as áreas</option>' +
+    areas.map(a => '<option value="' + esc(a) + '">' + esc(a) + '</option>').join('') + '</select>' +
+    '<input type="text" id="lo-busca" placeholder="parte do nome" autocapitalize="none" style="margin-top:8px"></div>' +
+    '<div style="display:flex;gap:8px;margin:10px 0">' +
+    '<button class="botao mini fantasma" id="lo-todos">Marcar todos</button>' +
+    '<button class="botao mini fantasma" id="lo-nenhum">Limpar</button></div>' +
+    '<div id="lo-lista" class="lista-lote"></div>' +
+    '<div id="lo-aviso"></div>' +
+    '<div class="acoes-modal" style="display:flex;gap:10px;margin-top:14px">' +
+    '<button class="botao fantasma btn-fechar">Fechar</button>' +
+    '<button class="botao btn-ok" id="lo-ok">Atribuir</button></div>'
+  );
+
+  // Só a lista e o rodapé se redesenham. Redesenhar o modal inteiro apagaria o
+  // que está sendo digitado na busca a cada tecla.
+  function pintar() {
+    const itens = alvo();
+    $('#lo-lista', m).innerHTML = itens.length
+      ? itens.map(({ p, jaTem }) =>
+        '<label class="linha-lote' + (jaTem ? ' ja' : '') + '">' +
+        '<input type="checkbox" data-lote="' + esc(p.id) + '"' +
+        (jaTem ? ' checked disabled' : (marcados.has(p.id) ? ' checked' : '')) + '>' +
+        '<span class="nome">' + esc(p.nome) + '</span>' +
+        (p.usuario ? '' : '<span class="selo pendente">sem conta</span>') +
+        (jaTem ? '<span class="selo lido">já tem</span>' : '') +
+        '</label>').join('')
+      : '<p class="dica">Ninguém neste filtro.</p>';
+    const novos = itens.filter(x => !x.jaTem && marcados.has(x.p.id));
+    const semConta = novos.filter(x => !x.p.usuario).length;
+    $('#lo-aviso', m).innerHTML = semConta
+      ? '<div class="aviso amarelo">' + semConta + ' pessoa(s) sem conta ligada. A atribuição fica registrada, ' +
+        'mas só aparece pra pessoa depois que a conta dela for ligada na ficha.</div>'
+      : '';
+    const ok = $('#lo-ok', m);
+    ok.textContent = novos.length ? 'Atribuir a ' + novos.length + ' pessoa(s)' : 'Atribuir';
+    ok.disabled = !novos.length;
+    $$('[data-lote]', m).forEach(cb => cb.onchange = () => {
+      if (cb.checked) marcados.add(cb.dataset.lote); else marcados.delete(cb.dataset.lote);
+      pintar();
+    });
+  }
+
+  $('#lo-conteudo', m).onchange = e => { escolhido = e.target.value; pintar(); };
+  $('#lo-area', m).onchange = e => { area = e.target.value; pintar(); };
+  $('#lo-busca', m).oninput = e => { busca = e.target.value; pintar(); };
+  $('#lo-todos', m).onclick = () => { alvo().forEach(x => { if (!x.jaTem) marcados.add(x.p.id); }); pintar(); };
+  $('#lo-nenhum', m).onclick = () => { marcados.clear(); pintar(); };
+  $('.btn-fechar', m).onclick = () => m.remove();
+
+  $('#lo-ok', m).onclick = () => {
+    const [tipo, refId] = escolhido.split('|');
+    const item = conteudos.find(c => c.tipo === tipo && c.id === refId);
+    const novos = alvo().filter(x => !x.jaTem && marcados.has(x.p.id));
+    if (!novos.length) return;
+    if (!confirm('“' + (item ? item.titulo : '') + '” vai para ' + novos.length + ' pessoa(s).\n\n' +
+      'Dá pra tirar de cada uma depois, na ficha dela.')) return;
+    const agora = new Date().toISOString();
+    novos.forEach(({ p }) => STORE.salvar('atribuicoes', {
+      id: 'a-' + p.id + '-' + tipo + '-' + refId,
+      pessoaId: p.id, tipo, refId, atribuidoPor: SESSAO.nome, em: agora,
+    }));
+    toast('Atribuído a ' + novos.length + ' pessoa(s) ✓', 'sucesso');
+    m.remove(); renderApp();
+  };
+
+  pintar();
 }
 
 function abrirPessoa(pessoaId, conteudos) {

@@ -1,9 +1,16 @@
 {
   "name": "Pops & Fabricação · Impresilk",
   "short_name": "Pops",
+  "description": "Procedimentos operacionais e jornadas técnicas da fabricação.",
   "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#3b3bec",
   "theme_color": "#3b3bec",
-  "icons": [{ "src": "./logo-impresilk.png", "sizes": "512x512", "type": "image/png" }]
+  "lang": "pt-BR",
+  "icons": [
+    { "src": "./icone-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icone-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icone-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
 }

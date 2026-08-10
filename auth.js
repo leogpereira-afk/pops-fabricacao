@@ -38,6 +38,8 @@ const AUTH = (() => {
 
   return {
     temCracha: () => !!pegar(),
+    // O store precisa do crachá para assinar cada chamada ao servidor.
+    cracha: pegar,
     esquecer,
 
     async login(usuario, senha) {

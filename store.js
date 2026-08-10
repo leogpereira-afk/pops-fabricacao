@@ -37,7 +37,14 @@ const STORE = (() => {
     try {
       const r = await fetch(window.API_BASE + '/' + window.API_FN.sync, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-token': window.APP_TOKEN },
+        headers: {
+          'Content-Type': 'application/json',
+          // O crachá da pessoa. Sem ele o servidor responde 401 e o app manda
+          // fazer login — que é o que tem de acontecer.
+          // `const AUTH` NAO vira window.AUTH -- const nao gruda no window. Ler
+          // pelo nome, como o DRE ja faz: auth.js carrega antes de store.js.
+          authorization: 'Bearer ' + (typeof AUTH !== 'undefined' ? AUTH.cracha() : ''),
+        },
         body: JSON.stringify(Object.assign({ action }, body || {})),
         signal: ctrl.signal,
       });

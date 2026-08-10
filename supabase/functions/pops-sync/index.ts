@@ -24,6 +24,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const TOKEN = Deno.env.get("POPS_TOKEN") ?? "";
+// O segredo dos CRACHAS -- o mesmo que a equipe-auth usa para assinar. E ele que
+// permite conferir quem esta chamando, em vez de conferir um segredo que viaja
+// no bundle publico.
+const JWT_SECRET = Deno.env.get("EQUIPE_JWT_SECRET") ?? "";
 const BUCKET = "pops-arquivos";
 const T_REG = "pops_registros";
 const T_CFG = "pops_config_global";
@@ -52,10 +56,51 @@ async function bump(colecao: string) {
   });
 }
 
+// Confere o cracha que o app guarda no localStorage: assinatura, validade e --
+// isto e o que importa -- de QUAL sistema ele e. Um cracha do Brief nao abre o
+// POPs.
+async function lerCracha(token: string): Promise<any | null> {
+  if (!JWT_SECRET || !token) return null;
+  const partes = token.split(".");
+  if (partes.length !== 3) return null;
+  try {
+    const enc = new TextEncoder();
+    const chave = await crypto.subtle.importKey(
+      "raw", enc.encode(JWT_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+    const b64url = (t: string) => {
+      t = t.replace(/-/g, "+").replace(/_/g, "/");
+      while (t.length % 4) t += "=";
+      const bin = atob(t);
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    };
+    const ok = await crypto.subtle.verify(
+      "HMAC", chave, b64url(partes[2]), enc.encode(`${partes[0]}.${partes[1]}`));
+    if (!ok) return null;
+    const p = JSON.parse(new TextDecoder().decode(b64url(partes[1])));
+    if (typeof p.exp === "number" && p.exp < Math.floor(Date.now() / 1000)) return null;
+    if (p.sis !== "pops") return null;
+    return p;
+  } catch {
+    return null;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return resp({ erro: "Use POST." }, 405);
-  if (!TOKEN || req.headers.get("x-token") !== TOKEN) return resp({ erro: "Não autorizado." }, 401);
+  // Duas formas de entrar, e so duas:
+  //  - CRACHA de uma pessoa que entrou no POPs (authorization: Bearer ...);
+  //  - x-token, que agora e SO da maquina (o backup diario).
+  //
+  // Antes daqui, o x-token era o token que ia no bundle publico: qualquer pessoa
+  // com o endereco do repositorio lia e gravava os POPs sem login nenhum. O
+  // login era enfeite. Foi o mesmo furo do DRE, do PCP e do Brief.
+  const m = String(req.headers.get("authorization") ?? "").match(/^Bearer\s+(.+)$/i);
+  const cracha = m ? await lerCracha(m[1]) : null;
+  const ehMaquina = !!TOKEN && req.headers.get("x-token") === TOKEN;
+  if (!cracha && !ehMaquina) return resp({ erro: "Entre no sistema.", semSessao: true }, 401);
 
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return resp({ erro: "JSON inválido." }, 400); }

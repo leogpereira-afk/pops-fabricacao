@@ -1,9 +1,13 @@
 // ============================================================================
 // config.js — endereço do backend do Pops & Fabricação.
 // PONTO ÚNICO DE SAÍDA: o resto do app chama apiFn() no store e não sabe onde
-// o backend mora. O TOKEN viaja no bundle público — decisão explícita do
-// Leonardo (31/07/2026) para apps de campo. Credencial de terceiros NUNCA aqui.
+// o backend mora.
+//
+// NÃO existe mais token aqui. Havia um (APP_TOKEN), e ele autorizava sozinho
+// toda leitura e escrita — num repositório PÚBLICO. Quem quisesse os POPs só
+// precisava abrir este arquivo no GitHub; o login era enfeite. Quem autoriza
+// agora é o crachá da pessoa, guardado no localStorage depois do login.
+// Credencial NUNCA aqui.
 // ============================================================================
 window.API_BASE = "https://heveemylixartyijxewh.supabase.co/functions/v1";
 window.API_FN = { sync: "pops-sync" };
-window.APP_TOKEN = "pops-d4174559f1b1c243d26da51b6071c2d502076ea9";

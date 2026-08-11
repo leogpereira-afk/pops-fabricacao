@@ -102,6 +102,26 @@ Deno.serve(async (req) => {
   const ehMaquina = !!TOKEN && req.headers.get("x-token") === TOKEN;
   if (!cracha && !ehMaquina) return resp({ erro: "Entre no sistema.", semSessao: true }, 401);
 
+  /* QUEM PODE ESCREVER.
+     A porta conferia QUEM entrou e nunca O QUE a pessoa pode: um crachá de
+     "equipe" -- o papel de quem só LÊ procedimento e registra leitura --
+     apagava POP, reescrevia a configuração inteira e disparava a
+     sincronização de pessoas. Os papéis são os do equipe-auth: admin manda em
+     tudo, gestor edita os POPs, equipe lê.
+     A máquina (backup) continua passando: ela não tem papel. */
+  const ESCRITA_GESTOR = ["upsert", "putFoto", "deleteFoto"];
+  const ESCRITA_ADMIN = ["delete", "setCfg", "sincronizarPessoas"];
+  const papel = String(cracha?.papel ?? "");
+  if (!ehMaquina) {
+    const acaoPedida = String((await req.clone().json().catch(() => ({})))?.action ?? "");
+    if (ESCRITA_ADMIN.includes(acaoPedida) && papel !== "admin") {
+      return resp({ erro: "Só a gestão do POPs faz isso.", semPermissao: true }, 403);
+    }
+    if (ESCRITA_GESTOR.includes(acaoPedida) && papel !== "admin" && papel !== "gestor") {
+      return resp({ erro: "Seu acesso lê os POPs, mas não edita.", semPermissao: true }, 403);
+    }
+  }
+
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return resp({ erro: "JSON inválido." }, 400); }
   const action = String(body.action ?? "");

@@ -12,9 +12,16 @@ self.addEventListener('install', e => {
     .then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' }))))
     .then(() => self.skipWaiting()));
 });
+/* Apaga versoes velhas DESTE sistema -- e so delas. `caches` e por ORIGEM,
+   nao por escopo: POPs, Painel (painel-v1) e RH (impresilk-rh-v8) moram todos
+   em leogpereira-afk.github.io, e "apagar tudo o que nao e meu" zerava o disco
+   dos vizinhos a cada visita (os tres faziam isso, um contra o outro).
+   Achado na conferencia do Painel, 24/08/2026. */
+const MEU_PREFIXO = 'pops-';
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(ks => Promise.all(
-    ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
+    ks.filter(k => k !== CACHE && k.startsWith(MEU_PREFIXO)).map(k => caches.delete(k))
+  )).then(() => self.clients.claim()));
 });
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);

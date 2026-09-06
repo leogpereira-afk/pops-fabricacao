@@ -26,14 +26,20 @@ const AUTH = (() => {
   async function chamar(acao, corpo, comCracha) {
     const cab = { 'Content-Type': 'application/json' };
     if (comCracha) cab['Authorization'] = 'Bearer ' + pegar();
-    const r = await fetch(URL_AUTH, {
-      method: 'POST', headers: cab,
-      body: JSON.stringify(Object.assign({ acao, sistema: SISTEMA }, corpo || {})),
-    });
-    let dados = {};
-    try { dados = await r.json(); } catch { /* resposta sem corpo */ }
-    if (!r.ok) throw Object.assign(new Error(dados.erro || ('HTTP ' + r.status)), { status: r.status, erro: dados.erro });
-    return dados;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15000);
+    try {
+      const r = await fetch(URL_AUTH, {
+        method: 'POST', headers: cab, signal: ctrl.signal,
+        body: JSON.stringify(Object.assign({ acao, sistema: SISTEMA }, corpo || {})),
+      });
+      let dados;
+      try { dados = await r.json(); } catch { throw new Error('Resposta incompleta do servidor.'); }
+      if (!dados || typeof dados !== 'object') throw new Error('Resposta inválida do servidor.');
+      if (!r.ok || dados.ok === false || dados.erro || dados.error) throw Object.assign(new Error(dados.erro || dados.error || ('HTTP ' + r.status)), { status: r.status, erro: dados.erro });
+      return dados;
+    } finally { clearTimeout(timer); }
+
   }
 
   return {
@@ -44,6 +50,7 @@ const AUTH = (() => {
 
     async login(usuario, senha) {
       const r = await chamar('login', { usuario, senha });
+      if (!r.token || !r.usuario || !r.papel) throw new Error('Resposta de login incompleta. Tente novamente.');
       guardar(r.token);
       return r;
     },

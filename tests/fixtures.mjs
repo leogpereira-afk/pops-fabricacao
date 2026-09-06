@@ -1,0 +1,7 @@
+export const cfg={gestores:{ana:['Impressão']},areas:[{nome:'Operações',ic:'🏭',setores:['Impressão','Metalurgia']}],setores:['Impressão','Metalurgia'],linhas:[{id:'linha-1',nome:'Comunicação visual',ic:'🏭',fluxo:[{etapa:'Imprimir',setor:'Impressão'},{etapa:'Montar',setor:'Metalurgia'}]}]};
+export const dados={
+ pops:[{id:'p1',codigo:'POP-01',titulo:'Preparar a impressão com segurança',setor:'Impressão',versao:'1.0',objetivo:'Conferir o material antes de iniciar.',blocos:[{tipo:'subtitulo',texto:'Antes de começar'},{tipo:'paragrafo',texto:'Conteúdo fictício exclusivo dos testes.'},{tipo:'checklist',itens:['Conferir o material','Verificar as proteções']}]}],
+ jornadas:[{id:'j1',titulo:'Preparação e impressão',setor:'Impressão',linha:'linha-1',nivel:'Técnico',versao:'1.0',etapas:[{id:'e1',titulo:'Preparação',blocos:[{tipo:'paragrafo',texto:'Etapa fictícia.'}]},{id:'e2',titulo:'Impressão',blocos:[{tipo:'paragrafo',texto:'Segunda etapa fictícia.'}]}]}],
+ treinamentos:[{id:'t1',titulo:'Boas práticas da equipe',versao:'2.0',exigeAceite:true,blocos:[{tipo:'paragrafo',texto:'Documento fictício.'}]}],
+ pessoas:[{id:'p-ana',nome:'Ana Exemplo',usuario:'ana',funcao:'Operadora',area:'Operações'},{id:'p-bia',nome:'Bia Exemplo',usuario:'bia',funcao:'Auxiliar',area:'Operações'},{id:'p-sem',nome:'Pessoa sem conta',funcao:'Auxiliar',area:'Operações'}],
+ atribuicoes:[{id:'a-p-ana-pop-p1',pessoaId:'p-ana',tipo:'pop',refId:'p1'},{id:'a-p-ana-treinamento-t1',pessoaId:'p-ana',tipo:'treinamento',refId:'t1'}],leituras:[],progresso:[]};

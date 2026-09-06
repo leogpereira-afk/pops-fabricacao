@@ -29,15 +29,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # App vanilla sem build: separa o SITE do que é ferramenta de repositório
-      # (supabase/, seed/, sql.sh não são página). Navegação por hash: sem 404.html.
-      - name: Separar os arquivos do site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.19.0
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Conferir integridade, permissões e sincronização
+        run: pnpm test
+
+      - name: Separar somente os arquivos públicos do site
         run: |
           mkdir -p dist
-          rsync -a ./ dist/ \
-            --exclude dist/ --exclude .git/ --exclude .github/ \
-            --exclude supabase/ --exclude seed/ --exclude sql.sh
-          ls dist
+          cp index.html app.js auth.js config.js store.js styles.css sw.js manifest.webmanifest dist/
+          cp logo-impresilk.png icone-192.png icone-512.png dist/
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

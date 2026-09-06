@@ -14,8 +14,8 @@ const $$ = (s, el) => [...(el || document).querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
 const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8));
-const fmtData = iso => { if (!iso) return ''; const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString('pt-BR'); };
-const fmtDataHora = iso => { if (!iso) return ''; const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); };
+const fmtData = iso => { if (!iso) return ''; const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso + 'T12:00:00' : iso); return isNaN(d) ? '' : d.toLocaleDateString('pt-BR'); };
+const fmtDataHora = iso => { if (!iso) return ''; const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso + 'T12:00:00' : iso); return isNaN(d) ? '' : d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); };
 
 let SESSAO = STORE.getUser();
 
@@ -64,13 +64,44 @@ function toast(msg, tipo) {
   $('#toasts').appendChild(t);
   setTimeout(() => t.remove(), 4200);
 }
+function associarRotulos(raiz) {
+  $$('.campo', raiz).forEach(campo => {
+    const rotulo = $('label', campo), controle = $('input:not([type=checkbox]), select, textarea', campo);
+    if (rotulo && controle && !rotulo.htmlFor) {
+      if (!controle.id) controle.id = 'campo-' + uuid();
+      rotulo.htmlFor = controle.id;
+    }
+  });
+}
 function abrirModal(html) {
-  const veu = document.createElement('div');
+  const veu = document.createElement('dialog');
   veu.className = 'veu';
   veu.innerHTML = '<div class="modal">' + html + '</div>';
+  veu.setAttribute('aria-label', $('h3', veu)?.textContent || 'Detalhes');
+  const remover = veu.remove.bind(veu);
+  veu.remove = () => { veu.close(); remover(); };
+  veu.addEventListener('cancel', e => { e.preventDefault(); veu.remove(); });
   veu.onclick = e => { if (e.target === veu) veu.remove(); };
   $('#overlays').appendChild(veu);
+  associarRotulos(veu); veu.showModal();
   return veu;
+}
+function salvarLocal(colecao, registro) {
+  if (STORE.salvar(colecao, registro)) return true;
+  toast('Não foi possível guardar a alteração neste aparelho. Libere espaço e tente novamente.', 'erro'); return false;
+}
+function arquivarLocal(colecao, id) {
+  if (STORE.apagar(colecao, id)) return true;
+  toast('Não foi possível guardar esta alteração. O item foi mantido.', 'erro'); return false;
+}
+function mensagemSalvo() { return 'Salvo neste aparelho · aguardando sincronização'; }
+function etapasFeitas(j, pr) { return (j.etapas || []).filter(e => !!pr?.etapas?.[e.id]).length; }
+function expiracaoTreinamento(t, em) {
+  if (!t?.validadeMeses || !em) return null;
+  const d = new Date(em), dia = d.getDate();
+  if (!Number.isFinite(d.getTime())) return null;
+  d.setDate(1); d.setMonth(d.getMonth() + Number(t.validadeMeses));
+  const fim = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(); d.setDate(Math.min(dia, fim)); return d;
 }
 
 /* ══════════ blocos: dado ↔ tela ↔ texto do editor ══════════
@@ -134,7 +165,7 @@ function textoParaBlocos(txt) {
 // o TRECHO que interessa agora — "olha o ponto de atenção antes de sair" — com
 // o link para abrir o resto no app. Sem número de telefone: quem escolhe o
 // destinatário é o próprio WhatsApp, com os contatos do aparelho.
-const LINK_APP = 'https://impresilk.com.br/pops';
+const LINK_APP = new URL(location.pathname, location.origin).href;
 
 // Formatação do WhatsApp: *negrito*, e nada de HTML.
 function blocosParaWhats(blocos) {
@@ -168,7 +199,7 @@ const LIMITE_WHATS = 1500;   // acima disso a mensagem vira parede no celular
 
 function abrirEnviarWhats(item, tipo) {
   const rota = tipo === 'pop' ? '#/pop/' : tipo === 'treinamento' ? '#/treinamento/' : '#/jornada/';
-  const link = LINK_APP + rota + item.id;
+  const link = LINK_APP + rota + encodeURIComponent(item.id);
   const cab = '*' + (item.codigo ? item.codigo + ' · ' : '') + item.titulo + '*' +
     (item.setor ? '\n_' + item.setor + ' · v' + (item.versao || '1.0') + '_' : '');
   const secoes = secoesDe(item.blocos);
@@ -211,7 +242,7 @@ function minhaLeitura(popId) {
   return STORE.um('leituras', 'l-' + norm(SESSAO.usuario) + '-' + popId);
 }
 function registrarLeitura(pop) {
-  STORE.salvar('leituras', {
+  return salvarLocal('leituras', {
     id: 'l-' + norm(SESSAO.usuario) + '-' + pop.id,
     usuario: norm(SESSAO.usuario), nome: SESSAO.nome,
     popId: pop.id, versaoLida: pop.versao || '1.0', em: new Date().toISOString(),
@@ -278,17 +309,17 @@ function conclusaoDe(a, usuario) {
     const pr = STORE.um('progresso', 'j-' + u + '-' + a.refId);
     const j = STORE.um('jornadas', a.refId);
     if (!pr || !j) return null;
-    const feitas = Object.keys(pr.etapas || {}).length;
-    return feitas >= (j.etapas || []).length ? { em: pr.concluidaEm } : null;
+    const feitas = etapasFeitas(j, pr);
+    return (j.etapas || []).length > 0 && feitas === j.etapas.length ? { em: pr.concluidaEm } : null;
   }
   const l = STORE.um('leituras', 't-' + u + '-' + a.refId);
   if (!l) return null;
   const t = STORE.um('treinamentos', a.refId);
+  if (t && l.versaoLida !== (t.versao || '1.0')) return { em: l.em, desatualizado: true };
   // Reciclagem: treinamento com validade vence e volta a aparecer como pendente.
   if (t && t.validadeMeses && l.em) {
-    const venceEm = new Date(l.em);
-    venceEm.setMonth(venceEm.getMonth() + Number(t.validadeMeses));
-    if (venceEm < new Date()) return { em: l.em, vencido: true, venceuEm: venceEm.toISOString() };
+    const venceEm = expiracaoTreinamento(t, l.em);
+    if (venceEm && venceEm < new Date()) return { em: l.em, vencido: true, venceuEm: venceEm.toISOString() };
   }
   return { em: l.em };
 }
@@ -301,7 +332,9 @@ function minhasPendencias() {
 
 /* ══════════ shell ══════════ */
 function rotuloSync(st) {
-  if (!st || st.status === 'ok') return 'Sincronizado';
+  if (!st) return STORE.lastSync() ? 'Atualizado' : 'Atualizando…';
+  if (st.status === 'ok') return STORE.lastSync() ? 'Sincronizado' : 'Conferindo dados…';
+  if (st.status === 'revisar') return st.pendentes + ' para revisar';
   if (st.status === 'pendente') return st.pendentes + ' pendente(s)';
   if (st.status === 'offline') return 'Sem internet';
   return 'Servidor fora';
@@ -312,28 +345,32 @@ STORE.on('sync', st => {
   const chip = $('#chip-sync');
   if (chip) { chip.textContent = rotuloSync(st); chip.classList.toggle('pendente', st.status !== 'ok'); }
 });
-STORE.on('pull', () => { if (!document.querySelector('textarea:focus, input:focus')) renderApp(); });
+STORE.on('pull', () => { if (!document.querySelector('dialog[open], textarea:focus, input:focus, select:focus') && ROTA.nome !== 'editor') renderApp(); });
+STORE.on('pullErro', msg => { _ultimoSync = { status: 'erro' }; const chip = $('#chip-sync'); if (chip) { chip.textContent = 'Atualização pendente'; chip.title = msg; } });
+STORE.on('sessao', msg => { AUTH.esquecer(); STORE.setUser(null); SESSAO = null; _ultimoSync = null; renderApp(); toast(msg, 'erro'); });
 STORE.on('quota', () => toast('Memória do aparelho cheia — o registro pode não ter sido salvo.', 'erro'));
 
 function htmlTopo(aba) {
-  return '<div class="topo">' +
-    '<a href="#/"><img src="./logo-impresilk.png" alt=""></a>' +
+  return '<header class="app-cab"><div class="topo">' +
+    '<a href="#/" aria-label="Início"><img src="./logo-impresilk.png" alt="Impresilk"></a>' +
     '<div class="tit"><b>Pops & Fabricação</b><span>Impresilk · ' + esc(SESSAO.nome) + '</span></div>' +
     '<button class="chip-sync" id="chip-sync" title="Tocar para sincronizar">' + rotuloSync(_ultimoSync) + '</button>' +
     '</div>' +
-    '<div class="abas">' +
+    '<nav class="abas" aria-label="Navegação principal">' +
     '<a href="#/pops" class="' + (aba === 'pops' ? 'ativa' : '') + '">📋 POPs</a>' +
     '<a href="#/fab" class="' + (aba === 'fab' ? 'ativa' : '') + '">🏭 Fabricação</a>' +
     '<a href="#/meus" class="' + (aba === 'meus' ? 'ativa' : '') + '">🎓 Meus' +
     (minhasPendencias().length ? ' <b>(' + minhasPendencias().length + ')</b>' : '') + '</a>' +
     ((souAdmin() || meusSetores().length) ? '<a href="#/pessoas" class="' + (aba === 'pessoas' ? 'ativa' : '') + '">👥 Pessoas</a>' : '') +
     ((souAdmin() || meusSetores().length) ? '<a href="#/mapa" class="' + (aba === 'mapa' ? 'ativa' : '') + '">📊 Mapa</a>' : '') +
-    '<a href="#/menu" class="' + (aba === 'menu' ? 'ativa' : '') + '">☰</a>' +
-    '</div>';
+    '<a href="#/menu" class="' + (aba === 'menu' ? 'ativa' : '') + '" aria-label="Minha conta e configurações">⚙️ Conta</a>' +
+    '</nav></header>';
 }
 function ligarTopo() {
   const chip = $('#chip-sync');
-  if (chip) chip.onclick = () => { STORE.trySync(); STORE.pull(); toast('Sincronizando…'); };
+  if (chip) chip.onclick = () => { if (STORE.getFila().length) abrirPendencias(); else { STORE.trySync(); STORE.pull(); toast('Conferindo atualizações…'); } };
+  associarRotulos($('#app'));
+  $$('[data-etapa], [data-pessoa]').forEach(el => { el.setAttribute('role','button'); el.tabIndex=0; el.onkeydown=e => { if (e.key==='Enter' || e.key===' ') { e.preventDefault(); el.click(); } }; });
 }
 
 /* ══════════ telas ══════════ */
@@ -355,24 +392,25 @@ function renderLogin(app) {
     const bt = $('#lg-entrar'); bt.disabled = true; bt.textContent = 'Entrando…';
     try {
       const r = await AUTH.login(u, s);
-      STORE.setUser({ usuario: r.usuario, nome: r.nome, papel: r.papel, trocarSenha: !!r.trocarSenha });
+      if (!STORE.setUser({ usuario: r.usuario, nome: r.nome, papel: r.papel, trocarSenha: !!r.trocarSenha })) throw new Error('Não consegui guardar a sessão neste aparelho.');
       SESSAO = STORE.getUser();
-      STORE.pull();
+      _ultimoSync = null; STORE.trySync(); STORE.pull();
       // Senha feita por outra pessoa: trocar é a primeira coisa.
-      location.hash = r.trocarSenha ? '#/senha' : '#/';
+      location.hash = r.trocarSenha ? '#/senha' : '#/'; renderApp();
     } catch (e) {
       bt.disabled = false; bt.textContent = 'Entrar';
       $('#lg-erro').innerHTML = '<div class="aviso vermelho">' +
         esc(e.erro || (e.status ? 'Usuário ou senha incorretos.' : 'Sem conexão — o primeiro acesso precisa de internet.')) + '</div>';
     }
   };
+  associarRotulos(app);
   $('#lg-entrar').onclick = entrar;
   $('#lg-s').addEventListener('keydown', e => { if (e.key === 'Enter') entrar(); });
 }
 
 function renderInicio(app) {
   const pops = STORE.col('pops');
-  const lidas = pops.filter(p => minhaLeitura(p.id)).length;
+  const lidas = pops.filter(p => minhaLeitura(p.id)?.versaoLida === (p.versao || '1.0')).length;
   const jornadas = STORE.col('jornadas');
   app.innerHTML = htmlTopo('') +
     '<div class="miolo">' +
@@ -404,7 +442,7 @@ function renderPops(app) {
     : (areaAberta ? todos.filter(p => (areaAberta.setores || []).some(x => norm(x) === norm(p.setor))) : todos);
   daTela.sort((a, b) => String(a.codigo || 'zz').localeCompare(String(b.codigo || 'zz')));
 
-  const lidos = todos.filter(p => minhaLeitura(p.id)).length;
+  const lidos = todos.filter(p => minhaLeitura(p.id)?.versaoLida === (p.versao || '1.0')).length;
 
   app.innerHTML = htmlTopo('pops') +
     '<div class="miolo">' +
@@ -415,7 +453,7 @@ function renderPops(app) {
       const n = (a.setores || []).reduce((t, st) => t + quantos(st), 0);
       const on = areaAberta && norm(areaAberta.nome) === norm(a.nome);
       return '<button class="chip' + (on ? ' marcado' : '') + '" data-ir="' + esc(a.nome) + '">' +
-        (a.ic || '') + ' ' + esc(a.nome) + ' · ' + n + '</button>';
+        esc(a.ic || '') + ' ' + esc(a.nome) + ' · ' + n + '</button>';
     }).join('') +
     '</div>' +
     // nível 2: setores da área aberta (com os vazios à vista)
@@ -492,7 +530,7 @@ function renderPop(app) {
     '</div>';
   ligarTopo();
   const bt = $('#bt-li');
-  if (bt) bt.onclick = () => { registrarLeitura(p); toast('Leitura registrada ✓', 'sucesso'); renderApp(); };
+  if (bt) bt.onclick = () => { if (!registrarLeitura(p)) return; toast(mensagemSalvo()); renderApp(); };
   $('#bt-whats').onclick = () => abrirEnviarWhats(p, 'pop');
 }
 
@@ -508,7 +546,7 @@ function renderFab(app) {
   const pctDe = j => {
     if (!j) return null;
     const total = (j.etapas || []).length;
-    const feitas = Object.keys(meuProgresso(j.id).etapas || {}).length;
+    const feitas = etapasFeitas(j, meuProgresso(j.id));
     return total ? Math.round(feitas / total * 100) : 0;
   };
   const semLinha = js.filter(j => !j.linha);
@@ -522,7 +560,7 @@ function renderFab(app) {
       const comJornada = fluxo.filter(f => jornadaDe(f.setor)).length;
       return '<div class="card">' +
         '<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">' +
-        '<h3 style="margin:0;font-size:17.5px">' + (l.ic || '') + ' ' + esc(l.nome) + '</h3>' +
+        '<h3 style="margin:0;font-size:17.5px">' + esc(l.ic || '') + ' ' + esc(l.nome) + '</h3>' +
         '<span class="selo setor">' + comJornada + '/' + fluxo.length + ' com jornada</span></div>' +
         (l.resumo ? '<p class="bloco-par" style="margin-top:4px">' + esc(l.resumo) + '</p>' : '') +
         '<div class="fluxo">' +
@@ -555,7 +593,7 @@ function renderJornada(app) {
   if (!j) { location.hash = '#/fab'; return; }
   const pr = meuProgresso(j.id);
   const etapas = j.etapas || [];
-  const feitas = Object.keys(pr.etapas || {}).length;
+  const feitas = etapasFeitas(j, pr);
   const pct = etapas.length ? Math.round(feitas / etapas.length * 100) : 0;
   app.innerHTML = htmlTopo('fab') +
     '<div class="miolo">' +
@@ -620,9 +658,10 @@ function renderEtapa(app) {
   if (bt) bt.onclick = () => {
     pr.etapas = pr.etapas || {};
     pr.etapas[e.id] = new Date().toISOString();
-    if (Object.keys(pr.etapas).length >= j.etapas.length && !pr.concluidaEm) pr.concluidaEm = new Date().toISOString();
-    STORE.salvar('progresso', pr);
-    toast(pr.concluidaEm && Object.keys(pr.etapas).length >= j.etapas.length ? '🎓 Jornada concluída!' : 'Etapa concluída ✓', 'sucesso');
+    if (j.etapas.length && etapasFeitas(j, pr) === j.etapas.length && !pr.concluidaEm) pr.concluidaEm = new Date().toISOString();
+    pr.etapas = Object.fromEntries((j.etapas || []).filter(e => pr.etapas[e.id]).map(e => [e.id, pr.etapas[e.id]]));
+    if (!salvarLocal('progresso', pr)) return;
+    toast(mensagemSalvo());
     renderApp();
   };
 }
@@ -633,9 +672,8 @@ function renderTreinamento(app) {
   if (!t) { location.hash = '#/meus'; return; }
   const u = norm(SESSAO.usuario);
   const feito = STORE.um('leituras', 't-' + u + '-' + t.id);
-  const venc = feito && t.validadeMeses ? (() => {
-    const d = new Date(feito.em); d.setMonth(d.getMonth() + Number(t.validadeMeses)); return d;
-  })() : null;
+  const venc = expiracaoTreinamento(t, feito?.em);
+  const desatualizado = feito && feito.versaoLida !== (t.versao || '1.0');
   const vencido = venc && venc < new Date();
   app.innerHTML = htmlTopo('meus') +
     '<div class="miolo">' +
@@ -648,9 +686,10 @@ function renderTreinamento(app) {
     (t.resumo ? '<div class="aviso azul" style="margin-bottom:0">' + esc(t.resumo) + '</div>' : '') +
     '</div>' +
     '<div class="card">' + blocosParaHtml(t.blocos) + '</div>' +
+    (desatualizado ? '<div class="aviso amarelo">O documento mudou. Leia a versão atual e confirme novamente.</div>' : '') +
     (vencido ? '<div class="aviso amarelo">Sua confirmação venceu em ' + fmtData(venc.toISOString()) + '. Releia e confirme de novo.</div>' : '') +
     '<div class="acoes">' +
-    (feito && !vencido
+    (feito && !vencido && !desatualizado
       ? '<div class="aviso verde" style="flex:1">✓ ' + (t.exigeAceite ? 'Aceito' : 'Concluído') + ' em ' + fmtDataHora(feito.em) +
         (venc ? ' · vale até ' + fmtData(venc.toISOString()) : '') + '</div>'
       : '<button class="botao verde largo" id="bt-ok">' +
@@ -663,11 +702,11 @@ function renderTreinamento(app) {
   const bt = $('#bt-ok');
   if (bt) bt.onclick = () => {
     if (t.exigeAceite && !confirm('Confirmar o aceite de "' + t.titulo + '"?\n\nFica registrado com o seu nome, a data e a versão do documento.')) return;
-    STORE.salvar('leituras', {
+    if (!salvarLocal('leituras', {
       id: 't-' + u + '-' + t.id, usuario: u, nome: SESSAO.nome, treinamentoId: t.id,
       versaoLida: t.versao || '1.0', aceite: !!t.exigeAceite, em: new Date().toISOString(),
-    });
-    toast(t.exigeAceite ? 'Aceite registrado ✓' : 'Treinamento concluído ✓', 'sucesso');
+    })) return;
+    toast(mensagemSalvo());
     renderApp();
   };
 }
@@ -718,14 +757,17 @@ function renderMeus(app) {
 function renderPessoas(app) {
   if (!souAdmin() && !meusSetores().length) { location.hash = '#/'; return; }
   const ps = pessoas();
+  const semConta = ps.filter(p => !p.usuario).length;
   const conteudos = []
     .concat(STORE.col('treinamentos').map(t => ({ tipo: 'treinamento', id: t.id, titulo: t.titulo, grupo: 'Treinamentos' })))
     .concat(STORE.col('jornadas').map(j => ({ tipo: 'jornada', id: j.id, titulo: j.titulo, grupo: 'Jornadas' })))
-    .concat(STORE.col('pops').map(o => ({ tipo: 'pop', id: o.id, titulo: (o.codigo ? o.codigo + ' · ' : '') + o.titulo, grupo: 'POPs' })));
+    .concat(STORE.col('pops').map(o => ({ tipo: 'pop', id: o.id, titulo: (o.codigo ? o.codigo + ' · ' : '') + o.titulo, grupo: 'POPs' })))
+    .filter(c => souAdmin() || (c.tipo === 'pop' && possoEditar(STORE.um('pops', c.id))));
   app.innerHTML = htmlTopo('pessoas') +
     '<div class="miolo">' +
     '<div class="card"><div class="sub">Pessoas</div>' +
     '<p class="bloco-par">Vindas do RH (' + ps.length + ' ativas). Ligue cada pessoa à conta dela para que os treinamentos apareçam no app dela.</p>' +
+    (semConta ? '<div class="aviso amarelo"><b>' + semConta + ' pessoa(s) sem conta vinculada.</b> Os treinamentos atribuídos só aparecem em Meus depois desse vínculo.</div>' : '') +
     (souAdmin() ? '<button class="botao suave" id="bt-sinc-pessoas">🔄 Atualizar do RH</button> ' +
       '<button class="botao suave" id="bt-lote">📤 Atribuir em lote</button>' : '') + '</div>' +
     (ps.length ? ps.map(p => {
@@ -873,8 +915,8 @@ function abrirLote(conteudos) {
     }
     if (!confirm('Tirar “' + (item ? item.titulo : '') + '” de ' + podem.length + ' pessoa(s)?' +
       (feitos.length ? '\n\n' + feitos.length + ' já concluíram e ficam como estão.' : ''))) return;
-    podem.forEach(({ p }) => STORE.apagar('atribuicoes', 'a-' + p.id + '-' + tipo + '-' + refId));
-    toast('Tirado de ' + podem.length + ' pessoa(s)', 'sucesso');
+    const salvos = podem.filter(({ p }) => arquivarLocal('atribuicoes', 'a-' + p.id + '-' + tipo + '-' + refId));
+    toast(salvos.length + ' de ' + podem.length + ' alterações guardadas · aguardando sincronização');
     m.remove(); renderApp();
   };
 
@@ -886,11 +928,11 @@ function abrirLote(conteudos) {
     if (!confirm('“' + (item ? item.titulo : '') + '” vai para ' + novos.length + ' pessoa(s).\n\n' +
       'Dá pra tirar de cada uma depois, na ficha dela.')) return;
     const agora = new Date().toISOString();
-    novos.forEach(({ p }) => STORE.salvar('atribuicoes', {
+    const salvos = novos.filter(({ p }) => salvarLocal('atribuicoes', {
       id: 'a-' + p.id + '-' + tipo + '-' + refId,
       pessoaId: p.id, tipo, refId, atribuidoPor: SESSAO.nome, em: agora,
     }));
-    toast('Atribuído a ' + novos.length + ' pessoa(s) ✓', 'sucesso');
+    toast(salvos.length + ' de ' + novos.length + ' atribuições guardadas · aguardando sincronização');
     m.remove(); renderApp();
   };
 
@@ -906,7 +948,7 @@ function abrirPessoa(pessoaId, conteudos) {
     '<h3>' + esc(p.nome) + '</h3>' +
     '<p class="dica">' + esc([p.funcao, p.area].filter(Boolean).join(' · ')) + '</p>' +
     '<div class="campo"><label>Conta no app (Central de Acessos)</label>' +
-    '<input type="text" id="pe-usuario" value="' + esc(p.usuario || '') + '" placeholder="ex.: barbara" autocapitalize="none">' +
+    '<input type="text" id="pe-usuario"' + (souAdmin() ? '' : ' disabled') + ' value="' + esc(p.usuario || '') + '" placeholder="Selecione ou digite o usuário" autocapitalize="none" list="pe-contas"><datalist id="pe-contas"></datalist><p class="dica" id="pe-sugestao"></p>' +
     '<div class="dica">É o usuário com que a pessoa entra. Sem isso, o treinamento não chega até ela.</div></div>' +
     '<div class="sub" style="margin-top:16px">Treinamentos atribuídos</div>' +
     '<div id="pe-lista">' +
@@ -917,7 +959,7 @@ function abrirPessoa(pessoaId, conteudos) {
       return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px dashed var(--borda)">' +
         '<span style="flex:1;font-size:14.5px">' + esc(it ? it.titulo : '(removido)') + '</span>' +
         '<span class="selo ' + (ok ? 'lido' : 'pendente') + '">' + (ok ? '✓' : 'pendente') + '</span>' +
-        '<button class="botao mini fantasma" data-tirar="' + a.id + '">tirar</button></div>';
+        (souAdmin() ? '<button class="botao mini fantasma" data-tirar="' + esc(a.id) + '">tirar</button>' : '') + '</div>';
     }).join('') : '<p class="dica">Nada atribuído ainda.</p>') +
     '</div>' +
     '<div class="campo" style="margin-top:14px"><label>Adicionar</label>' +
@@ -928,10 +970,17 @@ function abrirPessoa(pessoaId, conteudos) {
     '<div class="acoes-modal" style="display:flex;gap:10px;margin-top:14px">' +
     '<button class="botao fantasma btn-fechar">Fechar</button>' +
     '<button class="botao suave btn-add">➕ Atribuir</button>' +
-    '<button class="botao btn-salvar">Salvar conta</button></div>'
+    (souAdmin() ? '<button class="botao btn-salvar">Salvar conta</button>' : '') + '</div>'
   );
   $('.btn-fechar', m).onclick = () => m.remove();
-  $('.btn-salvar', m).onclick = () => {
+  if (souAdmin()) AUTH.listarContas().then(r => {
+    if (!m.isConnected) return;
+    const contas=(r.contas || []).filter(c => c.ativo !== false);
+    $('#pe-contas',m).innerHTML=contas.map(c => '<option value="'+esc(c.usuario)+'">'+esc(c.nome || c.usuario)+'</option>').join('');
+    const sugestao=sugerirUsuario(p,contas);
+    $('#pe-sugestao',m).textContent=sugestao && !p.usuario ? 'Nome semelhante encontrado: '+sugestao+'. Confira a identidade antes de vincular.' : 'Escolha a conta da própria pessoa.';
+  }).catch(() => { if (m.isConnected) $('#pe-sugestao',m).textContent='Não consegui listar as contas agora. Tente novamente com internet.'; });
+  if ($('.btn-salvar', m)) $('.btn-salvar', m).onclick = () => {
     const u = norm($('#pe-usuario', m).value);
     // Uma conta = uma pessoa. Com a mesma conta em duas fichas, minhaPessoa()
     // pega a primeira e os treinamentos da outra ficam invisíveis PARA SEMPRE.
@@ -940,25 +989,26 @@ function abrirPessoa(pessoaId, conteudos) {
       toast('A conta "' + u + '" já está ligada a ' + jaTem.nome + '. Tire de lá antes.', 'erro');
       return;
     }
-    STORE.salvar('pessoas', Object.assign({}, p, { usuario: u }));
-    toast(u ? 'Conta vinculada ✓' : 'Vínculo removido', 'sucesso');
+    if (!salvarLocal('pessoas', Object.assign({}, p, { usuario: u }))) return;
+    toast(mensagemSalvo());
     m.remove(); renderApp();
   };
   $('.btn-add', m).onclick = () => {
     const [tipo, refId] = $('#pe-novo', m).value.split('|');
+    if (!tipo || !refId) { toast('Não há conteúdo disponível para atribuir neste setor.', 'erro'); return; }
     if (atribuicoesDe(p.id).some(a => a.tipo === tipo && a.refId === refId)) {
       toast('Já está atribuído.', 'erro'); return;
     }
-    STORE.salvar('atribuicoes', {
+    if (!salvarLocal('atribuicoes', {
       id: 'a-' + p.id + '-' + tipo + '-' + refId,
       pessoaId: p.id, tipo, refId,
       atribuidoPor: SESSAO.nome, em: new Date().toISOString(),
-    });
-    toast('Atribuído ✓', 'sucesso');
+    })) return;
+    toast(mensagemSalvo());
     m.remove(); abrirPessoa(pessoaId, conteudos);
   };
   $$('[data-tirar]', m).forEach(b => b.onclick = () => {
-    STORE.apagar('atribuicoes', b.dataset.tirar);
+    if (!arquivarLocal('atribuicoes', b.dataset.tirar)) return;
     m.remove(); abrirPessoa(pessoaId, conteudos);
   });
 }
@@ -973,13 +1023,14 @@ function renderMapa(app) {
   const leituras = STORE.col('leituras');
   const progresso = STORE.col('progresso');
   const pessoas = new Map();
-  leituras.forEach(l => pessoas.set(l.usuario, l.nome || l.usuario));
+  STORE.col('pessoas').forEach(p => { if (p.usuario) pessoas.set(norm(p.usuario), p.nome); });
+  leituras.forEach(l => { if (!pessoas.has(l.usuario)) pessoas.set(l.usuario, l.nome || l.usuario); });
   progresso.forEach(p => pessoas.set(p.usuario, p.nome || p.usuario));
   const nomes = [...pessoas.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   app.innerHTML = htmlTopo('mapa') +
     '<div class="miolo">' +
     '<div class="card"><div class="sub">Mapa de treinamento</div>' +
-    '<p class="bloco-par">Quem leu cada POP e quem concluiu cada jornada. Aparece aqui quem já registrou pelo menos uma leitura.</p></div>' +
+    '<p class="bloco-par">Quem leu cada POP e quem concluiu cada jornada. Inclui as pessoas com conta vinculada, mesmo sem nenhuma leitura. Pessoas sem conta aparecem em Pessoas para a gestão vincular.</p></div>' +
     '<div class="card rolagem-x"><div class="sub">POPs</div>' +
     '<table class="tab-mapa"><tr><th>Pessoa</th>' +
     pops.map(p => '<th title="' + esc(p.titulo) + '">' + esc(p.codigo || p.titulo.slice(0, 10)) + '</th>').join('') + '</tr>' +
@@ -997,7 +1048,7 @@ function renderMapa(app) {
       jornadas.map(j => {
         const pr = progresso.find(x => x.usuario === u && x.jornadaId === j.id);
         const total = (j.etapas || []).length;
-        const feitas = pr ? Object.keys(pr.etapas || {}).length : 0;
+        const feitas = etapasFeitas(j, pr);
         return '<td class="' + (feitas >= total && total ? 'ok' : 'nao') + '">' +
           (feitas >= total && total ? '🎓' : (feitas ? feitas + '/' + total : '—')) + '</td>';
       }).join('') + '</tr>').join('') : '<tr><td colspan="' + (jornadas.length + 1) + '">Ninguém começou ainda.</td></tr>') +
@@ -1012,7 +1063,7 @@ function renderEditorPop(app) {
   const p = novo
     ? { id: uuid(), titulo: '', codigo: '', setor: meusSetores()[0] || setores()[0], objetivo: '', epis: [], blocos: [], versao: '1.0' }
     : STORE.um('pops', ROTA.arg);
-  if (!p || (!novo && !possoEditar(p))) { location.hash = '#/pops'; return; }
+  if (!p || !possoEditar(p)) { location.hash = '#/pops'; return; }
   const meusS = meusSetores();
   app.innerHTML = htmlTopo('pops') +
     '<div class="miolo">' +
@@ -1029,7 +1080,7 @@ function renderEditorPop(app) {
     '<div class="dica">## Subtítulo &nbsp;·&nbsp; 1. passo numerado &nbsp;·&nbsp; - item de lista &nbsp;·&nbsp; ! destaque &nbsp;·&nbsp; !! alerta &nbsp;·&nbsp; [ ] item de checklist &nbsp;·&nbsp; linha solta = parágrafo</div></div>' +
     '<div class="acoes">' +
     '<button class="botao largo" id="e-salvar">💾 Salvar POP</button>' +
-    (!novo && souAdmin() ? '<button class="botao fantasma" id="e-apagar">🗑 Apagar</button>' : '') +
+    (!novo && souAdmin() ? '<button class="botao fantasma" id="e-apagar">🗃 Arquivar</button>' : '') +
     '</div></div></div>';
   ligarTopo();
   $('#e-salvar').onclick = () => {
@@ -1048,13 +1099,13 @@ function renderEditorPop(app) {
       revisadoPor: SESSAO.nome,
     });
     if (!STORE.salvar('pops', salvo)) { toast('Não consegui salvar (memória cheia?)', 'erro'); return; }
-    toast('POP salvo ✓', 'sucesso');
+    toast(mensagemSalvo());
     location.hash = '#/pop/' + salvo.id;
   };
   const ap = $('#e-apagar');
   if (ap) ap.onclick = () => {
-    if (!confirm('Apagar este POP? Quem já registrou leitura mantém o registro.')) return;
-    STORE.apagar('pops', p.id);
+    if (!confirm('Arquivar este POP? O conteúdo será preservado. Quem já registrou leitura mantém o registro.')) return;
+    if (!arquivarLocal('pops', p.id)) return;
     toast('POP apagado');
     location.hash = '#/pops';
   };
@@ -1063,56 +1114,40 @@ function renderEditorPop(app) {
 function renderEditorJornada(app) {
   if (!souAdmin()) { location.hash = '#/fab'; return; }
   const novo = ROTA.arg === 'novo';
-  const j = novo
-    ? { id: uuid(), titulo: '', descricao: '', nivel: 'Técnico', versao: '1.0', etapas: [] }
-    : STORE.um('jornadas', ROTA.arg);
+  const j = novo ? { id: uuid(), titulo: '', descricao: '', nivel: 'Técnico', versao: '1.0', etapas: [] } : STORE.um('jornadas', ROTA.arg);
   if (!j) { location.hash = '#/fab'; return; }
-  // etapas viram texto: separador de etapa é uma linha "=== Título da etapa ==="
-  const texto = (j.etapas || []).map(e => '=== ' + e.titulo + ' ===\n\n' + blocosParaTexto(e.blocos)).join('\n\n');
-  app.innerHTML = htmlTopo('fab') +
-    '<div class="miolo">' +
-    '<div class="card"><div class="sub">' + (novo ? 'Nova jornada' : 'Editar jornada') + '</div>' +
-    '<div class="campo"><label>Título</label><input type="text" id="e-titulo" value="' + esc(j.titulo) + '" placeholder="Ex: Fabricação de letra caixa"></div>' +
-    '<div class="campo"><label>Descrição (o que a pessoa vai dominar)</label><input type="text" id="e-desc" value="' + esc(j.descricao) + '"></div>' +
-    '<div class="campo"><label>Nível</label><select id="e-nivel">' +
-    ['Introdutório', 'Técnico', 'Avançado'].map(n => '<option' + (j.nivel === n ? ' selected' : '') + '>' + n + '</option>').join('') + '</select></div>' +
-    '<div class="campo"><label>Versão</label><input type="text" id="e-versao" value="' + esc(j.versao || '1.0') + '"></div>' +
-    '<div class="campo"><label>Etapas</label><textarea id="e-conteudo" style="min-height:340px">' + esc(texto) + '</textarea>' +
-    '<div class="dica">Cada etapa começa com uma linha <b>=== Título da etapa ===</b>. Dentro dela vale a mesma sintaxe dos POPs (##, 1., -, !, !!, [ ]).</div></div>' +
-    '<div class="acoes">' +
-    '<button class="botao largo" id="e-salvar">💾 Salvar jornada</button>' +
-    (!novo ? '<button class="botao fantasma" id="e-apagar">🗑 Apagar</button>' : '') +
-    '</div></div></div>';
-  ligarTopo();
-  $('#e-salvar').onclick = () => {
-    const titulo = $('#e-titulo').value.trim();
-    if (!titulo) { toast('Dê um título à jornada.', 'erro'); return; }
-    const partes = $('#e-conteudo').value.split(/^===\s*(.+?)\s*===\s*$/m);
-    const etapas = [];
-    // partes = [antes, titulo1, corpo1, titulo2, corpo2, ...]
-    const antigas = j.etapas || [];
-    for (let i = 1; i < partes.length; i += 2) {
-      const tituloEtapa = partes[i].trim();
-      // preserva o id da etapa pelo título: o progresso já registrado não se perde
-      const antiga = antigas.find(e => norm(e.titulo) === norm(tituloEtapa));
-      etapas.push({ id: antiga ? antiga.id : uuid(), titulo: tituloEtapa, blocos: textoParaBlocos(partes[i + 1] || '') });
-    }
-    if (!etapas.length) { toast('A jornada precisa de pelo menos uma etapa (=== Título ===).', 'erro'); return; }
-    const salvo = Object.assign({}, j, {
-      titulo, descricao: $('#e-desc').value.trim(), nivel: $('#e-nivel').value,
-      versao: $('#e-versao').value.trim() || '1.0', etapas,
-      revisadoEm: new Date().toISOString(), revisadoPor: SESSAO.nome,
+  // Cada cartão conserva o identificador ao renomear/reordenar a etapa.
+  let etapas = (j.etapas || []).map(e => ({ ...e, texto: blocosParaTexto(e.blocos) }));
+  app.innerHTML = htmlTopo('fab') + '<div class="miolo"><div class="card"><h1>' + (novo ? 'Nova jornada' : 'Editar jornada') + '</h1>' +
+    '<div class="campo"><label>Título</label><input type="text" id="e-titulo" value="' + esc(j.titulo) + '"></div>' +
+    '<div class="campo"><label>Descrição</label><input type="text" id="e-desc" value="' + esc(j.descricao) + '"></div>' +
+    '<div class="campo"><label>Nível</label><select id="e-nivel">' + ['Introdutório','Técnico','Avançado'].map(n => '<option' + (j.nivel === n ? ' selected' : '') + '>' + n + '</option>').join('') + '</select></div>' +
+    '<div class="campo"><label>Versão</label><input type="text" id="e-versao" value="' + esc(j.versao || '1.0') + '"></div></div>' +
+    '<div id="editor-etapas"></div><button class="botao suave" id="e-nova-etapa">➕ Adicionar etapa</button>' +
+    '<div class="acoes"><button class="botao" id="e-salvar">💾 Salvar jornada</button>' + (!novo && souAdmin() ? '<button class="botao fantasma" id="e-apagar">🗃 Arquivar</button>' : '') + '</div></div>';
+  function lerEtapas() { $$('[data-etapa-editor]').forEach((el,i) => { etapas[i].titulo = $('input',el).value.trim(); etapas[i].texto = $('textarea',el).value; }); }
+  function pintarEtapas() {
+    $('#editor-etapas').innerHTML = etapas.map((e,i) => '<details class="card editor-etapa" data-etapa-editor="' + esc(e.id) + '" open><summary>Etapa ' + (i+1) + ' · ' + esc(e.titulo || 'Sem título') + '</summary>' +
+      '<div class="campo"><label>Título da etapa</label><input type="text" value="' + esc(e.titulo) + '"></div>' +
+      '<div class="campo"><label>Instruções</label><textarea>' + esc(e.texto) + '</textarea><p class="dica">## título · 1. passo · - item · ! destaque · !! alerta · [ ] checklist</p></div>' +
+      '<div class="acoes"><button class="botao mini fantasma" data-mover="-1"' + (!i ? ' disabled' : '') + '>↑ Subir</button><button class="botao mini fantasma" data-mover="1"' + (i === etapas.length-1 ? ' disabled' : '') + '>↓ Descer</button><button class="botao mini fantasma" data-remover>Remover etapa</button></div></details>').join('');
+    associarRotulos($('#editor-etapas'));
+    $$('[data-etapa-editor]').forEach((el,i) => {
+      $$('[data-mover]',el).forEach(bt => bt.onclick = () => { lerEtapas(); const para=i+Number(bt.dataset.mover); [etapas[i],etapas[para]]=[etapas[para],etapas[i]]; pintarEtapas(); });
+      $('[data-remover]',el).onclick = () => { if (!confirm('Remover esta etapa da jornada? Ela deixará de contar no progresso.')) return; lerEtapas(); etapas.splice(i,1); pintarEtapas(); };
     });
-    if (!STORE.salvar('jornadas', salvo)) { toast('Não consegui salvar (memória cheia?)', 'erro'); return; }
-    toast('Jornada salva ✓', 'sucesso');
-    location.hash = '#/jornada/' + salvo.id;
+  }
+  $('#e-nova-etapa').onclick = () => { lerEtapas(); etapas.push({ id:uuid(),titulo:'',texto:'' }); pintarEtapas(); $$('[data-etapa-editor] input').at(-1).focus(); };
+  $('#e-salvar').onclick = () => {
+    lerEtapas(); const titulo=$('#e-titulo').value.trim();
+    if (!titulo || !etapas.length || etapas.some(e => !e.titulo)) { toast('Preencha o título da jornada e de cada etapa.', 'erro'); return; }
+    const salvo={ ...j,titulo,descricao:$('#e-desc').value.trim(),nivel:$('#e-nivel').value,versao:$('#e-versao').value.trim() || '1.0',
+      etapas:etapas.map(({texto,...e}) => ({ ...e,blocos:textoParaBlocos(texto) })),revisadoEm:new Date().toISOString(),revisadoPor:SESSAO.nome };
+    if (!salvarLocal('jornadas',salvo)) return;
+    toast(mensagemSalvo()); location.hash='#/jornada/'+salvo.id;
   };
-  const ap = $('#e-apagar');
-  if (ap) ap.onclick = () => {
-    if (!confirm('Apagar esta jornada?')) return;
-    STORE.apagar('jornadas', j.id);
-    location.hash = '#/fab';
-  };
+  const ap=$('#e-apagar'); if (ap) ap.onclick=() => { if (confirm('Arquivar esta jornada? O conteúdo será preservado.') && arquivarLocal('jornadas',j.id)) location.hash='#/fab'; };
+  pintarEtapas(); ligarTopo();
 }
 
 /* ══════════ trocar a senha ══════════ */
@@ -1139,6 +1174,7 @@ function renderTrocarSenha(app) {
       ? '<button class="botao fantasma largo" id="sn-outro" style="margin-top:10px">Entrar com outro usuário</button>'
       : '<a href="#/menu" class="botao fantasma largo" style="margin-top:10px">← voltar</a>') +
     '</div></div>';
+  associarRotulos(app);
   const outro = $('#sn-outro');
   if (outro) outro.onclick = () => {
     AUTH.esquecer(); STORE.setUser(null); SESSAO = null; location.hash = '#/'; renderApp();
@@ -1165,7 +1201,54 @@ function renderTrocarSenha(app) {
 }
 
 /* ══════════ menu ══════════ */
+function baixarRascunhos() {
+  const dados = { pendentes: STORE.getFila(), rascunhos: STORE.getRascunhos(), exportadoEm: new Date().toISOString() };
+  const url = URL.createObjectURL(new Blob([JSON.stringify(dados, null, 2)], { type: 'application/json' }));
+  const a = document.createElement('a'); a.href = url; a.download = 'pops-meus-rascunhos.json'; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function abrirPendencias() {
+  const fila = STORE.getFila();
+  const m = abrirModal('<h3>Seus envios pendentes</h3><p class="dica">As alterações ficam guardadas neste aparelho até o servidor confirmar.</p>' +
+    (fila.length ? fila.map(it => '<div class="card"><b>' + esc(it.registro?.titulo || it.colecao) + '</b><p>' + esc(it.erro || 'Aguardando envio') + '</p>' +
+      (it.bloqueado ? '<button class="botao suave" data-recuperar="' + esc(it.mutationId) + '">Usar versão do servidor</button><p class="dica">Seu rascunho será preservado e poderá ser baixado em Minha conta.</p>' : '') + '</div>').join('') : '<p>Nenhum envio pendente.</p>') +
+    '<div class="acoes"><button class="botao" id="p-enviar">Tentar sincronizar</button><button class="botao fantasma" id="p-baixar">Baixar cópia</button><button class="botao fantasma" id="p-fechar">Fechar</button></div>');
+  $('#p-fechar', m).onclick = () => m.remove(); $('#p-baixar', m).onclick = baixarRascunhos;
+  $('#p-enviar', m).onclick = async () => { await STORE.trySync(); await STORE.pull(); if (m.isConnected) { m.remove(); abrirPendencias(); } };
+  $$('[data-recuperar]', m).forEach(bt => bt.onclick = async () => {
+    bt.disabled = true;
+    try { await STORE.recuperarServidor(bt.dataset.recuperar); m.remove(); renderApp(); abrirPendencias(); }
+    catch (e) { toast(e.message, 'erro'); bt.disabled = false; }
+  });
+}
+function abrirArquivados() {
+  if (!souAdmin()) return;
+  const m = abrirModal('<h3>Itens arquivados</h3><div class="campo"><label>Tipo de item</label><select id="arq-col"><option value="pops">POPs</option><option value="jornadas">Jornadas</option><option value="atribuicoes">Atribuições</option><option value="treinamentos">Treinamentos</option></select></div><div id="arq-lista">Carregando…</div><div class="acoes"><button class="botao fantasma" id="arq-fechar">Fechar</button></div>');
+  $('#arq-fechar', m).onclick = () => m.remove();
+  let carga = 0;
+  async function carregar() {
+    const ordem = ++carga, colecao = $('#arq-col', m).value; $('#arq-lista', m).textContent = 'Carregando…';
+    try {
+      let desde = null, itens = [], vistos = new Set();
+      do {
+        const r = await STORE.api('list', { colecao, protocolo: 2, limite: 500, desde: desde || undefined });
+        if (!m.isConnected || ordem !== carga) return;
+        itens = itens.concat((r.itens || []).filter(x => x.apagado)); desde = r.proximo;
+        if (desde) { const k = JSON.stringify(desde); if (vistos.has(k)) throw new Error('Lista incompleta. Tente novamente.'); vistos.add(k); }
+      } while (desde);
+      $('#arq-lista', m).innerHTML = itens.length ? itens.map((it, i) => '<div class="card"><b>' + esc(it.registro?.titulo || it.registro?.nome || 'Item arquivado') + '</b><div class="acoes"><button class="botao suave" data-restaurar="' + i + '">Restaurar</button></div></div>').join('') : '<p>Nenhum item arquivado deste tipo.</p>';
+      $$('[data-restaurar]', m).forEach(bt => bt.onclick = async () => {
+        bt.disabled = true; const it = itens[Number(bt.dataset.restaurar)];
+        try { await STORE.api('restore', { colecao, id: it.id, expectedRevision: it.revision, mutationId: uuid() }); await STORE.pull(); toast('Item restaurado.', 'sucesso'); if (m.isConnected) await carregar(); }
+        catch (e) { toast(e.message, 'erro'); bt.disabled = false; }
+      });
+    } catch (e) { if (m.isConnected && ordem === carga) $('#arq-lista', m).textContent = e.message; }
+  }
+  $('#arq-col', m).onchange = carregar; carregar();
+}
+
 function renderMenu(app) {
+  const cfgInicial = STORE.getCFG();
   app.innerHTML = htmlTopo('menu') +
     '<div class="miolo">' +
     '<div class="card"><div class="sub">Sua conta</div>' +
@@ -1173,6 +1256,7 @@ function renderMenu(app) {
     '<p class="dica">Última sincronização: ' + (STORE.lastSync() ? fmtDataHora(STORE.lastSync()) : 'ainda não sincronizou') + '</p>' +
     '<div class="acoes"><a class="botao suave" href="#/senha">🔑 Trocar a minha senha</a>' +
     '<button class="botao fantasma" id="bt-sair">Sair</button></div></div>' +
+    '<div class="card"><h2>Sincronização e recuperação</h2><p class="dica">Revise envios pendentes e recupere rascunhos deste aparelho.</p><div class="acoes"><button class="botao suave" id="bt-pendencias">Ver pendências</button><button class="botao fantasma" id="bt-rascunhos">Baixar rascunhos</button>' + (souAdmin() ? '<button class="botao fantasma" id="bt-arquivados">Itens arquivados</button>' : '') + '</div></div>' +
     (souAdmin() ? '<div class="card"><div class="sub">Gestores por setor</div>' +
       '<p class="dica">Formato: um por linha, <b>usuario: Setor A, Setor B</b>. Gestor edita os POPs dos setores dele.</p>' +
       '<div class="campo"><textarea id="cfg-gestores" style="min-height:120px">' +
@@ -1183,6 +1267,9 @@ function renderMenu(app) {
       '<button class="botao" id="bt-salvar-cfg">💾 Salvar configuração</button></div>' : '') +
     '</div>';
   ligarTopo();
+  $('#bt-pendencias').onclick = abrirPendencias;
+  $('#bt-rascunhos').onclick = baixarRascunhos;
+  if ($('#bt-arquivados')) $('#bt-arquivados').onclick = abrirArquivados;
   $('#bt-sair').onclick = () => {
     AUTH.esquecer(); STORE.setUser(null); SESSAO = null; location.hash = '#/'; renderApp();
   };
@@ -1194,12 +1281,10 @@ function renderMenu(app) {
       if (u && ss) gestores[norm(u)] = ss.split(',').map(s => s.trim()).filter(Boolean);
     });
     const lista = $('#cfg-setores').value.split('\n').map(s => s.trim()).filter(Boolean);
-    const cfg = Object.assign({}, STORE.getCFG(), { gestores, setores: lista });
     try {
-      await STORE.api('setCfg', { config: cfg });
-      localStorage.setItem('pops_cfg', JSON.stringify(cfg));
+      await STORE.salvarCFG({ gestores, setores: lista }, cfgInicial);
       toast('Configuração salva ✓', 'sucesso');
-    } catch { toast('Sem conexão — tente de novo com internet.', 'erro'); }
+    } catch (e) { toast(e.message || 'Não consegui salvar a configuração.', 'erro'); }
   };
 }
 
@@ -1208,12 +1293,14 @@ let ROTA = { nome: 'inicio', arg: '' };
 function lerRota() {
   const h = location.hash.replace(/^#\/?/, '');
   const [nome, ...resto] = h.split('/');
-  ROTA = { nome: nome || 'inicio', arg: decodeURIComponent(resto.join('~') || '') };
+  try { ROTA = { nome: nome || 'inicio', arg: decodeURIComponent(resto.join('~') || '') }; }
+  catch { ROTA = { nome: 'inicio', arg: '' }; }
 }
 function renderApp() {
   const app = $('#app');
   if (!SESSAO) { renderLogin(app); return; }
   lerRota();
+  document.title = ({inicio:'Início',pops:'POPs',fab:'Fabricação',pessoas:'Pessoas',mapa:'Mapa de treinamento',meus:'Meus treinamentos',menu:'Minha conta'})[ROTA.nome] || 'Pops & Fabricação';
   // Enquanto a senha for a temporária, o app inteiro fica atrás desta tela.
   if (SESSAO.trocarSenha && ROTA.nome !== 'senha') { location.hash = '#/senha'; return; }
   const R = {
@@ -1244,7 +1331,15 @@ window.addEventListener('hashchange', renderApp);
 (function boot() {
   if ('serviceWorker' in navigator) { try { navigator.serviceWorker.register('./sw.js'); } catch {} }
   renderApp();
-  if (SESSAO) STORE.pull().then(() => renderApp());
+  if (SESSAO) {
+    const usuario = SESSAO.usuario;
+    AUTH.eu().then(r => {
+      if (!SESSAO || SESSAO.usuario !== usuario) return;
+      if (r === false) { AUTH.esquecer(); STORE.setUser(null); SESSAO = null; renderApp(); return; }
+      if (r && r.usuario && r.papel) { STORE.setUser({ usuario: r.usuario, nome: r.nome, papel: r.papel, trocarSenha: r.trocarSenha === undefined ? !!SESSAO.trocarSenha : !!r.trocarSenha }); SESSAO = STORE.getUser(); }
+      STORE.trySync(); STORE.pull().then(() => { if (ROTA.nome !== 'editor') renderApp(); });
+    });
+  }
   setInterval(() => { if (SESSAO && document.visibilityState === 'visible') { STORE.pull(); } }, 90000);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && SESSAO) { STORE.trySync(); STORE.pull(); }

@@ -1,372 +1,205 @@
-// ============================================================================
-// pops-sync — Edge Function do sistema pops (MOLDE; trocar pops e POPS_TOKEN).
-//
-// Contrato: o app manda POST { action, ... } com header x-token e recebe JSON.
-// É o mesmo desenho do brief-sync/pcp-sync que está em produção desde 31/07/2026.
-//
-// PROJETO COMPARTILHADO: o nome desta function PRECISA do prefixo. Publicar uma
-// function chamada "sync" sobrescreve a do RH em produção.
-//
-// verify_jwt = false DE PROPÓSITO: o preflight CORS chega sem token e o gateway
-// barraria antes de a função rodar. A autorização é feita AQUI DENTRO (x-token
-// contra o secret POPS_TOKEN). Deploy sempre com --no-verify-jwt.
-//
-// Regras herdadas (cada uma custou horas):
-//  - teto de 150s: nada de varredura longa aqui; página a página, cliente comanda
-//  - lápide (apagado=true), nunca DELETE — o pull dos outros aparelhos precisa dela
-//  - rev bump em pops_meta a cada escrita — é o que faz o pull econômico funcionar
-//  - list pagina NO BANCO (keyset), nunca "carrega tudo e fatia na memória"
-//  - foto: bytes PUROS no bucket; o formato de resposta segue o que o CLIENTE espera
-// ============================================================================
-
+// POPs: credencial pessoal conferida no servidor; x-token exclusivo da automação.
+// verify_jwt=false: esta porta valida o JWT da equipe, não um JWT Supabase Auth.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
 const TOKEN = Deno.env.get("POPS_TOKEN") ?? "";
-// O segredo dos CRACHAS -- o mesmo que a equipe-auth usa para assinar. E ele que
-// permite conferir quem esta chamando, em vez de conferir um segredo que viaja
-// no bundle publico.
 const JWT_SECRET = Deno.env.get("EQUIPE_JWT_SECRET") ?? "";
-const BUCKET = "pops-arquivos";
-const T_REG = "pops_registros";
-const T_CFG = "pops_config_global";
-const T_META = "pops_meta";
+const T_REG = "pops_registros", T_CFG = "pops_config_global", T_META = "pops_meta", BUCKET = "pops-arquivos";
+const COLS = new Set(["pops", "jornadas", "treinamentos", "pessoas", "atribuicoes", "leituras", "progresso"]);
+const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-token", "Access-Control-Allow-Methods": "POST, OPTIONS" };
+const resp = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { ...CORS, "Content-Type": "application/json" } });
+const norm = (s: unknown) => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+class Falha extends Error { status: number; constructor(message: string, status = 400) { super(message); this.status = status; } }
+function conferir(result: any) { if (result.error) throw new Error("Não foi possível consultar ou salvar os dados. Tente novamente."); return result.data; }
+function idValido(id: unknown) { if (typeof id !== "string" || !/^[a-zA-Z0-9._:-]{1,160}$/.test(id)) throw new Falha("Identificador inválido."); return id; }
+function colValida(col: unknown) { if (typeof col !== "string" || !COLS.has(col)) throw new Falha("Coleção inválida."); return col; }
+async function registro(col: string, id: string) { return conferir(await sb.from(T_REG).select("registro, apagado, revision").eq("colecao", col).eq("id", id).maybeSingle()); }
+async function config() { const r = conferir(await sb.from(T_CFG).select("config").eq("id", true).maybeSingle()); return r?.config ?? {}; }
+function negar() { throw new Falha("Seu acesso não permite esta alteração.", 403); }
 
-const sb = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
-
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-token",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-const resp = (data: unknown, status = 200) =>
-  new Response(JSON.stringify(data), { status, headers: { ...CORS, "Content-Type": "application/json" } });
-
-// Rev bump: um número por coleção + um global. O cliente compara e só baixa o
-// que mudou — sem isso, todo pull é completo.
-async function bump(colecao: string) {
-  const agora = Date.now();
-  const { data } = await sb.from(T_META).select("valor").eq("chave", "rev").maybeSingle();
-  const atual = (data?.valor as { rev?: number; porColecao?: Record<string, number> }) ?? {};
-  await sb.from(T_META).upsert({
-    chave: "rev",
-    valor: { rev: agora, porColecao: { ...(atual.porColecao ?? {}), [colecao]: agora } },
-    atualizado_em: new Date().toISOString(),
-  });
-}
-
-// Confere o cracha que o app guarda no localStorage: assinatura, validade e --
-// isto e o que importa -- de QUAL sistema ele e. Um cracha do Brief nao abre o
-// POPs.
 async function lerCracha(token: string): Promise<any | null> {
-  if (!JWT_SECRET || !token) return null;
-  const partes = token.split(".");
-  if (partes.length !== 3) return null;
   try {
-    const enc = new TextEncoder();
-    const chave = await crypto.subtle.importKey(
-      "raw", enc.encode(JWT_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
-    const b64url = (t: string) => {
-      t = t.replace(/-/g, "+").replace(/_/g, "/");
-      while (t.length % 4) t += "=";
-      const bin = atob(t);
-      const out = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-      return out;
-    };
-    const ok = await crypto.subtle.verify(
-      "HMAC", chave, b64url(partes[2]), enc.encode(`${partes[0]}.${partes[1]}`));
-    if (!ok) return null;
-    const p = JSON.parse(new TextDecoder().decode(b64url(partes[1])));
-    if (typeof p.exp === "number" && p.exp < Math.floor(Date.now() / 1000)) return null;
-    if (p.sis !== "pops") return null;
+    if (!JWT_SECRET || !token) return null;
+    const partes = token.split("."); if (partes.length !== 3) return null;
+    const decode = (s: string) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(s.length / 4) * 4, "=")), c => c.charCodeAt(0));
+    const cab = JSON.parse(new TextDecoder().decode(decode(partes[0])));
+    if (cab.alg !== "HS256") return null;
+    const chave = await crypto.subtle.importKey("raw", new TextEncoder().encode(JWT_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+    if (!await crypto.subtle.verify("HMAC", chave, decode(partes[2]), new TextEncoder().encode(`${partes[0]}.${partes[1]}`))) return null;
+    const p = JSON.parse(new TextDecoder().decode(decode(partes[1])));
+    if (p.sis !== "pops" || typeof p.sub !== "string" || !norm(p.sub) || !["admin", "gestor", "equipe"].includes(p.papel)) return null;
+    if (!Number.isFinite(p.exp) || p.exp <= Math.floor(Date.now() / 1000)) return null;
     return p;
-  } catch {
-    return null;
+  } catch { return null; }
+}
+
+// Falha de consulta não concede acesso; o conteúdo já baixado segue disponível offline.
+async function conferirAcesso(cracha: any) {
+  const { data, error } = await sb.rpc("acesso_revogado", { p_sistema: "pops", p_sub: cracha.sub, p_papel: cracha.papel });
+  if (error || typeof data !== "boolean") throw new Falha("Não consegui conferir seu acesso agora. Tente novamente.", 503);
+  if (data) throw new Falha("Seu acesso foi encerrado. Fale com a gestão.", 401);
+}
+
+async function autorizarEscrita(col: string, novo: any, anterior: any, cracha: any, maquina: boolean, apagar = false) {
+  if (maquina) return;
+  const u = norm(cracha.sub), papel = cracha.papel;
+  if (apagar) { if (papel !== "admin") negar(); return; }
+  if (["leituras", "progresso"].includes(col)) {
+    if (norm(novo.usuario) !== u || (anterior && norm(anterior.usuario) !== u)) negar();
+    const ref = col === "progresso" ? novo.jornadaId : novo.popId || novo.treinamentoId;
+    const origem = col === "progresso" ? "jornadas" : novo.popId ? "pops" : "treinamentos";
+    const prefixo = col === "progresso" ? "j" : novo.popId ? "l" : "t";
+    if (novo.id !== `${prefixo}-${u}-${ref}`) negar();
+    const item = await registro(origem, idValido(ref));
+    if (!item || item.apagado) throw new Falha("Este conteúdo não está mais disponível. Atualize a lista.", 409);
+    if (col === "leituras") {
+      if (novo.versaoLida !== (item.registro.versao || "1.0")) throw new Falha("O conteúdo mudou. Leia a versão atual antes de confirmar.", 409);
+      if (origem === "treinamentos" && item.registro.exigeAceite && novo.aceite !== true) throw new Falha("Confirme o aceite do treinamento.");
+    } else {
+      const validas = new Set((item.registro.etapas || []).map((e: any) => e.id));
+      if (!novo.etapas || Array.isArray(novo.etapas) || typeof novo.etapas !== "object" || Object.keys(novo.etapas).some(k => !validas.has(k))) throw new Falha("As etapas mudaram. Atualize a jornada antes de continuar.", 409);
+      if (!validas.size || Object.keys(novo.etapas).length < validas.size) delete novo.concluidaEm;
+    }
+    novo.usuario = u;
+    // Identidade e autoria não são delegáveis pelo formulário.
+    novo.nome = String(cracha.nome || cracha.sub);
+    return;
+  }
+  if (papel === "admin") return;
+  if (papel !== "gestor" || !["pops", "atribuicoes"].includes(col)) negar();
+  const cfg = await config();
+  const meus = (cfg.gestores?.[u] || []).map(norm);
+  if (col === "pops") {
+    if (!meus.includes(norm(novo.setor)) || (anterior && !meus.includes(norm(anterior.setor)))) negar();
+  } else {
+    if (novo.tipo !== "pop" || (anterior && (anterior.tipo !== "pop" || anterior.refId !== novo.refId || anterior.pessoaId !== novo.pessoaId))) negar();
+    const pop = await registro("pops", idValido(novo.refId));
+    if (!pop || pop.apagado || !meus.includes(norm(pop.registro.setor))) negar();
   }
 }
 
-
-/* ---------------------------------------------------------------- revogacao
-   "Esse cracha ainda vale?" -- a pergunta que ESTA porta nao fazia.
-   O cracha e um JWT de 30 dias (12h no Painel) guardado no aparelho: assinatura,
-   validade e sistema conferiam, e mais nada. Desativar alguem na tela de Acessos
-   nao fechava porta nenhuma deste lado ate o cracha vencer.
-
-   A regra mora no BANCO (public.acesso_revogado), e nao num arquivo aqui: as
-   portas de dados estao em CINCO repositorios e cada function empacota o proprio
-   codigo -- um _shared/revogacao.ts viraria doze copias envelhecendo caladas,
-   que e a doenca que esta semana perseguiu. O banco os oito ja dividem.
-
-   Cache de 60s por pessoa: uma consulta por minuto, nao por request.
-   Banco fora do ar ACEITA e nao guarda no cache -- trancar a casa inteira por
-   causa de uma consulta que falhou e pior do que um cracha durar mais um pouco. */
-const CACHE_REVOG = new Map<string, { ate: number; revogado: boolean }>();
-async function crachaRevogado(sb: any, sistema: string, cracha: any): Promise<boolean> {
-  const sub = String(cracha?.sub ?? "").trim();
-  if (!sub) return false;
-  const papel = String(cracha?.papel ?? "");
-  const chave = `${sistema}:${papel}:${sub}`;
-  const agora = Date.now();
-  const emCache = CACHE_REVOG.get(chave);
-  if (emCache && emCache.ate > agora) return emCache.revogado;
-  try {
-    const { data, error } = await sb.rpc("acesso_revogado", {
-      p_sistema: sistema, p_sub: sub, p_papel: papel,
-    });
-    if (error) throw new Error(error.message);
-    const revogado = data === true;
-    CACHE_REVOG.set(chave, { ate: agora + 60_000, revogado });
-    return revogado;
-  } catch (e) {
-    console.error("[revogacao] indisponivel:", (e as Error)?.message);
-    return false;
-  }
-}
-
-Deno.serve(async (req) => {
+Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return resp({ erro: "Use POST." }, 405);
-  // Duas formas de entrar, e so duas:
-  //  - CRACHA de uma pessoa que entrou no POPs (authorization: Bearer ...);
-  //  - x-token, que agora e SO da maquina (o backup diario).
-  //
-  // Antes daqui, o x-token era o token que ia no bundle publico: qualquer pessoa
-  // com o endereco do repositorio lia e gravava os POPs sem login nenhum. O
-  // login era enfeite. Foi o mesmo furo do DRE, do PCP e do Brief.
-  const m = String(req.headers.get("authorization") ?? "").match(/^Bearer\s+(.+)$/i);
-  const cracha = m ? await lerCracha(m[1]) : null;
-  if (cracha && await crachaRevogado(sb, "pops", cracha)) {
-    return resp({ error: "Seu acesso ao sistema foi encerrado. Fale com a gestão.", semSessao: true }, 401);
-  }
-  const ehMaquina = !!TOKEN && req.headers.get("x-token") === TOKEN;
-  if (!cracha && !ehMaquina) return resp({ erro: "Entre no sistema.", semSessao: true }, 401);
-
-  /* QUEM PODE ESCREVER.
-     A porta conferia QUEM entrou e nunca O QUE a pessoa pode: um crachá de
-     "equipe" -- o papel de quem só LÊ procedimento e registra leitura --
-     apagava POP, reescrevia a configuração inteira e disparava a
-     sincronização de pessoas. Os papéis são os do equipe-auth: admin manda em
-     tudo, gestor edita os POPs, equipe lê.
-     A máquina (backup) continua passando: ela não tem papel. */
-  const ESCRITA_GESTOR = ["upsert", "putFoto", "deleteFoto"];
-  const ESCRITA_ADMIN = ["delete", "setCfg", "sincronizarPessoas"];
-  const papel = String(cracha?.papel ?? "");
-  if (!ehMaquina) {
-    const acaoPedida = String((await req.clone().json().catch(() => ({})))?.action ?? "");
-    if (ESCRITA_ADMIN.includes(acaoPedida) && papel !== "admin") {
-      return resp({ erro: "Só a gestão do POPs faz isso.", semPermissao: true }, 403);
-    }
-    if (ESCRITA_GESTOR.includes(acaoPedida) && papel !== "admin" && papel !== "gestor") {
-      return resp({ erro: "Seu acesso lê os POPs, mas não edita.", semPermissao: true }, 403);
-    }
-  }
-
-  let body: Record<string, unknown>;
-  try { body = await req.json(); } catch { return resp({ erro: "JSON inválido." }, 400); }
-  const action = String(body.action ?? "");
-
   try {
+    const maquina = !!TOKEN && req.headers.get("x-token") === TOKEN;
+    const m = (req.headers.get("authorization") || "").match(/^Bearer\s+(.+)$/i);
+    const cracha = m ? await lerCracha(m[1]) : null;
+    if (!maquina) { if (!cracha) throw new Falha("Entre no sistema.", 401); await conferirAcesso(cracha); }
+    const admin = maquina || cracha?.papel === "admin";
+    let body: any;
+    try { body = await req.json(); } catch { throw new Falha("JSON inválido."); }
+    if (!body || Array.isArray(body) || typeof body !== "object") throw new Falha("Requisição inválida.");
+    const action = String(body.action ?? "");
+    if (["delete", "restore", "setCfg", "sincronizarPessoas", "putFoto", "deleteFoto"].includes(action) && !admin) negar();
     switch (action) {
-      case "ping":
-        return resp({ ok: true, agora: new Date().toISOString() });
-
+      case "ping": return resp({ ok: true, agora: new Date().toISOString() });
       case "rev": {
-        const { data } = await sb.from(T_META).select("valor").eq("chave", "rev").maybeSingle();
+        const data = conferir(await sb.from(T_META).select("valor").eq("chave", "rev").maybeSingle());
         return resp({ rev: data?.valor ?? { rev: 0, porColecao: {} } });
       }
-
-      // ── Protocolo do BACKUP DO HUB (painel-backup) ───────────────────────
-      // O Painel puxa {action:"list", after} até nextAfter null e depois
-      // {action:"getCfg"}. O list SEM colecao é o modo backup: devolve TODAS
-      // as coleções, com _col em cada linha (mesmo desenho do Compras).
       case "list": {
         if (body.colecao == null) {
-          const PASSO = 500;
-          const de = Number(body.after ?? 0) || 0;
-          const { data, error } = await sb.from(T_REG)
-            .select("colecao, id, registro, apagado")
-            .order("colecao").order("id").range(de, de + PASSO - 1);
-          if (error) throw error;
-          const linhas = (data ?? []).filter((l: any) => !l.apagado)
-            .map((l: any) => ({ _col: l.colecao, ...l.registro }));
-          // nextAfter só com página CHEIA (página parcial é o fim).
-          return resp({ registros: linhas, nextAfter: (data ?? []).length === PASSO ? de + PASSO : null });
+          if (!admin) negar();
+          const de = Number(body.after ?? 0);
+          if (!Number.isSafeInteger(de) || de < 0) throw new Falha("Página inválida.");
+          const data = conferir(await sb.from(T_REG).select("colecao, id, registro, apagado").order("colecao").order("id").range(de, de + 499));
+          return resp({ registros: data.filter((l: any) => !l.apagado).map((l: any) => ({ ...l.registro, _col: l.colecao })), nextAfter: data.length === 500 ? de + 500 : null });
         }
-        // Keyset por atualizado_em: estável sob escrita concorrente, e o banco
-        // pagina — nunca "traz tudo e corta".
-        const colecao = String(body.colecao ?? "");
-        const desde = String(body.desde ?? "") || "1970-01-01";
-        const limite = Math.min(Number(body.limite ?? 200), 500);
-        const { data, error } = await sb.from(T_REG)
-          .select("id, registro, apagado, atualizado_em")
-          .eq("colecao", colecao).gt("atualizado_em", desde)
-          .order("atualizado_em", { ascending: true }).limit(limite);
-        if (error) throw error;
-        const proximo = data.length === limite ? data[data.length - 1].atualizado_em : null;
-        return resp({ itens: data, proximo });
+        const col = colValida(body.colecao), limite = Number(body.limite ?? 200);
+        if (!Number.isInteger(limite) || limite < 1 || limite > 500) throw new Falha("Limite de página inválido.");
+        let q = sb.from(T_REG).select("id, registro, apagado, atualizado_em, revision").eq("colecao", col);
+        if (body.desde) {
+          // A dupla data/id não perde registros quando um lote compartilha a data.
+          if (typeof body.desde === "object") {
+            const { em, id } = body.desde;
+            if (typeof em !== "string" || !/^\d{4}-\d\d-\d\dT[\d:.]+(?:Z|[+-]\d\d:\d\d)$/.test(em) || !Number.isFinite(Date.parse(em))) throw new Falha("Cursor inválido.");
+            q = q.or(`atualizado_em.gt.${em},and(atualizado_em.eq.${em},id.gt.${idValido(id)})`);
+          } else {
+            // Compatibilidade temporária com o app anterior; o novo cliente usa a dupla.
+            if (typeof body.desde !== "string" || !Number.isFinite(Date.parse(body.desde))) throw new Falha("Cursor inválido.");
+            q = q.gt("atualizado_em", body.desde);
+          }
+        }
+        const data = conferir(await q.order("atualizado_em").order("id").limit(limite));
+        const ultimo = data[data.length - 1];
+        return resp({ itens: data, proximo: data.length === limite ? (body.protocolo === 2 ? { em: ultimo.atualizado_em, id: ultimo.id } : ultimo.atualizado_em) : null });
       }
-
       case "get": {
-        const { data } = await sb.from(T_REG).select("registro, apagado")
-          .eq("colecao", String(body.colecao)).eq("id", String(body.id)).maybeSingle();
-        return resp({ registro: data && !data.apagado ? data.registro : null });
+        const data = await registro(colValida(body.colecao), idValido(body.id));
+        return resp({ registro: data && !data.apagado ? data.registro : null, revision: data?.revision ?? 0 });
       }
-
-      case "upsert": {
-        const colecao = String(body.colecao ?? "");
-        const registro = body.registro as Record<string, unknown>;
-        if (!colecao || !registro?.id) return resp({ erro: "colecao e registro.id obrigatórios." }, 400);
-        const { error } = await sb.from(T_REG).upsert({
-          colecao, id: String(registro.id), registro,
-          apagado: false, atualizado_em: new Date().toISOString(),
-        });
-        if (error) throw error;
-        await bump(colecao);
-        return resp({ ok: true });
+      case "upsert":
+      case "delete":
+      case "restore": {
+        const col = colValida(body.colecao);
+        const reg = body.registro;
+        if (action === "upsert" && (!reg || Array.isArray(reg) || typeof reg !== "object" || JSON.stringify(reg).length > 500_000)) throw new Falha("Registro inválido ou muito grande.");
+        const id = idValido(action === "upsert" ? reg.id : body.id);
+        const atual = await registro(col, id);
+        await autorizarEscrita(col, reg, atual?.registro, cracha, maquina, action !== "upsert");
+        if (action === "upsert" && col === "pessoas" && !maquina) {
+          if (!atual || atual.apagado) throw new Falha("Atualize a pessoa a partir do RH antes de vincular sua conta.", 409);
+          const usuario = norm(reg.usuario), observacao = reg.observacao ?? atual.registro.observacao;
+          if (usuario) {
+            const conta = conferir(await sb.from("equipe_contas").select("usuario, ativo").eq("sistema", "pops").eq("usuario", usuario).maybeSingle());
+            if (!conta || conta.ativo === false) throw new Falha("Escolha uma conta ativa do POPs na Central de Acessos.", 409);
+          }
+          // Nome, função e área continuam sendo responsabilidade do RH.
+          for (const k of Object.keys(reg)) delete reg[k];
+          Object.assign(reg, atual.registro, { usuario });
+          if (observacao !== undefined) reg.observacao = observacao;
+        }
+        if (action === "upsert" && col === "atribuicoes") {
+          const origens: Record<string, string> = { pop: "pops", jornada: "jornadas", treinamento: "treinamentos" };
+          if (!origens[reg.tipo]) throw new Falha("Tipo de atribuição inválido.");
+          const pessoa = await registro("pessoas", idValido(reg.pessoaId));
+          const item = await registro(origens[reg.tipo], idValido(reg.refId));
+          if (!pessoa || pessoa.apagado || !item || item.apagado) throw new Falha("Pessoa ou conteúdo indisponível.", 409);
+        }
+        const expected = body.expectedRevision;
+        if (expected != null && (!Number.isSafeInteger(expected) || expected < 0)) throw new Falha("Versão inválida.");
+        const mutation = body.mutationId == null ? null : idValido(body.mutationId);
+        const result = await sb.rpc("pops_gravar", { p_colecao: col, p_id: id, p_registro: action === "upsert" ? reg : null, p_acao: action, p_expected: expected ?? atual?.revision ?? 0, p_mutation: mutation });
+        if (result.error?.code === "40001") throw new Falha("Outra pessoa atualizou este item. Sua alteração foi preservada para revisão.", 409);
+        if (result.error?.code === "23505") throw new Falha("Essa conta já está vinculada a outra pessoa.", 409);
+        return resp(conferir(result));
       }
-
-      case "delete": {
-        // Lápide, nunca DELETE: o aparelho que estava offline precisa saber que morreu.
-        const colecao = String(body.colecao ?? "");
-        const id = String(body.id ?? "");
-        const agora = new Date().toISOString();
-        const { error } = await sb.from(T_REG).upsert({
-          colecao, id, registro: { id, _apagado: true, atualizadoEm: agora },
-          apagado: true, atualizado_em: agora,
-        });
-        if (error) throw error;
-        await bump(colecao);
-        return resp({ ok: true });
-      }
-
-      case "getCfg": {
-        const { data } = await sb.from(T_CFG).select("config").eq("id", true).maybeSingle();
-        // `cfg` é o nome que o backup do Hub espera; `config` é o do app.
-        return resp({ config: data?.config ?? null, cfg: data?.config ?? null });
-      }
+      case "getCfg": { const cfg = await config(); return resp({ config: cfg, cfg }); }
       case "setCfg": {
-        const { error } = await sb.from(T_CFG).upsert({
-          id: true, config: body.config ?? {}, atualizado_em: new Date().toISOString(),
-        });
-        if (error) throw error;
-        await bump("cfg");
-        return resp({ ok: true });
+        if (!body.config || Array.isArray(body.config) || typeof body.config !== "object") throw new Falha("Configuração inválida.");
+        // Somente campos enviados são modificados; omissão não apaga os demais.
+        const result = await sb.rpc("pops_configurar", { p_patch: body.config, p_anterior: body.anterior ?? null });
+        if (result.error?.code === "40001") throw new Falha("A configuração mudou. Atualize antes de salvar.", 409);
+        return resp(conferir(result));
       }
-
       case "putFoto": {
-        // Bytes PUROS no bucket. Se o cliente manda data URL, tirar o prefixo aqui.
-        const id = String(body.id ?? "");
-        const b64 = String(body.base64 ?? "").replace(/^data:[^;]+;base64,/, "");
-        const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-        const { error } = await sb.storage.from(BUCKET).upload(id, bytes,
-          { contentType: String(body.tipo ?? "image/jpeg"), upsert: true });
-        if (error) throw error;
-        return resp({ ok: true });
+        const id = idValido(body.id), tipo = String(body.tipo || "image/jpeg");
+        if (!["image/jpeg", "image/png", "image/webp"].includes(tipo)) throw new Falha("Use uma imagem JPG, PNG ou WebP.");
+        const b64 = String(body.base64 || "").replace(/^data:[^;]+;base64,/, "");
+        if (!b64 || b64.length > 7_000_000) throw new Falha("A imagem deve ter até 5 MB.");
+        let bytes: Uint8Array; try { bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0)); } catch { throw new Falha("Imagem inválida."); }
+        if (bytes.length > 5_000_000) throw new Falha("A imagem deve ter até 5 MB.");
+        conferir(await sb.storage.from(BUCKET).upload(id, bytes, { contentType: tipo, upsert: true })); return resp({ ok: true });
       }
       case "getFoto": {
-        const { data, error } = await sb.storage.from(BUCKET).download(String(body.id ?? ""));
-        if (error || !data) return resp({ base64: null });
-        const buf = new Uint8Array(await data.arrayBuffer());
-        // base64 SEM spread (String.fromCharCode(...buf) estoura a pilha) — blocos de 0x8000.
-        let bin = "";
+        const { data, error } = await sb.storage.from(BUCKET).download(idValido(body.id));
+        if (error || !data) throw new Falha("Não consegui carregar a imagem. Tente novamente.", 502);
+        const buf = new Uint8Array(await data.arrayBuffer()); let bin = "";
         for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
-        // DECISÃO POR CLIENTE: Brief espera data URL completa; Painel espera base64 puro.
-        // Conferir o que o app faz com o valor ANTES de escolher a linha abaixo.
         return resp({ base64: `data:${data.type || "image/jpeg"};base64,${btoa(bin)}` });
       }
-      case "deleteFoto": {
-        await sb.storage.from(BUCKET).remove([String(body.id ?? "")]);
-        return resp({ ok: true });
-      }
-
-      // ── pessoas: espelho MÍNIMO dos colaboradores do RH ──────────────────
-      // O RH é a base de gente da empresa (tabela `registros`, coleção
-      // `colaboradores`). Aqui só se LÊ — escrever no RH a partir daqui seria
-      // invadir o sistema do vizinho.
-      //
-      // PRIVACIDADE: copia-se APENAS o que treinamento precisa (nome, função,
-      // área, gestor e um id estável). Salário, endereço, CPF, dados do cônjuge
-      // e avaliação comportamental NÃO passam para cá — quem precisa disso é o
-      // RH, e é lá que eles ficam.
-      case "sincronizarPessoas": {
-        const { data, error } = await sb.from("registros")
-          .select("id, registro").eq("colecao", "colaboradores");
-        if (error) throw error;
-        const areas = await sb.from("registros").select("id, registro").eq("colecao", "areas");
-        const nomeArea = new Map((areas.data ?? []).map((a: any) => [a.id, a.registro?.nome ?? null]));
-        const agora = new Date().toISOString();
-        // O QUE É NOSSO NÃO PODE SER APAGADO PELA SINCRONIZAÇÃO. O vínculo com
-        // a conta da Central (`usuario`) é decisão do admin, mora só aqui e não
-        // existe no RH — um upsert cru o apagaria a cada rodada, e com a
-        // sincronização automática isso viraria "todo dia de manhã ninguém tem
-        // treinamento atribuído". Por isso lemos o que já existe e preservamos.
-        const { data: jaAqui } = await sb.from(T_REG).select("id, registro").eq("colecao", "pessoas");
-        const local = new Map((jaAqui ?? []).map((x: any) => [x.id, x.registro ?? {}]));
-        const CAMPOS_NOSSOS = ["usuario", "observacao"];
-        let ativos = 0, desligados = 0;
-        const linhas: any[] = [];
-        for (const r of data ?? []) {
-          const c = r.registro ?? {};
-          if (!c.nome) continue;
-          const saiu = String(c.dataDesligamento ?? "").trim() !== "";
-          if (saiu) { desligados++; continue; }   // desligado não entra no espelho
-          ativos++;
-          const id = "p-" + r.id;
-          const antes = local.get(id) ?? {};
-          const registro: Record<string, unknown> = {
-            id, nome: c.nome, funcao: c.funcao ?? c.cargoLivre ?? "",
-            area: nomeArea.get(c.areaId) ?? null, gestorId: c.gestorId ? "p-" + c.gestorId : null,
-            admissao: c.dataAdmissao ?? null, origem: "rh", atualizadoEm: agora,
-          };
-          for (const campo of CAMPOS_NOSSOS) {
-            if (antes[campo] !== undefined && antes[campo] !== null && antes[campo] !== "") {
-              registro[campo] = antes[campo];
-            }
-          }
-          linhas.push({ colecao: "pessoas", id, apagado: false, atualizado_em: agora, registro });
-        }
-        if (linhas.length) {
-          const { error: e2 } = await sb.from(T_REG).upsert(linhas, { onConflict: "colecao,id" });
-          if (e2) throw e2;
-        }
-        // Quem saiu do RH (ou foi desligado) vira lápide aqui: some da lista de
-        // atribuição, mas o histórico de treinamento dele continua existindo.
-        const vivos = new Set(linhas.map((l) => l.id));
-        const { data: aqui } = await sb.from(T_REG).select("id").eq("colecao", "pessoas").eq("apagado", false);
-        const sumiram = (aqui ?? []).map((x: any) => x.id).filter((id: string) => !vivos.has(id));
-        if (sumiram.length) {
-          await sb.from(T_REG).update({ apagado: true, atualizado_em: agora })
-            .eq("colecao", "pessoas").in("id", sumiram);
-        }
-        // Bump só quando algo mudou de verdade: sem isto, a rodada diária faria
-        // TODO aparelho rebaixar as 38 pessoas toda manhã, sem novidade nenhuma.
-        const mudou = linhas.some((l) => {
-          const antes = local.get(l.id);
-          if (!antes) return true;
-          // Comparação por chave ORDENADA: o jsonb do Postgres devolve as
-          // chaves em ordem própria e o objeto montado aqui vem na ordem de
-          // escrita — sem ordenar, "igual" nunca dá igual e o bump acontecia
-          // toda rodada (que é exatamente o que se queria evitar).
-          const semCarimbo = (o: any) => JSON.stringify(
-            Object.keys(o).filter((k) => k !== "atualizadoEm").sort().map((k) => [k, o[k]]));
-          return semCarimbo(antes) !== semCarimbo(l.registro);
-        }) || sumiram.length > 0;
-        if (mudou) await bump("pessoas");
-        return resp({ ok: true, ativos, desligados, arquivados: sumiram.length, mudou });
-      }
-
+      case "deleteFoto": conferir(await sb.storage.from(BUCKET).remove([idValido(body.id)])); return resp({ ok: true });
+      // Uma transação lê o espelho completo e preserva vínculos locais; falha desfaz tudo.
+      case "sincronizarPessoas": return resp(conferir(await sb.rpc("pops_sincronizar_pessoas")));
       case "saude": {
-        const { count } = await sb.from(T_REG).select("id", { count: "exact", head: true });
-        return resp({ ok: true, registros: count ?? 0 });
+        const result = await sb.from(T_REG).select("id", { count: "exact", head: true }); conferir(result);
+        return resp({ ok: true, registros: result.count });
       }
-
-      default:
-        return resp({ erro: `Ação desconhecida: ${action}` }, 400);
+      default: throw new Falha("Ação desconhecida.");
     }
   } catch (e) {
-    // supabase-js: o query builder NÃO tem .catch (é thenable) — sempre try/await.
-    return resp({ erro: e instanceof Error ? e.message : "Falha interna." }, 500);
+    const status = e instanceof Falha ? e.status : 500;
+    return resp({ erro: e instanceof Error ? e.message : "Falha interna.", ...(status === 401 ? { semSessao: true } : {}), ...(status === 403 ? { semPermissao: true } : {}) }, status);
   }
 });

@@ -58,3 +58,27 @@ test('leitura de versão antiga não é registrada como leitura da versão atual
   const b=backend({rows:[{...pop,registro:{...pop.registro,versao:'2.0'}}]});
   assert.equal((await b.call({action:'upsert',colecao:'leituras',registro:leitura})).status,409);assert.equal(b.writes.length,0);
 });
+test('equipe só consulta o próprio histórico de leitura',async()=>{
+  const rows=['ana','bia'].map(usuario=>({colecao:'leituras',id:'l-'+usuario+'-p1',registro:{id:'l-'+usuario+'-p1',usuario},apagado:false,atualizado_em:'2026-09-01T00:00:00Z'}));
+  const b=backend({rows});const r=await b.call({action:'list',colecao:'leituras'});
+  assert.equal(r.body.itens.length,1);assert.equal(r.body.itens[0].registro.usuario,'ana');
+  const outro=await b.call({action:'get',colecao:'leituras',id:'l-bia-p1'});assert.equal(outro.body.registro,null);
+});
+test('histórico, cadastro e atribuições pessoais não vazam entre colegas',async()=>{
+  const rows=['ana','bia'].flatMap(usuario=>[
+    {colecao:'pessoas',id:'p-'+usuario,registro:{id:'p-'+usuario,usuario},apagado:false},
+    {colecao:'progresso',id:'j-'+usuario,registro:{id:'j-'+usuario,usuario},apagado:false},
+    {colecao:'atribuicoes',id:'a-'+usuario,registro:{id:'a-'+usuario,pessoaId:'p-'+usuario},apagado:false},
+  ]);
+  const b=backend({rows});
+  for(const [col,prefixo] of [['pessoas','p-'],['progresso','j-'],['atribuicoes','a-']]){
+    const lista=await b.call({action:'list',colecao:col});
+    assert.equal(lista.status,200);assert.deepEqual(lista.body.itens.map(i=>i.id),[prefixo+'ana']);
+    const negado=await b.call({action:'get',colecao:col,id:prefixo+'bia'});
+    assert.deepEqual(negado.body,{registro:null,revision:0});
+    const permitido=await b.call({action:'get',colecao:col,id:prefixo+'ana'});
+    assert.equal(permitido.body.registro.id,prefixo+'ana');
+    assert.equal((await b.call({action:'list',colecao:col},{papel:'admin'})).body.itens.length,2);
+  }
+  assert.equal((await b.call({action:'list',colecao:'atribuicoes'},{sub:'sem-vinculo'})).body.itens.length,0);
+});

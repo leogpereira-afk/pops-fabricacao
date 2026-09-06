@@ -27,7 +27,7 @@ export function backend({ rows = [], config = {}, queryError = false, revocation
       queries.push(q);
       const chain = {
         select() { return chain; },
-        eq(k,v) { q.filters.push(r=>r[k]===v); return chain; },
+        eq(k,v) { q.filters.push(r=>(k.startsWith('registro->>')?r.registro?.[k.slice(11)]:r[k])===v); return chain; },
         gt(k,v) { q.filters.push(r=>r[k]>v); return chain; },
         gte(k,v) { q.filters.push(r=>r[k]>=v); return chain; },
         lte(k,v) { q.filters.push(r=>r[k]<=v); return chain; },

@@ -5,6 +5,7 @@ Esta rodada revisou o aplicativo POPs & Fabricação, sua persistência offline,
 ## Correções
 
 - Equipe registra a própria leitura/progresso; gestor só altera POPs dos setores atribuídos. Alterar o setor do envio não contorna essa regra.
+- A equipe consulta somente seus próprios históricos, cadastro vinculado e atribuições. A restrição vale também para consultas diretas, sem depender dos menus.
 - Credenciais sem validade futura são recusadas. Erro na consulta de revogação não libera acesso.
 - Dados e fila local são guardados juntos e por usuário. Cada confirmação remove somente o envio correspondente; sessões antigas não alteram a nova sessão.
 - Erros de gravação e conflitos ficam visíveis. Rascunhos podem ser baixados e são preservados quando o usuário recupera a versão do servidor.

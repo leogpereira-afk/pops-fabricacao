@@ -17,6 +17,19 @@ async function registro(col: string, id: string) { return conferir(await sb.from
 async function config() { const r = conferir(await sb.from(T_CFG).select("config").eq("id", true).maybeSingle()); return r?.config ?? {}; }
 function negar() { throw new Falha("Seu acesso não permite esta alteração.", 403); }
 
+// A visibilidade do menu não protege os históricos: o filtro pertence à consulta.
+async function filtroLeitura(col: string, cracha: any, maquina: boolean) {
+  if (maquina || cracha.papel !== "equipe") return null;
+  const usuario = norm(cracha.sub);
+  if (["pessoas", "leituras", "progresso"].includes(col)) return { campo: "registro->>usuario", valor: usuario };
+  if (col === "atribuicoes") {
+    const pessoa = conferir(await sb.from(T_REG).select("id").eq("colecao", "pessoas").eq("apagado", false).eq("registro->>usuario", usuario).maybeSingle());
+    // Sem vínculo confirmado não há atribuições pessoais disponíveis.
+    return pessoa ? { campo: "registro->>pessoaId", valor: pessoa.id } : { campo: "id", valor: "" };
+  }
+  return null;
+}
+
 async function lerCracha(token: string): Promise<any | null> {
   try {
     if (!JWT_SECRET || !token) return null;
@@ -109,6 +122,8 @@ Deno.serve(async (req: Request) => {
         const col = colValida(body.colecao), limite = Number(body.limite ?? 200);
         if (!Number.isInteger(limite) || limite < 1 || limite > 500) throw new Falha("Limite de página inválido.");
         let q = sb.from(T_REG).select("id, registro, apagado, atualizado_em, revision").eq("colecao", col);
+        const filtro = await filtroLeitura(col, cracha, maquina);
+        if (filtro) q = q.eq(filtro.campo, filtro.valor);
         if (body.desde) {
           // A dupla data/id não perde registros quando um lote compartilha a data.
           if (typeof body.desde === "object") {
@@ -126,7 +141,10 @@ Deno.serve(async (req: Request) => {
         return resp({ itens: data, proximo: data.length === limite ? (body.protocolo === 2 ? { em: ultimo.atualizado_em, id: ultimo.id } : ultimo.atualizado_em) : null });
       }
       case "get": {
-        const data = await registro(colValida(body.colecao), idValido(body.id));
+        const col = colValida(body.colecao), filtro = await filtroLeitura(col, cracha, maquina);
+        let q = sb.from(T_REG).select("registro, apagado, revision").eq("colecao", col).eq("id", idValido(body.id));
+        if (filtro) q = q.eq(filtro.campo, filtro.valor);
+        const data = conferir(await q.maybeSingle());
         return resp({ registro: data && !data.apagado ? data.registro : null, revision: data?.revision ?? 0 });
       }
       case "upsert":

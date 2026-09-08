@@ -43,7 +43,7 @@ jobs:
         run: |
           mkdir -p dist
           cp index.html app.js auth.js config.js store.js styles.css sw.js manifest.webmanifest dist/
-          cp logo-impresilk.png icone-192.png icone-512.png dist/
+          cp logo-impresilk.png icone-192.png icone-512.png favicon.svg dist/
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

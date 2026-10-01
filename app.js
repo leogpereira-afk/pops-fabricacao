@@ -379,7 +379,9 @@ function renderLogin(app) {
     '<div class="tela-login"><div class="cartao-login">' +
     '<img src="./logo-impresilk.png" alt="Impresilk">' +
     '<h1>Pops & Fabricação</h1>' +
-    '<div class="sub2">Entre com a sua conta da equipe (a mesma do Painel)</div>' +
+    '<div class="sub2">Use a entrada do Painel para acessar com sua conta da equipe.</div>' +
+    '<a class="botao largo suave" href="https://leogpereira-afk.github.io/painel-impresilk/">Entrar pelo Painel</a>' +
+    '<p class="dica">Já tem uma senha própria dos POPs? Entre abaixo.</p>' +
     '<div class="campo"><label>Usuário</label><input id="lg-u" type="text" autocomplete="username" autocapitalize="none"></div>' +
     '<div class="campo"><label>Senha</label><input id="lg-s" type="password" autocomplete="current-password"></div>' +
     '<div id="lg-erro"></div>' +
@@ -1331,12 +1333,21 @@ window.addEventListener('hashchange', renderApp);
 (function boot() {
   if ('serviceWorker' in navigator) { try { navigator.serviceWorker.register('./sw.js'); } catch {} }
   renderApp();
-  if (SESSAO) {
-    const usuario = SESSAO.usuario;
+  // O Painel guarda o crachá, mas não cria pops_user neste aparelho.
+  // Só o servidor pode transformar esse crachá em uma sessão dos POPs.
+  if (SESSAO || AUTH.temCracha()) {
+    const usuario = SESSAO?.usuario, cracha = AUTH.cracha();
     AUTH.eu().then(r => {
-      if (!SESSAO || SESSAO.usuario !== usuario) return;
+      if (AUTH.cracha() !== cracha || SESSAO?.usuario !== usuario) return;
       if (r === false) { AUTH.esquecer(); STORE.setUser(null); SESSAO = null; renderApp(); return; }
-      if (r && r.usuario && r.papel) { STORE.setUser({ usuario: r.usuario, nome: r.nome, papel: r.papel, trocarSenha: r.trocarSenha === undefined ? !!SESSAO.trocarSenha : !!r.trocarSenha }); SESSAO = STORE.getUser(); }
+      if (r && r.usuario && r.papel) {
+        const trocarSenha = r.trocarSenha === undefined
+          ? (SESSAO?.usuario === r.usuario && !!SESSAO.trocarSenha) : !!r.trocarSenha;
+        if (!STORE.setUser({ usuario: r.usuario, nome: r.nome, papel: r.papel, trocarSenha })) return;
+        SESSAO = STORE.getUser();
+        if (ROTA.nome !== 'editor') renderApp();
+      }
+      if (!SESSAO) return;
       STORE.trySync(); STORE.pull().then(() => { if (ROTA.nome !== 'editor') renderApp(); });
     });
   }

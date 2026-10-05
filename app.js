@@ -87,6 +87,9 @@ function abrirModal(html) {
   return veu;
 }
 function salvarLocal(colecao, registro) {
+  if (['leituras','progresso'].includes(colecao) && !podeRegistrarAprendizado()) {
+    toast('Para registrar seu aprendizado, a gestão precisa conferir seu vínculo com o RH.', 'erro'); return false;
+  }
   if (STORE.salvar(colecao, registro)) return true;
   toast('Não foi possível guardar a alteração neste aparelho. Libere espaço e tente novamente.', 'erro'); return false;
 }
@@ -238,9 +241,16 @@ function abrirEnviarWhats(item, tipo) {
 }
 
 /* ══════════ leituras e progresso ══════════ */
-function minhaLeitura(popId) {
-  return STORE.um('leituras', 'l-' + norm(SESSAO.usuario) + '-' + popId);
+function registroDaPessoa(colecao, prefixo, campo, refId, usuario) {
+  const u=norm(usuario), pessoa=u===norm(SESSAO?.usuario)?minhaPessoa():pessoas().find(p=>norm(p.usuario)===u);
+  const rhId=pessoa?.colaboradorId;
+  const atuais=STORE.col(colecao).filter(r=>r[campo]===refId && (rhId?r.colaboradorId===rhId || (!r.colaboradorId && norm(r.usuario)===u):norm(r.usuario)===u));
+  atuais.sort((a,b)=>String(b.em || b.atualizadoEm || '').localeCompare(String(a.em || a.atualizadoEm || '')));
+  const legado=STORE.um(colecao,prefixo+'-'+u+'-'+refId);
+  return atuais[0] || (legado && (!rhId || !legado.colaboradorId || legado.colaboradorId===rhId)?legado:null);
 }
+function minhaLeitura(popId) { return registroDaPessoa('leituras','l','popId',popId,SESSAO.usuario); }
+
 function registrarLeitura(pop) {
   return salvarLocal('leituras', {
     id: 'l-' + norm(SESSAO.usuario) + '-' + pop.id,
@@ -249,7 +259,8 @@ function registrarLeitura(pop) {
   });
 }
 function meuProgresso(jId) {
-  return STORE.um('progresso', 'j-' + norm(SESSAO.usuario) + '-' + jId) ||
+  const anterior=registroDaPessoa('progresso','j','jornadaId',jId,SESSAO.usuario);
+  return anterior ? {...anterior,id:'j-'+norm(SESSAO.usuario)+'-'+jId,usuario:norm(SESSAO.usuario),nome:SESSAO.nome} :
     { id: 'j-' + norm(SESSAO.usuario) + '-' + jId, usuario: norm(SESSAO.usuario), nome: SESSAO.nome, jornadaId: jId, etapas: {} };
 }
 
@@ -260,18 +271,43 @@ function meuProgresso(jId) {
 function pessoas() { return STORE.col('pessoas').sort((a, b) => a.nome.localeCompare(b.nome)); }
 function minhaPessoa() {
   if (!SESSAO) return null;
+  if (SESSAO.pessoaRH) return {...(STORE.um('pessoas', SESSAO.pessoaRH.id) || {}),...SESSAO.pessoaRH};
+  if (SESSAO.identidadeConferida) return null;
   return pessoas().find(p => p.usuario && norm(p.usuario) === norm(SESSAO.usuario)) || null;
 }
-// Sugestão de vínculo: nome da pessoa parecido com o nome/usuário da conta.
-// É só sugestão — quem confirma é o admin (nome igual não é prova).
-function sugerirUsuario(pessoa, contas) {
-  const alvo = norm(pessoa.nome).split(' ').filter(Boolean);
-  if (!alvo.length) return '';
-  const achou = contas.find(c => {
-    const n = norm(c.nome || c.usuario).split(' ').filter(Boolean);
-    return n.length && n[0] === alvo[0] && (n.length === 1 || alvo.length === 1 || n[1] === alvo[1]);
-  });
-  return achou ? achou.usuario : '';
+function podeRegistrarAprendizado() {
+  return !(SESSAO?.identidadeConferida && !SESSAO.pessoaRH && SESSAO.vinculoRH !== 'sem_vinculo_central');
+}
+let identidadeEmCurso = null;
+async function atualizarIdentidadeRH() {
+  if (identidadeEmCurso) return identidadeEmCurso;
+  identidadeEmCurso = conferirIdentidadeRH();
+  try { await identidadeEmCurso; } finally { identidadeEmCurso = null; }
+}
+async function conferirIdentidadeRH() {
+  const usuario = SESSAO?.usuario, cracha = AUTH.cracha();
+  if (!usuario) return;
+  try {
+    const r = await STORE.api('identidadeRH');
+    if (SESSAO?.usuario !== usuario || AUTH.cracha() !== cracha) return;
+    const proxima = { ...SESSAO, pessoaRH:r.vinculada ? r.pessoa : null, vinculoRH:r.motivo || '', identidadeConferida:true };
+    if (JSON.stringify(proxima) !== JSON.stringify(SESSAO) && STORE.setUser(proxima)) SESSAO = STORE.getUser();
+  } catch { /* Offline conserva o último vínculo validado, sem inventar uma pessoa. */ }
+}
+async function sincronizarAgora() {
+  await atualizarIdentidadeRH();
+  if (!SESSAO) return;
+  STORE.trySync(); await STORE.pull();
+}
+function catalogoLocal() { return {pops:STORE.col('pops'),jornadas:STORE.col('jornadas'),treinamentos:STORE.col('treinamentos')}; }
+function revisaoPop(p) { return window.POPS_ORGANIZACAO.revisao(p); }
+function cartaoConteudo(p) {
+  const tipo=p.tipo || 'pop', t=TIPOS_CONTEUDO[tipo];
+  return '<a class="item-lista" href="'+t.rota+encodeURIComponent(p.id)+'"><div class="cod">'+esc(p.codigo || t.rot)+'</div><h3>'+esc(p.titulo)+'</h3><p class="dica">'+esc(p.objetivo || p.resumo || p.descricao || p.setor || '')+'</p><div class="meta"><span class="selo setor">'+esc(t.rot)+'</span>'+(p.setor?'<span>'+esc(p.setor)+'</span>':'')+'</div></a>';
+}
+function htmlVinculoRH() {
+  const p=minhaPessoa();
+  return '<div class="card vinculo-rh"><div class="sub">Sua identidade na equipe</div>'+(p ? '<h2>'+esc(p.nome)+'</h2><p>'+esc([p.funcao,p.area,p.setor].filter(Boolean).join(' · '))+'</p><span class="selo lido">Vinculado ao RH</span><p class="dica">Seus procedimentos e treinamentos acompanham sua ficha de colaborador.</p>' : '<h2>'+esc(SESSAO.nome)+'</h2><p>O vínculo com sua ficha do RH ainda precisa ser conferido na Central de Acessos.</p><p class="dica">Você pode consultar a biblioteca. As atribuições pessoais aparecem depois do vínculo.</p>')+'</div>';
 }
 
 const TIPOS_CONTEUDO = {
@@ -299,20 +335,20 @@ function atribuicoesValidasDe(pessoaId) {
 function conclusaoDe(a, usuario) {
   const u = norm(usuario);
   if (a.tipo === 'pop') {
-    const l = STORE.um('leituras', 'l-' + u + '-' + a.refId);
+    const l = registroDaPessoa('leituras','l','popId',a.refId,usuario);
     const pop = STORE.um('pops', a.refId);
     if (!l) return null;
     if (pop && l.versaoLida !== (pop.versao || '1.0')) return { em: l.em, desatualizado: true };
     return { em: l.em };
   }
   if (a.tipo === 'jornada') {
-    const pr = STORE.um('progresso', 'j-' + u + '-' + a.refId);
+    const pr = registroDaPessoa('progresso','j','jornadaId',a.refId,usuario);
     const j = STORE.um('jornadas', a.refId);
     if (!pr || !j) return null;
     const feitas = etapasFeitas(j, pr);
     return (j.etapas || []).length > 0 && feitas === j.etapas.length ? { em: pr.concluidaEm } : null;
   }
-  const l = STORE.um('leituras', 't-' + u + '-' + a.refId);
+  const l = registroDaPessoa('leituras','t','treinamentoId',a.refId,usuario);
   if (!l) return null;
   const t = STORE.um('treinamentos', a.refId);
   if (t && l.versaoLida !== (t.versao || '1.0')) return { em: l.em, desatualizado: true };
@@ -340,89 +376,67 @@ function rotuloSync(st) {
   return 'Servidor fora';
 }
 let _ultimoSync = null;
+let _avisoConhecimento = '';
+let _avisoCache = '';
+STORE.on('conhecimentoErro', erro => { _avisoConhecimento=erro?'A base de conhecimento não pôde ser atualizada. Os procedimentos continuam disponíveis; tente sincronizar novamente.':''; });
+STORE.on('cachePreservado', info => { if (info.pendentes || info.rascunhos) _avisoCache='Alterações do acesso anterior foram preservadas para conferência. Elas não serão enviadas com a nova identidade.'; });
 STORE.on('sync', st => {
   _ultimoSync = st;
   const chip = $('#chip-sync');
   if (chip) { chip.textContent = rotuloSync(st); chip.classList.toggle('pendente', st.status !== 'ok'); }
 });
-STORE.on('pull', () => { if (!document.querySelector('dialog[open], textarea:focus, input:focus, select:focus') && ROTA.nome !== 'editor') renderApp(); });
+STORE.on('pull', () => { if(STORE.getConhecimento().versao===window.CONHECIMENTO_VERSAO) _avisoConhecimento=''; if (!document.querySelector('dialog[open], textarea:focus, input:focus, select:focus') && ROTA.nome !== 'editor') renderApp(); });
 STORE.on('pullErro', msg => { _ultimoSync = { status: 'erro' }; const chip = $('#chip-sync'); if (chip) { chip.textContent = 'Atualização pendente'; chip.title = msg; } });
 STORE.on('sessao', msg => { AUTH.esquecer(); STORE.setUser(null); SESSAO = null; _ultimoSync = null; renderApp(); toast(msg, 'erro'); });
 STORE.on('quota', () => toast('Memória do aparelho cheia — o registro pode não ter sido salvo.', 'erro'));
 
 function htmlTopo(aba) {
-  return '<header class="app-cab"><div class="topo">' +
+  const links=[['inicio','Início','#/'],['pops','POPs','#/pops'],['fab','Fabricação','#/fab'],['meus','Meu aprendizado','#/meus'],['conhecimento','Conhecimento','#/conhecimento']];
+  if (souAdmin() || meusSetores().length) links.push(['pessoas','Equipe','#/pessoas'],['mapa','Acompanhamento','#/mapa']);
+  links.push(['menu','Minha conta','#/menu']);
+  return '<a class="pular" href="#conteudo">Ir para o conteúdo</a><header class="app-cab"><div class="topo">' +
     '<a href="#/" aria-label="Início"><img src="./logo-impresilk.png" alt="Impresilk"></a>' +
-    '<div class="tit"><b>Pops & Fabricação</b><span>Impresilk · ' + esc(SESSAO.nome) + '</span></div>' +
-    '<button class="chip-sync" id="chip-sync" title="Tocar para sincronizar">' + rotuloSync(_ultimoSync) + '</button>' +
-    '</div>' +
-    '<nav class="abas" aria-label="Navegação principal">' +
-    '<a href="#/pops" class="' + (aba === 'pops' ? 'ativa' : '') + '">📋 POPs</a>' +
-    '<a href="#/fab" class="' + (aba === 'fab' ? 'ativa' : '') + '">🏭 Fabricação</a>' +
-    '<a href="#/meus" class="' + (aba === 'meus' ? 'ativa' : '') + '">🎓 Meus' +
-    (minhasPendencias().length ? ' <b>(' + minhasPendencias().length + ')</b>' : '') + '</a>' +
-    ((souAdmin() || meusSetores().length) ? '<a href="#/pessoas" class="' + (aba === 'pessoas' ? 'ativa' : '') + '">👥 Pessoas</a>' : '') +
-    ((souAdmin() || meusSetores().length) ? '<a href="#/mapa" class="' + (aba === 'mapa' ? 'ativa' : '') + '">📊 Mapa</a>' : '') +
-    '<a href="#/menu" class="' + (aba === 'menu' ? 'ativa' : '') + '" aria-label="Minha conta e configurações">⚙️ Conta</a>' +
-    '</nav></header>';
+    '<div class="tit"><b>POPs & Fabricação</b><span>Impresilk · '+esc(SESSAO.nome)+'</span></div>'+
+    '<button class="chip-sync" id="chip-sync" title="Conferir sincronização">'+rotuloSync(_ultimoSync)+'</button></div>'+
+    '<nav class="abas" aria-label="Navegação principal">'+links.map(([id,nome,url])=>'<a href="'+url+'" '+(aba===id?'class="ativa" aria-current="page"':'')+'>'+nome+(id==='meus' && minhasPendencias().length?' <b>('+minhasPendencias().length+')</b>':'')+'</a>').join('')+'</nav></header>'+(_avisoConhecimento?'<div class="aviso amarelo aviso-app" role="status">'+esc(_avisoConhecimento)+'</div>':'')+(_avisoCache?'<div class="aviso amarelo aviso-app" role="status">'+esc(_avisoCache)+'</div>':'');
 }
+
 function ligarTopo() {
+  if (!podeRegistrarAprendizado()) $$('#bt-li, #bt-ok, #bt-concluir').forEach(bt => {
+    bt.disabled=true;
+    bt.insertAdjacentHTML('afterend','<p class="aviso amarelo">Você pode consultar este conteúdo. Para registrar seu aprendizado, a gestão precisa conferir seu vínculo com o RH.</p>');
+  });
   const chip = $('#chip-sync');
-  if (chip) chip.onclick = () => { if (STORE.getFila().length) abrirPendencias(); else { STORE.trySync(); STORE.pull(); toast('Conferindo atualizações…'); } };
+  if (chip) chip.onclick = () => { if (STORE.getFila().length) abrirPendencias(); else { sincronizarAgora(); toast('Conferindo atualizações…'); } };
   associarRotulos($('#app'));
+  const conteudo=$('.miolo'); if(conteudo){conteudo.id='conteudo';conteudo.tabIndex=-1;}
+  const pular=$('.pular'); if(pular) pular.onclick=e=>{e.preventDefault();conteudo?.focus();};
   $$('[data-etapa], [data-pessoa]').forEach(el => { el.setAttribute('role','button'); el.tabIndex=0; el.onkeydown=e => { if (e.key==='Enter' || e.key===' ') { e.preventDefault(); el.click(); } }; });
 }
 
 /* ══════════ telas ══════════ */
 function renderLogin(app) {
-  app.innerHTML =
-    '<div class="tela-login"><div class="cartao-login">' +
-    '<img src="./logo-impresilk.png" alt="Impresilk">' +
-    '<h1>Pops & Fabricação</h1>' +
-    '<div class="sub2">Use a entrada do Painel para acessar com sua conta da equipe.</div>' +
-    '<a class="botao largo suave" href="https://leogpereira-afk.github.io/painel-impresilk/">Entrar pelo Painel</a>' +
-    '<p class="dica">Já tem uma senha própria dos POPs? Entre abaixo.</p>' +
-    '<div class="campo"><label>Usuário</label><input id="lg-u" type="text" autocomplete="username" autocapitalize="none"></div>' +
-    '<div class="campo"><label>Senha</label><input id="lg-s" type="password" autocomplete="current-password"></div>' +
-    '<div id="lg-erro"></div>' +
-    '<button class="botao largo" id="lg-entrar">Entrar</button>' +
-    '<p class="dica" style="text-align:center; margin-top:14px">O primeiro acesso neste aparelho precisa de internet. Depois, os POPs abrem até sem sinal.</p>' +
-    '</div></div>';
-  const entrar = async () => {
-    const u = $('#lg-u').value.trim(), s = $('#lg-s').value;
-    if (!u || !s) { $('#lg-erro').innerHTML = '<div class="aviso vermelho">Preencha usuário e senha.</div>'; return; }
-    const bt = $('#lg-entrar'); bt.disabled = true; bt.textContent = 'Entrando…';
+  document.title="📋 POPs · Entrada";
+  app.innerHTML='<div class="tela-login"><div class="login-layout"><section class="login-apresentacao"><div class="eyebrow">IMPRESILK · CONHECIMENTO EM PRÁTICA</div><h1>O jeito certo de fazer.<br>Ao alcance da equipe.</h1><p>Procedimentos, jornadas de fabricação e aprendizado reunidos em um só lugar.</p><div class="login-beneficios"><p><b>01</b> Encontre o procedimento da sua tarefa.</p><p><b>02</b> Siga cada etapa com clareza.</p><p><b>03</b> Acompanhe o que precisa aprender.</p></div></section><div class="cartao-login"><img src="./logo-impresilk.png" alt="Impresilk"><h2>Entre com sua conta da equipe</h2><p class="sub2">O mesmo usuário e senha da Entrada Única. Sua ficha do RH acompanha você.</p><form id="lg-form"><div class="campo"><label for="lg-u">Usuário da equipe</label><input id="lg-u" type="text" autocomplete="username" autocapitalize="none" required></div><div class="campo"><label for="lg-s">Senha</label><input id="lg-s" type="password" autocomplete="current-password" required></div><div id="lg-erro" role="alert"></div><button class="botao largo" id="lg-entrar" type="submit">Entrar</button><details class="login-alternativo"><summary>Outras formas de acesso</summary><div class="campo"><label for="lg-tipo">Tipo de conta</label><select id="lg-tipo"><option value="rh">Conta da equipe / RH</option><option value="legado">Senha própria antiga dos POPs</option></select></div><a href="https://leogpereira-afk.github.io/painel-impresilk/">Abrir a Entrada Única</a></details></form><p class="dica">O primeiro acesso precisa de internet. Depois de sincronizar, consulte os conteúdos disponíveis mesmo sem sinal.</p></div></div></div>';
+  $('#lg-form').onsubmit=async e=>{
+    e.preventDefault(); const u=$('#lg-u').value.trim(), senha=$('#lg-s').value;
+    if(!u || !senha) return;
+    const bt=$('#lg-entrar');bt.disabled=true;bt.textContent='Entrando…';$('#lg-erro').textContent='';
     try {
-      const r = await AUTH.login(u, s);
-      if (!STORE.setUser({ usuario: r.usuario, nome: r.nome, papel: r.papel, trocarSenha: !!r.trocarSenha })) throw new Error('Não consegui guardar a sessão neste aparelho.');
-      SESSAO = STORE.getUser();
-      _ultimoSync = null; STORE.trySync(); STORE.pull();
-      // Senha feita por outra pessoa: trocar é a primeira coisa.
-      location.hash = r.trocarSenha ? '#/senha' : '#/'; renderApp();
-    } catch (e) {
-      bt.disabled = false; bt.textContent = 'Entrar';
-      $('#lg-erro').innerHTML = '<div class="aviso vermelho">' +
-        esc(e.erro || (e.status ? 'Usuário ou senha incorretos.' : 'Sem conexão — o primeiro acesso precisa de internet.')) + '</div>';
-    }
+      const rh=$('#lg-tipo').value==='rh', r=await (rh?AUTH.loginRH(u,senha):AUTH.login(u,senha));
+      if(rh && r.trocarSenha){$('#lg-erro').innerHTML='<div class="aviso amarelo">Antes do primeiro acesso, crie sua senha na <a href="https://leogpereira-afk.github.io/painel-impresilk/">Entrada Única</a>. Depois volte aos POPs.</div>';return;}
+      if(!STORE.setUser({usuario:r.usuario,nome:r.nome,papel:r.papel,trocarSenha:!!r.trocarSenha,origemLogin:rh?'rh':'legado'}))throw new Error('Não consegui guardar a sessão neste aparelho.');
+      SESSAO=STORE.getUser();_ultimoSync=null;await atualizarIdentidadeRH();STORE.trySync();STORE.pull();location.hash=r.trocarSenha?'#/senha':'#/';renderApp();
+    } catch(err){$('#lg-erro').innerHTML='<div class="aviso vermelho">'+esc(err.erro || err.message || 'Não foi possível entrar. Tente novamente.')+'</div>';}
+    finally {if(bt.isConnected){bt.disabled=false;bt.textContent='Entrar';}}
   };
-  associarRotulos(app);
-  $('#lg-entrar').onclick = entrar;
-  $('#lg-s').addEventListener('keydown', e => { if (e.key === 'Enter') entrar(); });
 }
-
 function renderInicio(app) {
-  const pops = STORE.col('pops');
-  const lidas = pops.filter(p => minhaLeitura(p.id)?.versaoLida === (p.versao || '1.0')).length;
-  const jornadas = STORE.col('jornadas');
-  app.innerHTML = htmlTopo('') +
-    '<div class="miolo">' +
-    '<div class="portas">' +
-    '<a class="porta" href="#/pops"><div class="ico">📋</div><h2>POPs</h2>' +
-    '<p>O procedimento oficial de cada setor. Você já leu ' + lidas + ' de ' + pops.length + '.</p></a>' +
-    '<a class="porta" href="#/fab"><div class="ico">🏭</div><h2>Fabricação</h2>' +
-    '<p>' + jornadas.length + ' jornada(s) técnicas passo a passo: aprenda o processo do começo ao fim.</p></a>' +
-    '</div></div>';
-  ligarTopo();
+  const p=minhaPessoa(), pend=minhasPendencias(), pops=STORE.col('pops'), jornadas=STORE.col('jornadas');
+  const atribuicoes=p?atribuicoesValidasDe(p.id):[], concluidas=atribuicoes.length-pend.length;
+  const revisar=pops.filter(x=>!revisaoPop(x).validada).length;
+  app.innerHTML=htmlTopo('inicio')+'<div class="miolo"><section class="painel-hero"><div class="eyebrow">APRENDER · EXECUTAR · EVOLUIR</div><h1>Seu trabalho, com o próximo passo claro.</h1><p>Encontre orientações, retome seu aprendizado e leve o conhecimento da Impresilk para a prática.</p><div class="acoes"><a class="botao" href="#/meus">Meu aprendizado'+(pend.length?' · '+pend.length+' pendentes':'')+'</a><a class="botao suave" href="#/pops">Explorar procedimentos</a></div></section><div class="indicadores"><div class="indicador"><b>'+pops.length+'</b><span>Procedimentos disponíveis</span></div><div class="indicador"><b>'+jornadas.length+'</b><span>Jornadas de fabricação</span></div><div class="indicador"><b>'+concluidas+'/'+atribuicoes.length+'</b><span>Atribuições em dia</span></div>'+(souAdmin()?'<div class="indicador"><b>'+revisar+'</b><span>POPs para revisar</span></div>':'')+'</div><section class="card"><div class="secao-titulo"><h2>Encontre o que precisa</h2></div><div class="campo busca-global"><label for="inicio-busca">Buscar por tarefa, material, código ou palavra</label><input id="inicio-busca" type="search" placeholder="Ex.: lona, ACM, expedição, POP-CMP-01"></div><div id="inicio-resultados" aria-live="polite"><p class="dica">Busca nos POPs, jornadas e treinamentos já sincronizados.</p></div></section><div class="painel-grid"><section class="card"><div class="secao-titulo"><h2>Seu próximo passo</h2><a href="#/meus">Ver todos</a></div>'+(pend.length?pend.slice(0,3).map(x=>cartaoConteudo({...x.item,tipo:x.a.tipo})).join(''):'<div class="aprendizado-vazio"><h3>'+(p?'Nenhuma atribuição pendente':'Conheça a biblioteca')+'</h3><p>'+(p?'Explore os procedimentos ou retome uma jornada. Novas atribuições aparecem aqui.':'Enquanto a gestão confere seu vínculo, você já pode consultar os procedimentos.')+'</p><a class="botao suave" href="#/fab">Ver jornadas</a></div>')+'</section>'+htmlVinculoRH()+'</div><section class="card"><div class="secao-titulo"><h2>Conhecimento da Impresilk</h2><a href="#/conhecimento">Abrir base</a></div><p>Entenda como as áreas se conectam, consulte os princípios da empresa e veja as oportunidades de evolução identificadas.</p><p class="dica">Os conteúdos de referência indicam sua fonte. Sugestões de melhoria não substituem procedimentos validados.</p></section></div>';
+  ligarTopo();$('#inicio-busca').oninput=e=>{const q=e.target.value.trim(),rs=q?window.POPS_ORGANIZACAO.buscar(catalogoLocal(),q):[];$('#inicio-resultados').innerHTML=q?'<p class="dica">'+rs.length+' resultado(s)</p>'+rs.slice(0,12).map(cartaoConteudo).join(''):'<p class="dica">Busca nos POPs, jornadas e treinamentos já sincronizados.</p>';};
 }
 
 // A lista de POPs com 21 setores não cabe numa fileira de chips no celular.
@@ -430,69 +444,35 @@ function renderInicio(app) {
 // setor mostra quantos POPs tem, inclusive ZERO. Ver o vazio é o mais útil:
 // é assim que se enxerga onde falta procedimento escrito.
 function renderPops(app) {
-  const todos = STORE.col('pops');
-  const alvo = ROTA.arg || '';                 // pode ser área OU setor
-  const asAreas = areas();
-  const areaSel = asAreas.find(a => norm(a.nome) === norm(alvo));
-  const setorSel = !areaSel && alvo ? alvo : '';
-  const areaDoSel = setorSel ? areaDoSetor(setorSel) : null;
-  const areaAberta = areaSel || areaDoSel;
-
-  const quantos = st => todos.filter(p => norm(p.setor) === norm(st)).length;
-  const daTela = setorSel
-    ? todos.filter(p => norm(p.setor) === norm(setorSel))
-    : (areaAberta ? todos.filter(p => (areaAberta.setores || []).some(x => norm(x) === norm(p.setor))) : todos);
-  daTela.sort((a, b) => String(a.codigo || 'zz').localeCompare(String(b.codigo || 'zz')));
-
-  const lidos = todos.filter(p => minhaLeitura(p.id)?.versaoLida === (p.versao || '1.0')).length;
-
-  app.innerHTML = htmlTopo('pops') +
-    '<div class="miolo">' +
-    // nível 1: macroáreas
-    '<div class="chips">' +
-    '<button class="chip' + (!alvo ? ' marcado' : '') + '" data-ir="">Todos · ' + todos.length + '</button>' +
-    asAreas.map(a => {
-      const n = (a.setores || []).reduce((t, st) => t + quantos(st), 0);
-      const on = areaAberta && norm(areaAberta.nome) === norm(a.nome);
-      return '<button class="chip' + (on ? ' marcado' : '') + '" data-ir="' + esc(a.nome) + '">' +
-        esc(a.ic || '') + ' ' + esc(a.nome) + ' · ' + n + '</button>';
-    }).join('') +
-    '</div>' +
-    // nível 2: setores da área aberta (com os vazios à vista)
-    (areaAberta ? '<div class="chips" style="margin-top:-6px">' +
-      (areaAberta.setores || []).map(st => {
-        const n = quantos(st);
-        const on = norm(st) === norm(setorSel);
-        return '<button class="chip' + (on ? ' marcado' : '') + (n ? '' : ' vazio') + '" data-ir="' + esc(st) + '">' +
-          esc(st) + ' · ' + n + '</button>';
-      }).join('') + '</div>' : '') +
-    (setorSel && resumoDoSetor(setorSel)
-      ? '<div class="aviso azul" style="margin-top:0">' + esc(resumoDoSetor(setorSel)) + '</div>' : '') +
-    (!alvo ? '<div class="card"><div class="sub">Seus POPs</div>' +
-      '<p class="bloco-par">Você já leu <b>' + lidos + ' de ' + todos.length + '</b>. Toque numa área acima para ver os setores dela.</p></div>' : '') +
-    (daTela.length ? daTela.map(p => {
-      const li = minhaLeitura(p.id);
-      const desatualizada = li && li.versaoLida !== (p.versao || '1.0');
-      return '<a class="item-lista" href="#/pop/' + p.id + '">' +
-        (p.codigo ? '<div class="cod">' + esc(p.codigo) + '</div>' : '') +
-        '<h3>' + esc(p.titulo) + '</h3>' +
-        '<div class="meta"><span class="selo setor">' + esc(p.setor || 'Geral') + '</span>' +
-        (li && !desatualizada ? '<span class="selo lido">✓ lido</span>' : '') +
-        (desatualizada ? '<span class="selo pendente">mudou — releia</span>' : '') +
-        (!li ? '<span class="selo pendente">não lido</span>' : '') +
-        '<span>v' + esc(p.versao || '1.0') + '</span></div></a>';
-    }).join('')
-      : '<div class="card"><b>Nenhum POP aqui ainda.</b>' +
-        (setorSel ? '<p class="bloco-par" style="margin-bottom:0">Este setor ainda não tem procedimento escrito. ' +
-          (souAdmin() || meusSetores().some(x => norm(x) === norm(setorSel))
-            ? 'Toque em “Novo POP” para começar.' : 'Fale com a gestão do setor.') + '</p>' : '') +
-        '</div>') +
-    (souAdmin() || meusSetores().length ? '<div class="acoes"><a class="botao suave largo" href="#/editor/pop/novo">➕ Novo POP</a></div>' : '') +
-    '</div>';
-  ligarTopo();
-  $$('[data-ir]').forEach(c => c.onclick = () => {
-    location.hash = c.dataset.ir ? '#/pops/' + encodeURIComponent(c.dataset.ir) : '#/pops';
-  });
+  const todos=STORE.col('pops'), alvo=ROTA.arg || '', asAreas=areas();
+  const areaSel=asAreas.find(a=>norm(a.nome)===norm(alvo)), setorSel=!areaSel && alvo?alvo:'';
+  const areaAberta=areaSel || (setorSel?areaDoSetor(setorSel):null);
+  const daTela=todos.filter(p=>setorSel?norm(p.setor)===norm(setorSel):areaAberta?(areaAberta.setores || []).some(x=>norm(x)===norm(p.setor)):true).sort((a,b)=>String(a.codigo || '').localeCompare(String(b.codigo || '')));
+  app.innerHTML=htmlTopo('pops')+'<div class="miolo"><section class="painel-hero"><div class="eyebrow">BIBLIOTECA DE PROCEDIMENTOS</div><h1>Encontre. Confira. Execute.</h1><p>Busque pela tarefa ou navegue pelas áreas. A versão e a situação da revisão acompanham cada procedimento.</p></section><div class="chips"><a class="chip '+(!alvo?'marcado':'')+'" href="#/pops">Todos · '+todos.length+'</a>'+asAreas.map(a=>'<a class="chip '+(areaAberta===a?'marcado':'')+'" href="#/pops/'+encodeURIComponent(a.nome)+'">'+esc(a.nome)+'</a>').join('')+'</div>'+(areaAberta?'<div class="chips">'+(areaAberta.setores || []).map(st=>'<a class="chip '+(st===setorSel?'marcado':'')+'" href="#/pops/'+encodeURIComponent(st)+'">'+esc(st)+' · '+todos.filter(p=>p.setor===st).length+'</a>').join('')+'</div>':'')+'<section class="card"><div class="painel-grid"><div class="campo busca-global"><label for="pop-busca">Buscar neste grupo</label><input id="pop-busca" type="search" placeholder="Código, material ou instrução"></div><div class="campo"><label for="pop-filtro">Mostrar</label><select id="pop-filtro"><option value="todos">Todos os procedimentos</option><option value="pendentes">Minha leitura pendente</option><option value="lidos">Minha leitura em dia</option><option value="revisar">Precisam de revisão</option></select></div></div><p id="pop-contagem" class="dica" aria-live="polite"></p></section><div id="pop-resultados" class="conteudo-grid"></div>'+(souAdmin() || meusSetores().length?'<div class="acoes"><a class="botao" href="#/editor/pop/novo">Criar procedimento</a></div>':'')+'</div>';
+  const pintar=()=>{
+    const busca=$('#pop-busca').value, filtro=$('#pop-filtro').value;
+    const encontrados=window.POPS_ORGANIZACAO.buscar({pops:daTela},busca).filter(p=>{const l=minhaLeitura(p.id),emDia=l?.versaoLida===(p.versao || '1.0');return filtro==='pendentes'?!emDia:filtro==='lidos'?emDia:filtro==='revisar'?!revisaoPop(p).validada:true;});
+    $('#pop-contagem').textContent=encontrados.length+' procedimento(s) neste filtro';
+    $('#pop-resultados').innerHTML=encontrados.length?encontrados.map(p=>{const l=minhaLeitura(p.id),ok=l?.versaoLida===(p.versao || '1.0'),r=revisaoPop(p);return '<a class="item-lista" href="#/pop/'+encodeURIComponent(p.id)+'"><div class="cod">'+esc(p.codigo || 'POP')+' · v'+esc(p.versao || '1.0')+'</div><h2>'+esc(p.titulo)+'</h2><p>'+esc(p.objetivo || '')+'</p><div class="meta"><span class="selo setor">'+esc(p.setor || 'Geral')+'</span><span class="selo '+(ok?'lido':'pendente')+'">'+(ok?'Leitura em dia':l?'Mudou · releia':'Não lido')+'</span><span class="selo '+(r.validada?'lido':'pendente')+'">'+esc(r.rotulo)+'</span></div></a>';}).join(''):'<div class="card"><h2>Nenhum procedimento encontrado</h2><p>Tente outra palavra ou altere os filtros.</p></div>';
+  };$('#pop-busca').oninput=pintar;$('#pop-filtro').onchange=pintar;pintar();ligarTopo();
+}
+function baseConhecimento() { return window.POPS_CONHECIMENTO.criar(STORE.getConhecimento()); }
+function htmlRelacionados(p) {
+  const dados=catalogoLocal(), base=baseConhecimento(), sugestoes=base.relacionados(p);
+  const vinculados=window.POPS_ORGANIZACAO.relacionados(p,dados);
+  const ids=new Set(vinculados.map(x=>x.tipo+':'+x.id));
+  const relacionados=dados.pops.filter(x=>sugestoes.pops.includes(x.codigo) && !ids.has('pop:'+x.id));
+  const jornadas=dados.jornadas.filter(x=>sugestoes.jornadas.some(j=>j.id===x.id) && !ids.has('jornada:'+x.id));
+  return '<section class="card conteudo-relacionado"><h2>Conexões deste procedimento</h2>'+(vinculados.length?'<h3>Vínculos registrados</h3>'+vinculados.map(cartaoConteudo).join(''):'<p class="dica">Ainda não há vínculos registrados pela gestão.</p>')+(relacionados.length || jornadas.length?'<h3>Referências relacionadas</h3><p class="dica">Sugestões da base documental para consultar o processo completo.</p><div class="conteudo-grid">'+relacionados.slice(0,4).map(x=>cartaoConteudo({...x,tipo:'pop'})).join('')+jornadas.slice(0,3).map(x=>cartaoConteudo({...x,tipo:'jornada'})).join('')+'</div>':'')+sugestoes.topicos.map(t=>'<a class="botao suave" href="#/conhecimento/'+encodeURIComponent(t.id)+'">'+esc(t.titulo)+'</a>').join(' ')+'</section>';
+}
+function renderConhecimento(app) {
+  const k=baseConhecimento(), alvo=ROTA.arg;
+  const fontesHtml=t=>(t.fontes || []).map(id=>{const f=k.fonteDe(id);return f?'<li>'+esc(f.titulo)+' · '+fmtData(f.data)+(f.url && /^https:\/\//.test(f.url)?' · <a href="'+esc(f.url)+'" target="_blank" rel="noopener noreferrer">Abrir documento</a>':'')+'</li>':'';}).join('');
+  const topico=t=>'<article class="card conhecimento-card"><div class="meta"><span class="selo setor">'+esc(k.status[t.status] || t.status || 'Referência')+'</span></div><h2>'+esc(t.titulo)+'</h2><p>'+esc(t.resumo)+'</p><ol>'+t.passos.map(x=>'<li>'+esc(x)+'</li>').join('')+(t.pendencias.length?'<div class="aviso amarelo"><b>Pontos para conferir</b><ul>'+t.pendencias.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul></div>':'')+'<div class="chips">'+STORE.col('pops').filter(p=>t.codigos.includes(p.codigo)).map(p=>'<a class="chip" href="#/pop/'+encodeURIComponent(p.id)+'">'+esc(p.codigo)+'</a>').join('')+'</div><details class="fonte-nota"><summary>Fontes desta orientação</summary><ul>'+fontesHtml(t)+'</ul></details></article>';
+  app.innerHTML=htmlTopo('conhecimento')+'<div class="miolo"><section class="painel-hero"><div class="eyebrow">BASE IMPRESILK</div><h1>Conhecimento que conecta a empresa.</h1><p>'+esc(k.aviso || 'A base de conhecimento será carregada na próxima sincronização com internet.')+'</p></section>'+(k.identidade?.missao?'<div class="painel-grid"><section class="card"><div class="sub">Nossa missão</div><h2>'+esc(k.identidade.missao)+'</h2></section><section class="card"><div class="sub">Nossa visão</div><h2>'+esc(k.identidade.visao)+'</h2></section></div>':'')+'<div class="card"><div class="campo busca-global"><label for="conhecimento-busca">Buscar na base</label><input id="conhecimento-busca" type="search" placeholder="Compras, preços, passagem de setor, comissões…"></div><div class="chips"><button class="chip" id="conhecimento-todos">Todos os temas</button></div><p class="dica">Organizado em '+fmtData(k.compiladoEm)+'. A data de cada fonte aparece no tema.</p></div><div id="conhecimento-lista"></div>'+(k.identidade?.missao?'<details class="card"><summary>Os 12 valores da Impresilk</summary>'+k.identidade.valores.map(v=>'<h3>'+esc(v.titulo)+'</h3><p>'+esc(v.texto)+'</p>').join('')+'</details>':'')+'</div>';
+  const pintar=q=>{const itens=k.buscar(q);$('#conhecimento-lista').innerHTML=itens.length?itens.map(topico).join(''):'<div class="card">Nenhum tema encontrado. Confira a sincronização ou tente outra busca.</div>';};
+  const escolhido=k.topicos.find(t=>t.id===alvo);if(escolhido)$('#conhecimento-lista').innerHTML=topico(escolhido);else pintar('');
+  $('#conhecimento-busca').oninput=e=>pintar(e.target.value);$('#conhecimento-todos').onclick=()=>{$('#conhecimento-busca').value='';pintar('');};ligarTopo();
 }
 
 function renderPop(app) {
@@ -510,13 +490,16 @@ function renderPop(app) {
     '<h1>' + esc(p.titulo) + '</h1>' +
     '<div class="linha-meta"><span class="selo setor">' + esc(p.setor || 'Geral') + '</span>' +
     '<span>versão ' + esc(p.versao || '1.0') + '</span>' +
-    (p.revisadoEm ? '<span>revisado em ' + fmtData(p.revisadoEm) + '</span>' : '') +
+    (p.revisadoEm ? '<span>atualizado em ' + fmtData(p.revisadoEm) + '</span>' : '') +
     (p.responsavel ? '<span>executa: ' + esc(p.responsavel) + '</span>' : '') + '</div>' +
     (p.objetivo ? '<div class="aviso azul" style="margin-bottom:0"><b>Objetivo:</b> ' + esc(p.objetivo) + '</div>' : '') +
     '</div>' +
     (p.epis && p.epis.length ? '<div class="card"><div class="sub">EPIs obrigatórios</div><div class="chips" style="margin:0">' +
       p.epis.map(e => '<span class="chip">🦺 ' + esc(e) + '</span>').join('') + '</div></div>' : '') +
-    '<div class="card">' + blocosParaHtml(p.blocos) + '</div>' +
+    '<div class="aviso '+(revisaoPop(p).validada?'verde':'amarelo')+'"><b>'+esc(revisaoPop(p).rotulo)+'</b> · '+(revisaoPop(p).validada?'Conferido por '+esc(revisaoPop(p).por)+' em '+fmtData(revisaoPop(p).em):'Este conteúdo ainda precisa de conferência do responsável. O registro de leitura não comprova habilitação técnica.')+'</div>' +
+    '<div class="card pop-leitura">' + blocosParaHtml(p.blocos) + '</div>' +
+    ((p.fontes || []).length?'<div class="card fonte-nota"><h2>Fontes registradas</h2><ul>'+p.fontes.map(f=>'<li>'+esc(f)+'</li>').join('')+'</ul></div>':'') +
+    htmlRelacionados(p) +
     (desatualizada ? '<div class="aviso amarelo">Este POP mudou desde a sua última leitura (você leu a v' + esc(li.versaoLida) + '). Releia e confirme de novo.</div>' : '') +
     '<div class="acoes">' +
     (li && !desatualizada
@@ -673,7 +656,7 @@ function renderTreinamento(app) {
   const t = STORE.um('treinamentos', ROTA.arg);
   if (!t) { location.hash = '#/meus'; return; }
   const u = norm(SESSAO.usuario);
-  const feito = STORE.um('leituras', 't-' + u + '-' + t.id);
+  const feito = registroDaPessoa('leituras','t','treinamentoId',t.id,u);
   const venc = expiracaoTreinamento(t, feito?.em);
   const desatualizado = feito && feito.versaoLida !== (t.versao || '1.0');
   const vencido = venc && venc < new Date();
@@ -737,7 +720,7 @@ function renderMeus(app) {
   app.innerHTML = htmlTopo('meus') +
     '<div class="miolo">' +
     (!p ? '<div class="aviso amarelo">Sua conta ainda não está ligada a uma ficha de colaborador. ' +
-      'A gestão faz esse vínculo em <b>Pessoas</b> — depois disso, o que for atribuído a você aparece aqui.</div>' : '') +
+      'A gestão confere o ID do colaborador na <b>Central de Acessos</b>. Depois, suas atribuições aparecem aqui.</div>' : '') +
     (p ? '<div class="card"><div class="sub">Você</div>' +
       '<p class="bloco-par" style="margin:0"><b>' + esc(p.nome) + '</b>' +
       (p.funcao ? ' · ' + esc(p.funcao) : '') + (p.area ? ' · ' + esc(p.area) : '') + '</p>' +
@@ -768,7 +751,7 @@ function renderPessoas(app) {
   app.innerHTML = htmlTopo('pessoas') +
     '<div class="miolo">' +
     '<div class="card"><div class="sub">Pessoas</div>' +
-    '<p class="bloco-par">Vindas do RH (' + ps.length + ' ativas). Ligue cada pessoa à conta dela para que os treinamentos apareçam no app dela.</p>' +
+    '<p class="bloco-par">Vindas do RH (' + ps.length + ' cadastros). As contas são ligadas pelo ID do colaborador cadastrado no RH e na Central de Acessos.</p>' +
     (semConta ? '<div class="aviso amarelo"><b>' + semConta + ' pessoa(s) sem conta vinculada.</b> Os treinamentos atribuídos só aparecem em Meus depois desse vínculo.</div>' : '') +
     (souAdmin() ? '<button class="botao suave" id="bt-sinc-pessoas">🔄 Atualizar do RH</button> ' +
       '<button class="botao suave" id="bt-lote">📤 Atribuir em lote</button>' : '') + '</div>' +
@@ -796,7 +779,8 @@ function renderPessoas(app) {
     try {
       const r = await STORE.api('sincronizarPessoas');
       await STORE.pull();
-      toast(r.ativos + ' pessoa(s) do RH ✓', 'sucesso');
+      toast(r.ativos + ' pessoa(s) atualizadas do RH'+(r.conflitos ? ' · '+r.conflitos+' vínculo(s) para conferir' : ''), 'sucesso');
+      await atualizarIdentidadeRH();
       renderApp();
     } catch { toast('Não consegui falar com o servidor agora.', 'erro'); bs.disabled = false; bs.textContent = '🔄 Atualizar do RH'; }
   };
@@ -949,9 +933,7 @@ function abrirPessoa(pessoaId, conteudos) {
   const m = abrirModal(
     '<h3>' + esc(p.nome) + '</h3>' +
     '<p class="dica">' + esc([p.funcao, p.area].filter(Boolean).join(' · ')) + '</p>' +
-    '<div class="campo"><label>Conta no app (Central de Acessos)</label>' +
-    '<input type="text" id="pe-usuario"' + (souAdmin() ? '' : ' disabled') + ' value="' + esc(p.usuario || '') + '" placeholder="Selecione ou digite o usuário" autocapitalize="none" list="pe-contas"><datalist id="pe-contas"></datalist><p class="dica" id="pe-sugestao"></p>' +
-    '<div class="dica">É o usuário com que a pessoa entra. Sem isso, o treinamento não chega até ela.</div></div>' +
+    '<div class="aviso azul"><b>Cadastro do RH</b><p>'+esc(p.usuario?'Conta da equipe: '+p.usuario:'Sem conta vinculada na Central de Acessos.')+'</p><p class="dica">A ficha profissional vem do RH. A conta é ligada pelo identificador do colaborador na Central de Acessos; nomes parecidos não criam vínculos.</p></div>' +
     '<div class="sub" style="margin-top:16px">Treinamentos atribuídos</div>' +
     '<div id="pe-lista">' +
     (at.length ? at.map(a => {
@@ -972,29 +954,9 @@ function abrirPessoa(pessoaId, conteudos) {
     '<div class="acoes-modal" style="display:flex;gap:10px;margin-top:14px">' +
     '<button class="botao fantasma btn-fechar">Fechar</button>' +
     '<button class="botao suave btn-add">➕ Atribuir</button>' +
-    (souAdmin() ? '<button class="botao btn-salvar">Salvar conta</button>' : '') + '</div>'
+    '</div>'
   );
   $('.btn-fechar', m).onclick = () => m.remove();
-  if (souAdmin()) AUTH.listarContas().then(r => {
-    if (!m.isConnected) return;
-    const contas=(r.contas || []).filter(c => c.ativo !== false);
-    $('#pe-contas',m).innerHTML=contas.map(c => '<option value="'+esc(c.usuario)+'">'+esc(c.nome || c.usuario)+'</option>').join('');
-    const sugestao=sugerirUsuario(p,contas);
-    $('#pe-sugestao',m).textContent=sugestao && !p.usuario ? 'Nome semelhante encontrado: '+sugestao+'. Confira a identidade antes de vincular.' : 'Escolha a conta da própria pessoa.';
-  }).catch(() => { if (m.isConnected) $('#pe-sugestao',m).textContent='Não consegui listar as contas agora. Tente novamente com internet.'; });
-  if ($('.btn-salvar', m)) $('.btn-salvar', m).onclick = () => {
-    const u = norm($('#pe-usuario', m).value);
-    // Uma conta = uma pessoa. Com a mesma conta em duas fichas, minhaPessoa()
-    // pega a primeira e os treinamentos da outra ficam invisíveis PARA SEMPRE.
-    const jaTem = u && pessoas().find(x => x.id !== p.id && norm(x.usuario || '') === u);
-    if (jaTem) {
-      toast('A conta "' + u + '" já está ligada a ' + jaTem.nome + '. Tire de lá antes.', 'erro');
-      return;
-    }
-    if (!salvarLocal('pessoas', Object.assign({}, p, { usuario: u }))) return;
-    toast(mensagemSalvo());
-    m.remove(); renderApp();
-  };
   $('.btn-add', m).onclick = () => {
     const [tipo, refId] = $('#pe-novo', m).value.split('|');
     if (!tipo || !refId) { toast('Não há conteúdo disponível para atribuir neste setor.', 'erro'); return; }
@@ -1026,8 +988,9 @@ function renderMapa(app) {
   const progresso = STORE.col('progresso');
   const pessoas = new Map();
   STORE.col('pessoas').forEach(p => { if (p.usuario) pessoas.set(norm(p.usuario), p.nome); });
-  leituras.forEach(l => { if (!pessoas.has(l.usuario)) pessoas.set(l.usuario, l.nome || l.usuario); });
-  progresso.forEach(p => pessoas.set(p.usuario, p.nome || p.usuario));
+  const contaAtual=r=>STORE.col('pessoas').find(p=>r.colaboradorId && p.colaboradorId===r.colaboradorId && p.usuario);
+  leituras.forEach(l => { if (!contaAtual(l) && !pessoas.has(l.usuario)) pessoas.set(l.usuario, l.nome || l.usuario); });
+  progresso.forEach(p => { if(!contaAtual(p)) pessoas.set(p.usuario, p.nome || p.usuario); });
   const nomes = [...pessoas.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   app.innerHTML = htmlTopo('mapa') +
     '<div class="miolo">' +
@@ -1038,7 +1001,7 @@ function renderMapa(app) {
     pops.map(p => '<th title="' + esc(p.titulo) + '">' + esc(p.codigo || p.titulo.slice(0, 10)) + '</th>').join('') + '</tr>' +
     (nomes.length ? nomes.map(([u, nome]) => '<tr><td>' + esc(nome) + '</td>' +
       pops.map(p => {
-        const l = leituras.find(x => x.usuario === u && x.popId === p.id);
+        const l = registroDaPessoa('leituras','l','popId',p.id,u);
         const ok = l && l.versaoLida === (p.versao || '1.0');
         return '<td class="' + (ok ? 'ok' : 'nao') + '">' + (ok ? '✓' : (l ? 'v.antiga' : '—')) + '</td>';
       }).join('') + '</tr>').join('') : '<tr><td colspan="' + (pops.length + 1) + '">Ninguém registrou leitura ainda.</td></tr>') +
@@ -1048,7 +1011,7 @@ function renderMapa(app) {
     jornadas.map(j => '<th>' + esc(j.titulo.slice(0, 18)) + '</th>').join('') + '</tr>' +
     (nomes.length ? nomes.map(([u, nome]) => '<tr><td>' + esc(nome) + '</td>' +
       jornadas.map(j => {
-        const pr = progresso.find(x => x.usuario === u && x.jornadaId === j.id);
+        const pr = registroDaPessoa('progresso','j','jornadaId',j.id,u);
         const total = (j.etapas || []).length;
         const feitas = etapasFeitas(j, pr);
         return '<td class="' + (feitas >= total && total ? 'ok' : 'nao') + '">' +
@@ -1067,6 +1030,7 @@ function renderEditorPop(app) {
     : STORE.um('pops', ROTA.arg);
   if (!p || !possoEditar(p)) { location.hash = '#/pops'; return; }
   const meusS = meusSetores();
+  const candidatos=window.POPS_ORGANIZACAO.catalogo(catalogoLocal()).filter(x=>!(x.tipo==='pop' && x.id===p.id));
   app.innerHTML = htmlTopo('pops') +
     '<div class="miolo">' +
     '<div class="card"><div class="sub">' + (novo ? 'Novo POP' : 'Editar POP') + '</div>' +
@@ -1080,6 +1044,9 @@ function renderEditorPop(app) {
     '<div class="campo"><label>Versão</label><input type="text" id="e-versao" value="' + esc(p.versao || '1.0') + '"><div class="dica">Suba a versão quando o conteúdo mudar de verdade — quem já leu vai ver "mudou — releia".</div></div>' +
     '<div class="campo"><label>Conteúdo</label><textarea id="e-conteudo">' + esc(blocosParaTexto(p.blocos)) + '</textarea>' +
     '<div class="dica">## Subtítulo &nbsp;·&nbsp; 1. passo numerado &nbsp;·&nbsp; - item de lista &nbsp;·&nbsp; ! destaque &nbsp;·&nbsp; !! alerta &nbsp;·&nbsp; [ ] item de checklist &nbsp;·&nbsp; linha solta = parágrafo</div></div>' +
+    '<div class="campo"><label for="e-fontes">Fontes e documentos usados (um por linha)</label><textarea id="e-fontes" style="min-height:90px">'+esc((p.fontes || []).join('\n'))+'</textarea></div>'+
+    '<details class="card"><summary>Vincular procedimentos, jornadas e treinamentos</summary>'+candidatos.map(c=>'<label class="linha-lote"><input type="checkbox" data-vinculo="'+esc(c.tipo+'|'+c.id)+'"'+((p.relacionados || []).some(r=>r.tipo===c.tipo && r.refId===c.id)?' checked':'')+'><span>'+esc((c.codigo || TIPOS_CONTEUDO[c.tipo].rot)+' · '+c.titulo)+'</span></label>').join('')+'</details>'+
+    '<label class="linha-lote"><input type="checkbox" id="e-validar"><span>Conferi as instruções e quero validar esta revisão como responsável.</span></label><p class="dica">Sem esta confirmação, mudanças nas instruções ficam marcadas para revisão. A validação registra responsável e data no servidor.</p>'+
     '<div class="acoes">' +
     '<button class="botao largo" id="e-salvar">💾 Salvar POP</button>' +
     (!novo && souAdmin() ? '<button class="botao fantasma" id="e-apagar">🗃 Arquivar</button>' : '') +
@@ -1099,8 +1066,15 @@ function renderEditorPop(app) {
       blocos: textoParaBlocos($('#e-conteudo').value),
       revisadoEm: new Date().toISOString(),
       revisadoPor: SESSAO.nome,
+      fontes:$('#e-fontes').value.split('\n').map(x=>x.trim()).filter(Boolean),
+      relacionados:$$('[data-vinculo]:checked').map(x=>{const [tipo,refId]=x.dataset.vinculo.split('|');return {tipo,refId};}),
     });
-    if (!STORE.salvar('pops', salvo)) { toast('Não consegui salvar (memória cheia?)', 'erro'); return; }
+    const problema=window.POPS_ORGANIZACAO.validarEdicao(novo?null:p,salvo);
+    if(problema){toast(problema,'erro');return;}
+    if(novo || window.POPS_ORGANIZACAO.mudouInstrucao(p,salvo)) salvo.revisao={status:'revisar'};
+    const confirmarRevisao=$('#e-validar').checked;
+    if(confirmarRevisao) salvo.revisao={status:'validado'};
+    if (!STORE.salvar('pops', salvo, {confirmarRevisao})) { toast('Não consegui salvar (memória cheia?)', 'erro'); return; }
     toast(mensagemSalvo());
     location.hash = '#/pop/' + salvo.id;
   };
@@ -1256,7 +1230,7 @@ function renderMenu(app) {
     '<div class="card"><div class="sub">Sua conta</div>' +
     '<p class="bloco-par"><b>' + esc(SESSAO.nome) + '</b> · ' + esc(SESSAO.papel) + '</p>' +
     '<p class="dica">Última sincronização: ' + (STORE.lastSync() ? fmtDataHora(STORE.lastSync()) : 'ainda não sincronizou') + '</p>' +
-    '<div class="acoes"><a class="botao suave" href="#/senha">🔑 Trocar a minha senha</a>' +
+    '<div class="acoes">'+(SESSAO.origemLogin==='rh'?'<a class="botao suave" href="https://leogpereira-afk.github.io/painel-impresilk/">Gerenciar minha conta na Entrada Única</a>':'<a class="botao suave" href="#/senha">Trocar a minha senha dos POPs</a>') +
     '<button class="botao fantasma" id="bt-sair">Sair</button></div></div>' +
     '<div class="card"><h2>Sincronização e recuperação</h2><p class="dica">Revise envios pendentes e recupere rascunhos deste aparelho.</p><div class="acoes"><button class="botao suave" id="bt-pendencias">Ver pendências</button><button class="botao fantasma" id="bt-rascunhos">Baixar rascunhos</button>' + (souAdmin() ? '<button class="botao fantasma" id="bt-arquivados">Itens arquivados</button>' : '') + '</div></div>' +
     (souAdmin() ? '<div class="card"><div class="sub">Gestores por setor</div>' +
@@ -1302,11 +1276,12 @@ function renderApp() {
   const app = $('#app');
   if (!SESSAO) { renderLogin(app); return; }
   lerRota();
-  document.title = ({inicio:'Início',pops:'POPs',fab:'Fabricação',pessoas:'Pessoas',mapa:'Mapa de treinamento',meus:'Meus treinamentos',menu:'Minha conta'})[ROTA.nome] || 'Pops & Fabricação';
+  document.title = '📋 POPs · ' + (({conhecimento:'Conhecimento',inicio:'Início',pops:'POPs',fab:'Fabricação',pessoas:'Pessoas',mapa:'Mapa de treinamento',meus:'Meus treinamentos',menu:'Minha conta'})[ROTA.nome] || 'Fabricação');
   // Enquanto a senha for a temporária, o app inteiro fica atrás desta tela.
   if (SESSAO.trocarSenha && ROTA.nome !== 'senha') { location.hash = '#/senha'; return; }
   const R = {
     'inicio': renderInicio, '': renderInicio,
+    'conhecimento': renderConhecimento,
     'pops': (a) => renderPops(a),
     'pop': renderPop,
     'fab': renderFab,
@@ -1337,22 +1312,23 @@ window.addEventListener('hashchange', renderApp);
   // Só o servidor pode transformar esse crachá em uma sessão dos POPs.
   if (SESSAO || AUTH.temCracha()) {
     const usuario = SESSAO?.usuario, cracha = AUTH.cracha();
-    AUTH.eu().then(r => {
+    AUTH.eu().then(async r => {
       if (AUTH.cracha() !== cracha || SESSAO?.usuario !== usuario) return;
       if (r === false) { AUTH.esquecer(); STORE.setUser(null); SESSAO = null; renderApp(); return; }
       if (r && r.usuario && r.papel) {
         const trocarSenha = r.trocarSenha === undefined
           ? (SESSAO?.usuario === r.usuario && !!SESSAO.trocarSenha) : !!r.trocarSenha;
-        if (!STORE.setUser({ usuario: r.usuario, nome: r.nome, papel: r.papel, trocarSenha })) return;
+        if (!STORE.setUser({ ...SESSAO, usuario: r.usuario, nome: r.nome, papel: r.papel, trocarSenha })) return;
         SESSAO = STORE.getUser();
         if (ROTA.nome !== 'editor') renderApp();
       }
       if (!SESSAO) return;
+      await atualizarIdentidadeRH();
       STORE.trySync(); STORE.pull().then(() => { if (ROTA.nome !== 'editor') renderApp(); });
     });
   }
-  setInterval(() => { if (SESSAO && document.visibilityState === 'visible') { STORE.pull(); } }, 90000);
+  setInterval(() => { if (SESSAO && document.visibilityState === 'visible') { sincronizarAgora(); } }, 90000);
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && SESSAO) { STORE.trySync(); STORE.pull(); }
+    if (document.visibilityState === 'visible' && SESSAO) { sincronizarAgora(); }
   });
 })();

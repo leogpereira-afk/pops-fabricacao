@@ -5,7 +5,7 @@ import vm from 'node:vm';
 const boot=fs.readFileSync(new URL('../app.js',import.meta.url),'utf8').split('(function boot() {')[1];
 async function iniciar({resposta={usuario:'ana',nome:'Ana',papel:'equipe'},token='valido',sessao=null,pendente=false}={}){
  let user=sessao,cred=token,finish,consultas=0,pulls=0;
- const ctx=vm.createContext({SESSAO:sessao,ROTA:{nome:''},AUTH:{temCracha:()=>!!cred,cracha:()=>cred,esquecer:()=>{cred=''},eu:()=>{consultas++;return pendente?new Promise(r=>finish=r):Promise.resolve(resposta)}},STORE:{setUser:u=>{user=u;return true},getUser:()=>user,trySync:()=>{},pull:async()=>{pulls++}},navigator:{},document:{addEventListener(){}},renderApp(){},setInterval(){}});
+ const ctx=vm.createContext({SESSAO:sessao,ROTA:{nome:''},AUTH:{temCracha:()=>!!cred,cracha:()=>cred,esquecer:()=>{cred=''},eu:()=>{consultas++;return pendente?new Promise(r=>finish=r):Promise.resolve(resposta)}},STORE:{setUser:u=>{user=u;return true},getUser:()=>user,trySync:()=>{},pull:async()=>{pulls++}},navigator:{},document:{addEventListener(){}},renderApp(){},atualizarIdentidadeRH:async()=>{},setInterval(){}});
  vm.runInContext('(function boot() {'+boot,ctx);await new Promise(r=>setImmediate(r));
  return {ctx,finish,setToken:t=>{cred=t},get:()=>({user,cred,consultas,pulls})};
 }

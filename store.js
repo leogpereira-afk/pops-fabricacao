@@ -1,11 +1,14 @@
-// Offline-first: dados e fila são gravados juntos, por conta. A confirmação
+// Offline-first: dados e fila são gravados juntos, por conta e papel. A confirmação
 // de um envio só remove aquela versão; edição feita durante a rede é preservada.
 const STORE = (() => {
   const USER = 'pops_user';
   const COLS = ['pops', 'jornadas', 'treinamentos', 'pessoas', 'atribuicoes', 'leituras', 'progresso'];
   const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
   const novoEnvio = () => crypto.randomUUID ? crypto.randomUUID() : Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2,'0')).join('');
-  const key = u => 'pops_v2_' + encodeURIComponent(norm(u && u.usuario));
+  const perfil = u => ['admin','gestor','equipe'].includes(u?.papel) ? u.papel : 'sem-perfil';
+  const perfilKey = u => 'pops_v3_' + encodeURIComponent(norm(u && u.usuario)) + '_' + perfil(u);
+  const key = u => perfilKey(u) + (u?.identidadeConferida === true ? '_rh_' + encodeURIComponent(u.pessoaRH?.colaboradorId || 'sem-vinculo') : '');
+  const legacyKey = u => 'pops_v2_' + encodeURIComponent(norm(u && u.usuario));
   const vazio = () => ({ dados: {}, cfg: {}, fila: [], rev: { porColecao: {} }, syncEm: null });
   const ouvintes = {};
   const avisar = (ev, dado) => (ouvintes[ev] || []).forEach(f => { try { f(dado); } catch {} });
@@ -18,21 +21,56 @@ const STORE = (() => {
     try { localStorage.setItem(key(getUser()), JSON.stringify(s)); return true; }
     catch { avisar('quota', null); return false; }
   }
+  // O conteúdo comum continua útil offline, mas um vínculo RH diferente não
+  // herda confirmações, atribuições ou rascunhos da pessoa anterior. A origem
+  // inteira fica guardada na própria chave; nada dela é reenviado automaticamente.
+  function compartilharCatalogo(s, origem, chaveOrigem) {
+    const novo = vazio();
+    for (const c of ['pops','jornadas','treinamentos']) {
+      const pendentes = new Set((s.fila || []).filter(x => x.colecao === c).map(x => x.id || x.registro?.id));
+      novo.dados[c] = (s.dados?.[c] || []).filter(x => !pendentes.has(x.id));
+    }
+    novo.cfg = s.cfg || {};
+    if (s.conhecimento) novo.conhecimento = s.conhecimento;
+    novo.preservacao = { chave: chaveOrigem, usuario: norm(origem?.usuario), papel: perfil(origem), colaboradorId: origem?.identidadeConferida ? origem.pessoaRH?.colaboradorId || null : null, pendentes: (s.fila || []).length, rascunhos: (s.rascunhos || []).length };
+    return novo;
+  }
+  function avisarPreservacao(s) {
+    const p = s?.preservacao;
+    if (p && (p.pendentes || p.rascunhos)) avisar('cachePreservado', p);
+  }
   function setUser(u) {
     try {
+      const anterior = getUser();
+      if (u && anterior && perfilKey(u) === perfilKey(anterior) && key(u) !== key(anterior) && localStorage.getItem(key(u)) === null) {
+        const origem = ler(key(anterior), vazio());
+        localStorage.setItem(key(u), JSON.stringify(compartilharCatalogo(origem, anterior, key(anterior))));
+      }
       if (u) localStorage.setItem(USER, JSON.stringify(u)); else localStorage.removeItem(USER);
-      epoch++; clearTimeout(timer); clearTimeout(reagendo); timer = reagendo = null; return true;
+      epoch++; clearTimeout(timer); clearTimeout(reagendo); timer = reagendo = null;
+      if (u) avisarPreservacao(state());
+      return true;
     } catch { avisar('quota', null); return false; }
   }
-  // Migra apenas a conta que já estava identificada ao carregar esta versão.
-  // Se não há dono conhecido, os arquivos antigos ficam guardados, sem entrega
-  // automática a quem fizer o próximo login neste aparelho.
+  // Migra somente o usuário E papel que já estavam identificados no boot,
+  // antes da conferência online. Login posterior nunca adota dados sem origem.
+  // Ao mudar de papel, outro cache começa vazio e a fila anterior fica intacta.
   try {
     const antigo = getUser();
-    if (antigo && localStorage.getItem(key(antigo)) === null) {
-      const fila = ler('pops_fila', []).map(it => ({ ...it, mutationId: novoEnvio(), tentado: true }));
-      const s = { dados: ler('pops_dados', {}), cfg: ler('pops_cfg', {}), fila, rev: { porColecao: {} }, syncEm: null };
-      if (gravar(s)) ['pops_dados','pops_cfg','pops_fila','pops_rev','pops_lastsync'].forEach(k => localStorage.removeItem(k));
+    if (antigo && perfil(antigo) !== 'sem-perfil' && localStorage.getItem(key(antigo)) === null) {
+      const temPerfil = key(antigo) !== perfilKey(antigo) && localStorage.getItem(perfilKey(antigo)) !== null;
+      const temV2 = localStorage.getItem(legacyKey(antigo)) !== null;
+      const fila = temV2 || temPerfil ? [] : ler('pops_fila', []).map(it => ({ ...it, mutationId: novoEnvio(), tentado: true }));
+      let s = temPerfil ? ler(perfilKey(antigo), vazio()) : temV2 ? ler(legacyKey(antigo), vazio())
+        : { dados: ler('pops_dados', {}), cfg: ler('pops_cfg', {}), fila, rev: { porColecao: {} }, syncEm: null };
+      if (antigo.identidadeConferida === true) {
+        // Cache anterior à separação por RH não prova a identidade dos dados.
+        // Guardar a origem antes de limpar dados/revisões pessoais.
+        const origemKey = temPerfil ? perfilKey(antigo) : legacyKey(antigo);
+        if (!temPerfil && !temV2) localStorage.setItem(origemKey, JSON.stringify(s));
+        s = compartilharCatalogo(s, { ...antigo, identidadeConferida: false }, origemKey);
+      }
+      if (gravar(s) && !temV2 && !temPerfil) ['pops_dados','pops_cfg','pops_fila','pops_rev','pops_lastsync'].forEach(k => localStorage.removeItem(k));
     }
   } catch { avisar('quota', null); }
 
@@ -57,7 +95,7 @@ const STORE = (() => {
   function col(nome) { try { return (state().dados[nome] || []).filter(r => !r._apagado); } catch { avisar('quota', null); return []; } }
   const um = (nome, id) => col(nome).find(r => r.id === id) || null;
   function getFila() { try { return state().fila || []; } catch { return []; } }
-  function alterar(action, colecao, reg, id) {
+  function alterar(action, colecao, reg, id, opcoes = {}) {
     try {
       if (!COLS.includes(colecao) || !id || !getUser()) return false;
       const s = state(), lista = s.dados[colecao] || [], anterior = lista.find(r => r.id === id);
@@ -68,6 +106,7 @@ const STORE = (() => {
         return gravar(s);
       }
       const item = { action, colecao, id, expectedRevision, mutationId: novoEnvio(), tentado: !!pendente?.tentado };
+      if (opcoes.confirmarRevisao === true && colecao === 'pops') item.confirmarRevisao = true;
       if (action === 'upsert') {
         item.registro = { ...reg, atualizadoEm: new Date().toISOString() };
         s.dados[colecao] = lista.filter(r => r.id !== id).concat([item.registro]);
@@ -78,7 +117,7 @@ const STORE = (() => {
       agendarSync(); return true;
     } catch { avisar('quota', null); return false; }
   }
-  const salvar = (colecao, registro) => alterar('upsert', colecao, registro, registro?.id);
+  const salvar = (colecao, registro, opcoes) => alterar('upsert', colecao, registro, registro?.id, opcoes);
   const apagar = (colecao, id) => alterar('delete', colecao, null, id);
   function agendarSync() {
     if (timer) return;
@@ -103,7 +142,7 @@ const STORE = (() => {
           enviando.tentado = true;
           if (!gravar(antes)) break;
           const { registro: reg, id, action, colecao, expectedRevision, mutationId } = item;
-          const r = await api(action, { colecao, ...(action === 'upsert' ? { registro: reg } : { id }), expectedRevision, mutationId });
+          const r = await api(action, { colecao, ...(action === 'upsert' ? { registro: reg } : { id }), expectedRevision, mutationId, ...(item.confirmarRevisao ? {confirmarRevisao:true} : {}) });
           if (inicio !== epoch) return;
           const s = state(), atual = s.fila.find(x => sig(x) === sig(item));
           if (!atual) continue;
@@ -138,11 +177,28 @@ const STORE = (() => {
   }
   async function pull() {
     const inicio = epoch;
+    if (getUser()) avisarPreservacao(state());
     if (pulling === inicio || !getUser() || !navigator.onLine) return false;
     pulling = inicio;
     try {
       const r = await api('rev'); if (inicio !== epoch) return false;
       const deles = r.rev?.porColecao || {};
+      if (window.CONHECIMENTO_VERSAO && state().conhecimento?.versao !== window.CONHECIMENTO_VERSAO) {
+        // A base complementar pode estar temporariamente indisponível sem
+        // impedir a atualização dos procedimentos e dos registros pessoais.
+        try {
+          const resposta = await api('conhecimento');
+          if (inicio !== epoch) return false;
+          if (resposta.conhecimento?.versao !== window.CONHECIMENTO_VERSAO) throw new Error('A base de conhecimento ainda não pôde ser atualizada.');
+          const s = state(); s.conhecimento = resposta.conhecimento;
+          if (!gravar(s)) throw new Error('Sem espaço para guardar a base de conhecimento.');
+          avisar('conhecimentoErro', null);
+        } catch (e) {
+          if (inicio !== epoch) return false;
+          if (e.status === 401) throw e;
+          avisar('conhecimentoErro', e.message);
+        }
+      }
       for (const c of COLS.concat(['cfg'])) {
         if (inicio !== epoch) return false;
         const local = state();
@@ -213,6 +269,7 @@ const STORE = (() => {
   window.addEventListener('online', () => { trySync(); pull(); });
   return { api, col, um, salvar, apagar, getUser, setUser, getFila, trySync, pull, agendarSync, salvarCFG, recuperarServidor,
     getCFG: () => { try { return state().cfg; } catch { return {}; } },
+    getConhecimento: () => { try { return state().conhecimento || {}; } catch { return {}; } },
     getRascunhos: () => state().rascunhos || [],
     lastSync: () => { try { return state().syncEm; } catch { return null; } },
     on: (ev, fn) => (ouvintes[ev] = ouvintes[ev] || []).push(fn) };

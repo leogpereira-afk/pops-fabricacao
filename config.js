@@ -10,4 +10,5 @@
 // Credencial NUNCA aqui.
 // ============================================================================
 window.API_BASE = "https://heveemylixartyijxewh.supabase.co/functions/v1";
+window.CONHECIMENTO_VERSAO = '2026.10.05';
 window.API_FN = { sync: "pops-sync" };

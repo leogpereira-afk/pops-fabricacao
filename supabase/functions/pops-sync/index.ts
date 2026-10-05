@@ -17,12 +17,63 @@ async function registro(col: string, id: string) { return conferir(await sb.from
 async function config() { const r = conferir(await sb.from(T_CFG).select("config").eq("id", true).maybeSingle()); return r?.config ?? {}; }
 function negar() { throw new Falha("Seu acesso não permite esta alteração.", 403); }
 
+// A ficha do RH é a identidade estável. O login identifica a conta, nunca é
+// usado como palpite de nome. Não expor documento, id_pessoa ou outros dados do RH.
+async function identidadeRH(cracha: any): Promise<any> {
+  const sem = (motivo: string) => ({ ok: true, vinculada: false, pessoa: null, motivo });
+  const usuario = norm(cracha?.sub);
+  if (!usuario) return sem("sem_conta_pessoal");
+  const diretas = conferir(await sb.from("acesso_conta").select("id,usuario,ativo,colaborador_id").eq("usuario", usuario).limit(2));
+  const papeisLogin = conferir(await sb.from("acesso_papel").select("conta_id,login,ativo").eq("sistema", "pops").eq("login", usuario).limit(3));
+  const ids = [...new Set(papeisLogin.map((p: any) => p.conta_id))];
+  const porLogin = ids.length ? conferir(await sb.from("acesso_conta").select("id,usuario,ativo,colaborador_id").in("id", ids)) : [];
+  const candidatas = [...new Map([...diretas, ...porLogin].map((c: any) => [c.id, c])).values()] as any[];
+  if (!candidatas.length) return sem("sem_vinculo_central");
+  if (candidatas.length !== 1) return sem("vinculo_ambiguo");
+  const conta = candidatas[0];
+  if (conta.ativo === false) return sem("conta_inativa");
+  const papel = conferir(await sb.from("acesso_papel").select("ativo,papel,login").eq("conta_id", conta.id).eq("sistema", "pops").maybeSingle());
+  if (!papel || papel.ativo === false) return sem("sem_acesso_pops");
+  const colaboradorId = String(conta.colaborador_id || "");
+  if (!colaboradorId) return sem("sem_ficha_rh");
+  const ficha = conferir(await sb.from("registros").select("id,nome:registro->>nome,cargoId:registro->>cargoId,areaId:registro->>areaId,setor:registro->>setor,statusId:registro->>statusId,dataDesligamento:registro->>dataDesligamento,cargoLivre:registro->>cargoLivre,funcao:registro->>funcao").eq("colecao", "colaboradores").eq("id", colaboradorId).eq("apagado", false).maybeSingle());
+  if (!ficha) return sem("ficha_indisponivel");
+  const r = ficha.registro || ficha;
+  if (String(r.dataDesligamento || "").trim() || ["inativo", "abandono"].includes(r.statusId)) return sem("pessoa_desligada");
+  const resumo = async (colecao: string, id: string) => {
+    if (!id) return "";
+    const row = conferir(await sb.from("registros").select("nome:registro->>nome").eq("colecao", colecao).eq("id", id).eq("apagado", false).maybeSingle());
+    return row?.nome || row?.registro?.nome || "";
+  };
+  const [cargo, area] = await Promise.all([resumo("cargos", r.cargoId), resumo("areas", r.areaId)]);
+  return { ok: true, vinculada: true, pessoa: {
+    id: "p-" + ficha.id, colaboradorId: ficha.id, nome: String(r.nome || ""),
+    funcao: cargo || String(r.cargoLivre || r.funcao || ""), cargoId: r.cargoId || null,
+    areaId: r.areaId || null, area, setor: r.setor || "", statusId: r.statusId || "",
+    usuario, vinculoOrigem: "central_rh",
+  } };
+}
+
 // A visibilidade do menu não protege os históricos: o filtro pertence à consulta.
 async function filtroLeitura(col: string, cracha: any, maquina: boolean) {
   if (maquina || cracha.papel !== "equipe") return null;
   const usuario = norm(cracha.sub);
-  if (["pessoas", "leituras", "progresso"].includes(col)) return { campo: "registro->>usuario", valor: usuario };
-  if (col === "atribuicoes") {
+  if (["leituras", "progresso"].includes(col)) {
+    const identidade = await identidadeRH(cracha);
+    if (identidade.vinculada) return { expressao: `registro->>colaboradorId.eq.${idValido(identidade.pessoa.colaboradorId)},and(registro->>colaboradorId.is.null,registro->>usuario.eq.${JSON.stringify(usuario)})` };
+    // Um login desvinculado não herda a história da pessoa que o usava antes.
+    // Somente a conta legada, ainda ausente da Central, conserva seu histórico
+    // antigo sem carimbo RH. Vínculo conhecido inválido não autoriza fallback.
+    if (identidade.motivo !== "sem_vinculo_central") return { campo: "id", valor: "" };
+    return { expressao: `and(registro->>colaboradorId.is.null,registro->>usuario.eq.${JSON.stringify(usuario)})` };
+  }
+  if (["pessoas", "atribuicoes"].includes(col)) {
+    const identidade = await identidadeRH(cracha);
+    if (identidade.vinculada) return { campo: col === "pessoas" ? "id" : "registro->>pessoaId", valor: identidade.pessoa!.id };
+    // Compatibilidade só para conta antiga que ainda não existe na Central.
+    // Um vínculo incompleto/ambíguo conhecido nunca autoriza uma pessoa por texto.
+    if (identidade.motivo !== "sem_vinculo_central") return { campo: "id", valor: "" };
+    if (col === "pessoas") return { campo: "registro->>usuario", valor: usuario };
     const pessoa = conferir(await sb.from(T_REG).select("id").eq("colecao", "pessoas").eq("apagado", false).eq("registro->>usuario", usuario).maybeSingle());
     // Sem vínculo confirmado não há atribuições pessoais disponíveis.
     return pessoa ? { campo: "registro->>pessoaId", valor: pessoa.id } : { campo: "id", valor: "" };
@@ -76,6 +127,16 @@ async function autorizarEscrita(col: string, novo: any, anterior: any, cracha: a
     novo.usuario = u;
     // Identidade e autoria não são delegáveis pelo formulário.
     novo.nome = String(cracha.nome || cracha.sub);
+    const identidade = await identidadeRH(cracha);
+    if (!identidade.vinculada && identidade.motivo !== "sem_vinculo_central") throw new Falha("Confira o vínculo da sua conta com o RH antes de registrar aprendizado pessoal.", 403);
+    if (anterior?.colaboradorId && (!identidade.vinculada || anterior.colaboradorId !== identidade.pessoa.colaboradorId)) negar();
+    // Campos fornecidos pelo cliente jamais escolhem a ficha de outra pessoa.
+    delete novo.pessoaId; delete novo.colaboradorId;
+    if (identidade.vinculada) {
+      novo.pessoaId = identidade.pessoa!.id;
+      novo.colaboradorId = identidade.pessoa!.colaboradorId;
+      novo.nome = identidade.pessoa!.nome;
+    }
     return;
   }
   if (papel === "admin") return;
@@ -88,6 +149,39 @@ async function autorizarEscrita(col: string, novo: any, anterior: any, cracha: a
     if (novo.tipo !== "pop" || (anterior && (anterior.tipo !== "pop" || anterior.refId !== novo.refId || anterior.pessoaId !== novo.pessoaId))) negar();
     const pop = await registro("pops", idValido(novo.refId));
     if (!pop || pop.apagado || !meus.includes(norm(pop.registro.setor))) negar();
+  }
+}
+
+// Mudança operacional invalida leitura anterior. Metadados de navegação não
+// promovem procedimento a validado: só a confirmação explícita do revisor.
+function estavel(valor: any): string {
+  if (Array.isArray(valor)) return "[" + valor.map(estavel).join(",") + "]";
+  if (valor && typeof valor === "object") return "{" + Object.keys(valor).sort().map(k => JSON.stringify(k) + ":" + estavel(valor[k])).join(",") + "}";
+  return JSON.stringify(valor) ?? "null";
+}
+async function prepararPOP(novo: any, anterior: any, cracha: any, confirmar: boolean) {
+  const campos = ["titulo", "setor", "objetivo", "epis", "blocos", "responsavel"];
+  const mudou = !!anterior && campos.some(k => estavel(novo[k] ?? null) !== estavel(anterior[k] ?? null));
+  if (mudou && String(novo.versao || "1.0") === String(anterior.versao || "1.0")) throw new Falha("O procedimento mudou. Informe uma nova versão para renovar as leituras.", 409);
+  if (novo.revisao != null && (!novo.revisao || typeof novo.revisao !== "object" || !["revisar", "validado"].includes(novo.revisao.status))) throw new Falha("Situação de revisão inválida.");
+  if (confirmar && novo.revisao?.status === "validado") novo.revisao = { status: "validado", por: String(cracha.nome || cracha.sub), em: new Date().toISOString() };
+  else if (mudou || (anterior && String(novo.versao || "1.0") !== String(anterior.versao || "1.0")) || (!anterior && novo.revisao) || novo.revisao?.status === "revisar") novo.revisao = { status: "revisar" };
+  else if (anterior?.revisao) novo.revisao = anterior.revisao;
+  else delete novo.revisao;
+  if (novo.fontes !== undefined && (!Array.isArray(novo.fontes) || novo.fontes.length > 30 || novo.fontes.some((f: any) => typeof f !== "string" || f.length > 1000))) throw new Falha("Informe até 30 fontes em texto.");
+  if (novo.relacionados !== undefined) {
+    if (!Array.isArray(novo.relacionados) || novo.relacionados.length > 50) throw new Falha("Informe até 50 conteúdos relacionados.");
+    const origens: Record<string, string> = { pop: "pops", jornada: "jornadas", treinamento: "treinamentos" };
+    const unicos = new Set<string>();
+    for (const rel of novo.relacionados) {
+      if (!rel || !origens[rel.tipo] || typeof rel.refId !== "string" || (rel.tipo === "pop" && rel.refId === novo.id)) throw new Falha("Conteúdo relacionado inválido.", 409);
+      const chave = rel.tipo + ":" + rel.refId;
+      if (unicos.has(chave)) throw new Falha("Remova o conteúdo relacionado repetido.", 409);
+      unicos.add(chave);
+      const item = await registro(origens[rel.tipo], idValido(rel.refId));
+      if (!item || item.apagado) throw new Falha("Um conteúdo relacionado não está mais disponível. Atualize os vínculos.", 409);
+    }
+    novo.relacionados = novo.relacionados.map((r: any) => ({ tipo: r.tipo, refId: r.refId }));
   }
 }
 
@@ -107,6 +201,12 @@ Deno.serve(async (req: Request) => {
     if (["delete", "restore", "setCfg", "sincronizarPessoas", "putFoto", "deleteFoto"].includes(action) && !admin) negar();
     switch (action) {
       case "ping": return resp({ ok: true, agora: new Date().toISOString() });
+      case "identidadeRH": return resp(await identidadeRH(cracha));
+      case "conhecimento": {
+        // Conteúdo empresarial fica no banco privado; repositório e site contêm só o leitor.
+        const base = (await config()).conhecimentoBase;
+        return resp({ ok: true, conhecimento: base && typeof base === "object" && !Array.isArray(base) ? base : null });
+      }
       case "rev": {
         const data = conferir(await sb.from(T_META).select("valor").eq("chave", "rev").maybeSingle());
         return resp({ rev: data?.valor ?? { rev: 0, porColecao: {} } });
@@ -123,7 +223,7 @@ Deno.serve(async (req: Request) => {
         if (!Number.isInteger(limite) || limite < 1 || limite > 500) throw new Falha("Limite de página inválido.");
         let q = sb.from(T_REG).select("id, registro, apagado, atualizado_em, revision").eq("colecao", col);
         const filtro = await filtroLeitura(col, cracha, maquina);
-        if (filtro) q = q.eq(filtro.campo, filtro.valor);
+        if (filtro) q = "expressao" in filtro ? q.or(filtro.expressao!) : q.eq(filtro.campo!, filtro.valor!);
         if (body.desde) {
           // A dupla data/id não perde registros quando um lote compartilha a data.
           if (typeof body.desde === "object") {
@@ -143,7 +243,7 @@ Deno.serve(async (req: Request) => {
       case "get": {
         const col = colValida(body.colecao), filtro = await filtroLeitura(col, cracha, maquina);
         let q = sb.from(T_REG).select("registro, apagado, revision").eq("colecao", col).eq("id", idValido(body.id));
-        if (filtro) q = q.eq(filtro.campo, filtro.valor);
+        if (filtro) q = "expressao" in filtro ? q.or(filtro.expressao!) : q.eq(filtro.campo!, filtro.valor!);
         const data = conferir(await q.maybeSingle());
         return resp({ registro: data && !data.apagado ? data.registro : null, revision: data?.revision ?? 0 });
       }
@@ -156,12 +256,15 @@ Deno.serve(async (req: Request) => {
         const id = idValido(action === "upsert" ? reg.id : body.id);
         const atual = await registro(col, id);
         await autorizarEscrita(col, reg, atual?.registro, cracha, maquina, action !== "upsert");
+        if (action === "upsert" && col === "pops" && !maquina) await prepararPOP(reg, atual?.registro, cracha, body.confirmarRevisao === true);
         if (action === "upsert" && col === "pessoas" && !maquina) {
           if (!atual || atual.apagado) throw new Falha("Atualize a pessoa a partir do RH antes de vincular sua conta.", 409);
           const usuario = norm(reg.usuario), observacao = reg.observacao ?? atual.registro.observacao;
           if (usuario) {
             const conta = conferir(await sb.from("equipe_contas").select("usuario, ativo").eq("sistema", "pops").eq("usuario", usuario).maybeSingle());
             if (!conta || conta.ativo === false) throw new Falha("Escolha uma conta ativa do POPs na Central de Acessos.", 409);
+            const identidade = await identidadeRH({ sub: usuario });
+            if (!identidade.vinculada || identidade.pessoa!.id !== id) throw new Falha("O vínculo deve corresponder ao ID da pessoa no RH e na Central de Acessos.", 409);
           }
           // Nome, função e área continuam sendo responsabilidade do RH.
           for (const k of Object.keys(reg)) delete reg[k];
@@ -183,7 +286,7 @@ Deno.serve(async (req: Request) => {
         if (result.error?.code === "23505") throw new Falha("Essa conta já está vinculada a outra pessoa.", 409);
         return resp(conferir(result));
       }
-      case "getCfg": { const cfg = await config(); return resp({ config: cfg, cfg }); }
+      case "getCfg": { const { conhecimentoBase: _basePrivada, ...cfg } = await config(); return resp({ config: cfg, cfg }); }
       case "setCfg": {
         if (!body.config || Array.isArray(body.config) || typeof body.config !== "object") throw new Falha("Configuração inválida.");
         // Somente campos enviados são modificados; omissão não apaga os demais.

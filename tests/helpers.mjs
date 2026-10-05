@@ -12,7 +12,7 @@ export function jwt(payload = {}) {
   return `${header}.${data}.${createHmac('sha256', secret).update(`${header}.${data}`).digest('base64url')}`;
 }
 
-export function backend({ rows = [], config = {}, queryError = false, revocationError = false, revoked = false } = {}) {
+export function backend({ rows = [], config = {}, queryError = false, revocationError = false, revoked = false, tables = {} } = {}) {
   let handler;
   const writes = [];
   const queries = [];
@@ -33,6 +33,10 @@ export function backend({ rows = [], config = {}, queryError = false, revocation
         lte(k,v) { q.filters.push(r=>r[k]<=v); return chain; },
         in(k,v) { q.filters.push(r=>v.includes(r[k])); return chain; },
         or(expr) {
+          const rh = expr.match(/^registro->>colaboradorId.eq.([^,]+),and\(registro->>colaboradorId.is.null,registro->>usuario.eq.(.+)\)$/);
+          if (rh) { const usuario = JSON.parse(rh[2]); q.filters.push(r=>r.registro?.colaboradorId===rh[1] || (r.registro?.colaboradorId==null && r.registro?.usuario===usuario)); return chain; }
+          const legado = expr.match(/^and\(registro->>colaboradorId.is.null,registro->>usuario.eq.(.+)\)$/);
+          if (legado) { const usuario = JSON.parse(legado[1]); q.filters.push(r=>r.registro?.colaboradorId==null && r.registro?.usuario===usuario); return chain; }
           // Real PostgREST composite cursor emitted by the production handler.
           const m=expr.match(/^atualizado_em.gt.([^,]+),and\(atualizado_em.eq.([^,]+),id.gt.(.+)\)$/);
           if (!m) throw new Error('Filtro de cursor não reconhecido: '+expr);
@@ -47,7 +51,7 @@ export function backend({ rows = [], config = {}, queryError = false, revocation
         then(resolve,reject) {
           return Promise.resolve().then(()=>{
             if(queryError) return {data:null,error:{message:'leitura indisponível'},count:null};
-            let data = table==='pops_config_global' ? [{id:true,config}] : table==='pops_meta' ? [{chave:'rev',valor:{rev:1,porColecao:{pops:1}}}] : rows;
+            let data = Object.hasOwn(tables, table) ? tables[table] : table==='pops_config_global' ? [{id:true,config}] : table==='pops_meta' ? [{chave:'rev',valor:{rev:1,porColecao:{pops:1}}}] : rows;
             data=data.filter(r=>q.filters.every(f=>f(r))).slice().sort((a,b)=>{for(const k of q.orders){if(a[k]!==b[k])return a[k]<b[k]?-1:1;}return 0;});
             const count=data.length;
             if(q.range)data=data.slice(q.range[0],q.range[1]+1);

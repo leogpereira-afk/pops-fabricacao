@@ -48,6 +48,23 @@ const AUTH = (() => {
     cracha: pegar,
     esquecer,
 
+    async loginRH(usuario, senha) {
+      const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), 15000);
+      try {
+        const response = await fetch(window.API_BASE + '/acesso-entrar', {
+          method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usuario,senha}),signal:ctrl.signal,
+        });
+        const r = await response.json();
+        if (!response.ok || !r?.ok) throw Object.assign(new Error(r?.erro || 'Não foi possível entrar. Confira seu usuário e senha.'), {status:response.status});
+        if (r.trocarSenha) return {trocarSenha:true,origemLogin:'rh'};
+        const c = r.crachas?.pops;
+        if (!r.usuario || !c?.token || !['admin','gestor','equipe'].includes(c.papel)) throw new Error('Sua conta ainda não tem acesso aos POPs. Peça à gestão a liberação na Central de Acessos.');
+        guardar(c.token);
+        // Sessão RH e crachás de outros sistemas nunca são persistidos aqui.
+        return {usuario:r.usuario,nome:r.nome,papel:c.papel,trocarSenha:false,origemLogin:'rh'};
+      } finally { clearTimeout(timer); }
+    },
+
     async login(usuario, senha) {
       const r = await chamar('login', { usuario, senha });
       if (!r.token || !r.usuario || !r.papel) throw new Error('Resposta de login incompleta. Tente novamente.');

@@ -1,7 +1,7 @@
 {
-  "name": "Pops & Fabricação · Impresilk",
-  "short_name": "Pops",
-  "description": "Procedimentos operacionais e jornadas técnicas da fabricação.",
+  "name": "Painel de Educação Impresilk",
+  "short_name": "Educação",
+  "description": "Sua formação, procedimentos e desenvolvimento contínuo na Impresilk.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

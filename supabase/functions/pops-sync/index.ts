@@ -1,6 +1,7 @@
 // POPs: credencial pessoal conferida no servidor; x-token exclusivo da automação.
 // verify_jwt=false: esta porta valida o JWT da equipe, não um JWT Supabase Auth.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { escola } from "../_shared/escola.ts";
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
 const TOKEN = Deno.env.get("POPS_TOKEN") ?? "";
 const JWT_SECRET = Deno.env.get("EQUIPE_JWT_SECRET") ?? "";
@@ -13,7 +14,7 @@ class Falha extends Error { status: number; constructor(message: string, status 
 function conferir(result: any) { if (result.error) throw new Error("Não foi possível consultar ou salvar os dados. Tente novamente."); return result.data; }
 function idValido(id: unknown) { if (typeof id !== "string" || !/^[a-zA-Z0-9._:-]{1,160}$/.test(id)) throw new Falha("Identificador inválido."); return id; }
 function colValida(col: unknown) { if (typeof col !== "string" || !COLS.has(col)) throw new Falha("Coleção inválida."); return col; }
-async function registro(col: string, id: string) { return conferir(await sb.from(T_REG).select("registro, apagado, revision").eq("colecao", col).eq("id", id).maybeSingle()); }
+async function registro(col: string, id: string) { return conferir(await sb.from(T_REG).select("registro, apagado, revision, mutation_id").eq("colecao", col).eq("id", id).maybeSingle()); }
 async function config() { const r = conferir(await sb.from(T_CFG).select("config").eq("id", true).maybeSingle()); return r?.config ?? {}; }
 function negar() { throw new Falha("Seu acesso não permite esta alteração.", 403); }
 
@@ -54,9 +55,45 @@ async function identidadeRH(cracha: any): Promise<any> {
   } };
 }
 
+// O gestor consulta dados pessoais somente dos setores atuais sob sua gestão.
+// Registros antigos sem identificação RH ficam preservados para reconciliação
+// administrativa; um login solto não prova a identidade histórica do autor.
+async function filtroGestor(col: string, cracha: any) {
+  if (!["pessoas", "atribuicoes", "leituras", "progresso"].includes(col)) return null;
+  const cfg = await config(), permitidos = (cfg.gestores?.[norm(cracha.sub)] || []).map(norm);
+  if (!permitidos.length) return { campo: "id", valores: [] as string[] };
+  const todas = async (tabela: string, colecao: string, campos: string) => {
+    const registros: any[] = []; let offset = 0;
+    for (;;) {
+      const rs = conferir(await sb.from(tabela).select(campos).eq("colecao", colecao).eq("apagado", false).order("id").range(offset, offset + 499));
+      registros.push(...rs); if (rs.length < 500) return registros; offset += 500;
+    }
+  };
+  const [rh, areas] = await Promise.all([
+    todas("registros", "colaboradores", "id,setor:registro->>setor,areaId:registro->>areaId,statusId:registro->>statusId,dataDesligamento:registro->>dataDesligamento"),
+    todas("registros", "areas", "id,nome:registro->>nome"),
+  ]);
+  const nomes = new Map(areas.map((r: any) => [r.id, r.nome || r.registro?.nome || ""]));
+  const ids = new Set(rh.filter((row: any) => {
+    const r = row.registro || row;
+    return !r.dataDesligamento && !["inativo", "abandono"].includes(r.statusId) && [r.setor, r.areaId, nomes.get(r.areaId)].some(s => permitidos.includes(norm(s)));
+  }).map((r: any) => String(r.id)));
+  const pessoas = [...ids].map(i => "p-" + i);
+  if (col === "pessoas") return { campo: "id", valores: pessoas };
+  if (col === "atribuicoes") return { campo: "registro->>pessoaId", valores: pessoas };
+  const historicos = await todas(T_REG, col, "id,colaboradorId:registro->>colaboradorId,pessoaId:registro->>pessoaId");
+  const autorizados = historicos.filter((row: any) => {
+    const r = row.registro || row;
+    // Um carimbo RH explícito prevalece sobre qualquer campo antigo contraditório.
+    return r.colaboradorId ? ids.has(r.colaboradorId) : typeof r.pessoaId === "string" && pessoas.includes(r.pessoaId);
+  }).map((r: any) => r.id);
+  return { campo: "id", valores: autorizados };
+}
+
 // A visibilidade do menu não protege os históricos: o filtro pertence à consulta.
 async function filtroLeitura(col: string, cracha: any, maquina: boolean) {
-  if (maquina || cracha.papel !== "equipe") return null;
+  if (maquina || cracha.papel === "admin") return null;
+  if (cracha.papel === "gestor") return filtroGestor(col, cracha);
   const usuario = norm(cracha.sub);
   if (["leituras", "progresso"].includes(col)) {
     const identidade = await identidadeRH(cracha);
@@ -149,6 +186,8 @@ async function autorizarEscrita(col: string, novo: any, anterior: any, cracha: a
     if (novo.tipo !== "pop" || (anterior && (anterior.tipo !== "pop" || anterior.refId !== novo.refId || anterior.pessoaId !== novo.pessoaId))) negar();
     const pop = await registro("pops", idValido(novo.refId));
     if (!pop || pop.apagado || !meus.includes(norm(pop.registro.setor))) negar();
+    const escopo = await filtroGestor("pessoas", cracha);
+    if (!escopo?.valores.includes(novo.pessoaId)) negar();
   }
 }
 
@@ -158,6 +197,69 @@ function estavel(valor: any): string {
   if (Array.isArray(valor)) return "[" + valor.map(estavel).join(",") + "]";
   if (valor && typeof valor === "object") return "{" + Object.keys(valor).sort().map(k => JSON.stringify(k) + ":" + estavel(valor[k])).join(",") + "}";
   return JSON.stringify(valor) ?? "null";
+}
+function prepararTreinamento(novo: any, anterior: any, cracha: any) {
+  // A edição do treinamento conserva campos anteriores que este formulário não
+  // conhece. Campos enviados explicitamente continuam sujeitos à validação.
+  if (anterior) for (const [campo, valor] of Object.entries(anterior)) {
+    if (!Object.hasOwn(novo, campo)) novo[campo] = valor;
+  }
+  const texto = (valor: any, limite: number, rotulo: string, obrigatorio = false) => {
+    if (typeof valor !== "string" || valor.length > limite || (obrigatorio && !valor.trim())) {
+      throw new Falha(`${rotulo}: informe um texto ${obrigatorio ? "não vazio " : ""}com até ${limite} caracteres.`);
+    }
+    return valor.trim();
+  };
+  novo.titulo = texto(novo.titulo, 200, "Título", true);
+  novo.versao = texto(novo.versao, 40, "Versão", true);
+  for (const [campo, limite] of [["tipo", 80], ["setor", 200], ["resumo", 2000], ["responsavel", 200]] as const) {
+    if (novo[campo] !== undefined) novo[campo] = texto(novo[campo], limite, campo);
+  }
+  if (novo.exigeAceite !== undefined && typeof novo.exigeAceite !== "boolean") throw new Falha("Confirmação de aceite inválida.");
+  if (novo.validadeMeses !== undefined && (!Number.isInteger(novo.validadeMeses) || novo.validadeMeses < 0 || novo.validadeMeses > 120)) {
+    throw new Falha("Informe uma validade inteira entre 0 e 120 meses.");
+  }
+  const tiposTexto = new Set(["paragrafo", "texto", "subtitulo", "destaque", "alerta"]);
+  const tiposLista = new Set(["passos", "lista", "checklist"]);
+  if (!Array.isArray(novo.blocos) || !novo.blocos.length || novo.blocos.length > 300) throw new Falha("Informe o conteúdo do treinamento em até 300 blocos.");
+  let temConteudo = false;
+  for (const bloco of novo.blocos) {
+    if (!bloco || Array.isArray(bloco) || typeof bloco !== "object") throw new Falha("Bloco de conteúdo inválido.");
+    if (tiposTexto.has(bloco.tipo)) {
+      if (texto(bloco.texto, 20000, "Texto do bloco")) temConteudo = true;
+    } else if (tiposLista.has(bloco.tipo)) {
+      if (!Array.isArray(bloco.itens) || bloco.itens.length > 200) throw new Falha("Informe até 200 itens por lista.");
+      for (const item of bloco.itens) if (texto(item, 2000, "Item da lista")) temConteudo = true;
+    } else throw new Falha("Tipo de bloco de conteúdo inválido.");
+  }
+  if (!temConteudo) throw new Falha("Informe um conteúdo não vazio para o treinamento.");
+  if (novo.materiais !== undefined) {
+    if (!Array.isArray(novo.materiais) || novo.materiais.length > 20) throw new Falha("Informe até 20 materiais de apoio.");
+    for (const material of novo.materiais) {
+      if (!material || Array.isArray(material) || typeof material !== "object") throw new Falha("Material de apoio inválido.");
+      material.titulo = texto(material.titulo, 200, "Título do material", true);
+      material.url = texto(material.url, 2000, "Link do material", true);
+      let url: URL;
+      try { url = new URL(material.url); } catch { throw new Falha("Use um link HTTPS completo para o material de apoio."); }
+      if (!/^https:\/\//i.test(material.url) || url.protocol !== "https:" || !url.hostname || url.username || url.password || /[\u0000-\u0020\u007f\\]/.test(material.url)) {
+        throw new Falha("Use um link HTTPS completo, sem credenciais, para o material de apoio.");
+      }
+    }
+  }
+  const defaults: Record<string, any> = { tipo: "", setor: "", resumo: "", exigeAceite: false, validadeMeses: 0, materiais: [] };
+  const campos = ["titulo", "tipo", "setor", "resumo", "blocos", "exigeAceite", "validadeMeses", "materiais"];
+  const valorComparavel = (registro: any, campo: string) => registro[campo] === undefined ? defaults[campo] : registro[campo];
+  const mudou = !!anterior && campos.some(campo => estavel(valorComparavel(novo, campo)) !== estavel(valorComparavel(anterior, campo)));
+  if (mudou && novo.versao === String(anterior.versao || "1.0").trim()) throw new Falha("O treinamento mudou. Informe uma nova versão para renovar as conclusões.", 409);
+  const agora = new Date().toISOString(), autor = String(cracha?.nome || cracha?.sub || "Automação");
+  for (const campo of ["criadoEm", "criadoPor"]) {
+    if (!anterior) novo[campo] = campo === "criadoEm" ? agora : autor;
+    else if (Object.hasOwn(anterior, campo)) novo[campo] = anterior[campo];
+    else delete novo[campo];
+  }
+  novo.revisadoEm = agora;
+  novo.revisadoPor = autor;
+  if (JSON.stringify(novo).length > 500_000) throw new Falha("Registro inválido ou muito grande.");
 }
 async function prepararPOP(novo: any, anterior: any, cracha: any, confirmar: boolean) {
   const campos = ["titulo", "setor", "objetivo", "epis", "blocos", "responsavel"];
@@ -200,6 +302,7 @@ Deno.serve(async (req: Request) => {
     const action = String(body.action ?? "");
     if (["delete", "restore", "setCfg", "sincronizarPessoas", "putFoto", "deleteFoto"].includes(action) && !admin) negar();
     switch (action) {
+      case "escola": return resp(await escola(body, { sb, cracha, maquina, identidadeRH, config, registro, conferir, Falha }));
       case "ping": return resp({ ok: true, agora: new Date().toISOString() });
       case "identidadeRH": return resp(await identidadeRH(cracha));
       case "conhecimento": {
@@ -216,14 +319,14 @@ Deno.serve(async (req: Request) => {
           if (!admin) negar();
           const de = Number(body.after ?? 0);
           if (!Number.isSafeInteger(de) || de < 0) throw new Falha("Página inválida.");
-          const data = conferir(await sb.from(T_REG).select("colecao, id, registro, apagado").order("colecao").order("id").range(de, de + 499));
+          const data = conferir(await sb.from(T_REG).select("colecao, id, registro, apagado").in("colecao", [...COLS]).order("colecao").order("id").range(de, de + 499));
           return resp({ registros: data.filter((l: any) => !l.apagado).map((l: any) => ({ ...l.registro, _col: l.colecao })), nextAfter: data.length === 500 ? de + 500 : null });
         }
         const col = colValida(body.colecao), limite = Number(body.limite ?? 200);
         if (!Number.isInteger(limite) || limite < 1 || limite > 500) throw new Falha("Limite de página inválido.");
         let q = sb.from(T_REG).select("id, registro, apagado, atualizado_em, revision").eq("colecao", col);
         const filtro = await filtroLeitura(col, cracha, maquina);
-        if (filtro) q = "expressao" in filtro ? q.or(filtro.expressao!) : q.eq(filtro.campo!, filtro.valor!);
+        if (filtro) q = "expressao" in filtro ? q.or(filtro.expressao!) : "valores" in filtro ? q.in(filtro.campo!, filtro.valores) : q.eq(filtro.campo!, filtro.valor!);
         if (body.desde) {
           // A dupla data/id não perde registros quando um lote compartilha a data.
           if (typeof body.desde === "object") {
@@ -243,7 +346,7 @@ Deno.serve(async (req: Request) => {
       case "get": {
         const col = colValida(body.colecao), filtro = await filtroLeitura(col, cracha, maquina);
         let q = sb.from(T_REG).select("registro, apagado, revision").eq("colecao", col).eq("id", idValido(body.id));
-        if (filtro) q = "expressao" in filtro ? q.or(filtro.expressao!) : q.eq(filtro.campo!, filtro.valor!);
+        if (filtro) q = "expressao" in filtro ? q.or(filtro.expressao!) : "valores" in filtro ? q.in(filtro.campo!, filtro.valores) : q.eq(filtro.campo!, filtro.valor!);
         const data = conferir(await q.maybeSingle());
         return resp({ registro: data && !data.apagado ? data.registro : null, revision: data?.revision ?? 0 });
       }
@@ -256,6 +359,7 @@ Deno.serve(async (req: Request) => {
         const id = idValido(action === "upsert" ? reg.id : body.id);
         const atual = await registro(col, id);
         await autorizarEscrita(col, reg, atual?.registro, cracha, maquina, action !== "upsert");
+        if (action === "upsert" && col === "treinamentos") prepararTreinamento(reg, atual?.registro, cracha);
         if (action === "upsert" && col === "pops" && !maquina) await prepararPOP(reg, atual?.registro, cracha, body.confirmarRevisao === true);
         if (action === "upsert" && col === "pessoas" && !maquina) {
           if (!atual || atual.apagado) throw new Falha("Atualize a pessoa a partir do RH antes de vincular sua conta.", 409);

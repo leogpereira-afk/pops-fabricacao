@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 function app(dados={},sessao={usuario:'ana',papel:'admin'}){
-  const ctx=vm.createContext({STORE:{getUser:()=>sessao,on(){},col:c=>dados[c]||[],um:(c,id)=>(dados[c]||[]).find(x=>x.id===id)},location:{href:'https://exemplo.test/pops/',origin:'https://exemplo.test',pathname:'/pops/'},URL,Date});
+  const ctx=vm.createContext({STORE:{getUser:()=>sessao,resumoSync:()=>({status:"aguardando",pendentes:0}),on(){},col:c=>dados[c]||[],um:(c,id)=>(dados[c]||[]).find(x=>x.id===id)},location:{href:'https://exemplo.test/pops/',origin:'https://exemplo.test',pathname:'/pops/'},URL,Date});
   const src=fs.readFileSync(new URL('../app.js',import.meta.url),'utf8').split("window.addEventListener('hashchange'")[0];vm.runInContext(src,ctx);
   return expr=>vm.runInContext(expr,ctx);
 }

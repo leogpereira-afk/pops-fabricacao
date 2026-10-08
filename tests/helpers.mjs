@@ -12,7 +12,7 @@ export function jwt(payload = {}) {
   return `${header}.${data}.${createHmac('sha256', secret).update(`${header}.${data}`).digest('base64url')}`;
 }
 
-export function backend({ rows = [], config = {}, queryError = false, revocationError = false, revoked = false, tables = {} } = {}) {
+export function backend({ rows = [], config = {}, queryError = false, revocationError = false, revoked = false, tables = {}, persistWrites = false } = {}) {
   let handler;
   const writes = [];
   const queries = [];
@@ -20,6 +20,15 @@ export function backend({ rows = [], config = {}, queryError = false, revocation
     rpc: async (name, args) => {
       if (name === 'acesso_revogado') return { data: revoked, error: revocationError ? { message: 'banco fora' } : null };
       writes.push({ rpc: name, args });
+      if (persistWrites && name === 'pops_gravar') {
+        if(queryError)return {data:null,error:{message:'falha de banco'}};
+        const index=rows.findIndex(r=>r.colecao===args.p_colecao&&r.id===args.p_id), old=rows[index];
+        if(old?.mutation_id===args.p_mutation)return {data:{ok:true,revision:old.revision,registro:old.registro},error:null};
+        if(args.p_expected!==(old?.revision||0))return {data:null,error:{code:'40001'}};
+        const revision=(old?.revision||0)+1, row={colecao:args.p_colecao,id:args.p_id,registro:structuredClone(args.p_registro),revision,apagado:false,mutation_id:args.p_mutation};
+        if(index<0)rows.push(row);else rows[index]=row;
+        return {data:{ok:true,revision,registro:row.registro},error:null};
+      }
       return { data: { ok: true, revision: 2, registro: args?.p_registro }, error: null };
     },
     from(table) {
@@ -31,7 +40,7 @@ export function backend({ rows = [], config = {}, queryError = false, revocation
         gt(k,v) { q.filters.push(r=>r[k]>v); return chain; },
         gte(k,v) { q.filters.push(r=>r[k]>=v); return chain; },
         lte(k,v) { q.filters.push(r=>r[k]<=v); return chain; },
-        in(k,v) { q.filters.push(r=>v.includes(r[k])); return chain; },
+        in(k,v) { q.filters.push(r=>v.includes(k.startsWith('registro->>')?r.registro?.[k.slice(11)]:r[k])); return chain; },
         or(expr) {
           const rh = expr.match(/^registro->>colaboradorId.eq.([^,]+),and\(registro->>colaboradorId.is.null,registro->>usuario.eq.(.+)\)$/);
           if (rh) { const usuario = JSON.parse(rh[2]); q.filters.push(r=>r.registro?.colaboradorId===rh[1] || (r.registro?.colaboradorId==null && r.registro?.usuario===usuario)); return chain; }
@@ -62,8 +71,9 @@ export function backend({ rows = [], config = {}, queryError = false, revocation
       }; return chain;
     }
   };
-  const ctx = vm.createContext({ __sb: sb, Deno:{env:{get:k=>k==='EQUIPE_JWT_SECRET'?secret:k==='POPS_TOKEN'?'maquina-ficticia':'http://exemplo.test'},serve:fn=>handler=fn}, crypto:webcrypto, TextEncoder,TextDecoder,Uint8Array,atob,btoa,Request,Response,console:{error(){}} });
-  const source=fs.readFileSync(new URL('supabase/functions/pops-sync/index.ts',root),'utf8').replace(/^import .*createClient.*;$/m,'const createClient = () => __sb;');
+  const ctx = vm.createContext({ __sb: sb, Deno:{env:{get:k=>k==='EQUIPE_JWT_SECRET'?secret:k==='POPS_TOKEN'?'maquina-ficticia':'http://exemplo.test'},serve:fn=>handler=fn}, crypto:webcrypto, TextEncoder,TextDecoder,Uint8Array,atob,btoa,Request,Response,URL,console:{error(){}} });
+  const escolaSource=fs.readFileSync(new URL('supabase/functions/_shared/escola.ts',root),'utf8').replace('export async function escola','async function escola');
+  const source=fs.readFileSync(new URL('supabase/functions/pops-sync/index.ts',root),'utf8').replace(/^import .*createClient.*;$/m,'const createClient = () => __sb;').replace(/^import .*escola.*;$/m,()=> '{ '+escolaSource+'; globalThis.__escola = escola; } const escola = globalThis.__escola;');
   vm.runInContext(stripTypeScriptTypes(source),ctx);
   async function call(body,payload={}) {
     const response=await handler(new Request('http://local.test',{method:'POST',headers:{authorization:'Bearer '+jwt(payload),'content-type':'application/json'},body:JSON.stringify(body)}));

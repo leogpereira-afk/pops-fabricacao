@@ -1,0 +1,65 @@
+{
+  "verifiedAt": "2026-10-08T12:29:17.929609+00:00",
+  "environment": "Isolated local fixtures; no production writes",
+  "suite": {
+    "tests": 241,
+    "pass": 241,
+    "fail": 0,
+    "skipped": 0,
+    "cancelled": 0
+  },
+  "browser": {
+    "checks": 14,
+    "errors": []
+  },
+  "noHorizontalOverflow": [
+    "home 1440px",
+    "home 390px",
+    "lesson 390px",
+    "management 390px",
+    "editor 390px"
+  ],
+  "otherChecks": [
+    "Public JavaScript syntax",
+    "Manifest JSON",
+    "Script references",
+    "git diff --check",
+    "16 public assets; no private documents or demo server",
+    "Independent progress for different journeys assigned to the same RH ID"
+  ],
+  "lostResponse": "Server commit, lost response, visible pending state, reload and retry: no duplicates; 70 points and 7 unique achievements",
+  "freshSession": "Confirmed progress loaded in a new authorized browser context",
+  "limitations": [
+    "Real production accounts and devices not verified on this version",
+    "New learning records require network confirmation",
+    "Official sources require preparation and review before course release",
+    "Deno CLI unavailable; TypeScript handler executed with Node transformation and SQL tested using PGlite"
+  ],
+  "sha256": {
+    "app.js": "2838c15e1ba5ac79b87861ffa35db34d2a69caeac2ce8d0d3a4ef29097fda2c3",
+    "educacao.js": "643e7c7af5c285e7e02721e061ad6108dd37b32b4b2fcdccf0e3f07f7c62d05e",
+    "store.js": "c6203d03064fb8e282b6f4b904e1180365c7e0431ed8955622b14aa9736c3d7d",
+    "styles.css": "7001661e99f2d9715ea4bbfd5d7a9938a3579bd3dbb5994dfbb684ab6a1c9024",
+    "index.html": "fb2dd43bc4d0ccb532706d9de595be7b28830d28fa20aacde5bf1ce0ff87afc0",
+    "manifest.webmanifest": "54c80d50e2f3d172d9818f56634210d97a578b5e7350bececa72f196ebc1a6a5",
+    "sw.js": "739d6100f92996bf5e1148f6d968a4aa6201d93fe9d310ffffc6fbb0ae4b3c45",
+    "treinamentos.js": "64cdd3704f5f8846a45ef04a4e530e62ea17c69c67fd465a7e5f7f05f16c38b6",
+    "supabase/functions/pops-sync/index.ts": "c3fff54927eeddd74ff8717a1aadbee8ad19a740a2c15b89e26d69fa00576f12",
+    "supabase/functions/_shared/escola.ts": "21fe190129116a88657f11c9a36a0704579bccbd25f13dde93d3f9a76ed7794a",
+    "supabase/migrations/0004_escola.sql": "cf00ce9cb99e37b6a0a31e714258e38049e32d29f5ace6d18e6c59d48926651f"
+  },
+  "release": {
+    "authorization": "User explicitly authorized publication on 2026-10-08",
+    "migration": "pops_escola_educacao_20261008",
+    "functionVersion": 47,
+    "backendVerified": true,
+    "frontend": "Pending GitHub Pages deployment",
+    "rh": {
+      "activeAccounts": 11,
+      "validLinkedAccounts": 10,
+      "missingLinkAccount": "teste",
+      "sharedRhIds": 0
+    },
+    "collectionCountsUnchanged": true
+  }
+}

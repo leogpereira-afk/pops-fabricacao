@@ -368,14 +368,24 @@ function minhasPendencias() {
 
 /* ══════════ shell ══════════ */
 function rotuloSync(st) {
+  const escola=typeof window!=='undefined'?window.EDUCACAO?.estadoEnvio():null;
+  if(escola?.enviando)return 'Confirmando atividade…';
+  if(escola?.pendente)return 'Atividade sem confirmação';
+  if(escola?.erro)return 'Escola: conferir atualização';
+  if(escola?.consultando)return 'Consultando escola…';
   if (!st) return STORE.lastSync() ? 'Atualizado' : 'Atualizando…';
+  if (st.status === 'erro') return st.naoGravados ? 'Alteração não salva' : 'Atualização pendente';
+  if (st.status === 'parcial') return 'Atualização parcial';
+  if (st.status === 'aguardando') return 'Aguardando atualização';
+  if (st.status === 'sincronizando') return 'Sincronizando…';
   if (st.status === 'ok') return STORE.lastSync() ? 'Sincronizado' : 'Conferindo dados…';
   if (st.status === 'revisar') return st.pendentes + ' para revisar';
   if (st.status === 'pendente') return st.pendentes + ' pendente(s)';
   if (st.status === 'offline') return 'Sem internet';
   return 'Servidor fora';
 }
-let _ultimoSync = null;
+let _ultimoSync = STORE.resumoSync();
+if(typeof window!=='undefined' && typeof window.addEventListener==='function')window.addEventListener('educacao:estado',()=>{const chip=$('#chip-sync');if(chip){chip.textContent=rotuloSync(_ultimoSync);const e=window.EDUCACAO.estadoEnvio();chip.classList.toggle('pendente',_ultimoSync?.status!=='ok'||!!(e.pendente||e.erro||e.enviando));}});
 let _avisoConhecimento = '';
 let _avisoCache = '';
 STORE.on('conhecimentoErro', erro => { _avisoConhecimento=erro?'A base de conhecimento não pôde ser atualizada. Os procedimentos continuam disponíveis; tente sincronizar novamente.':''; });
@@ -385,18 +395,20 @@ STORE.on('sync', st => {
   const chip = $('#chip-sync');
   if (chip) { chip.textContent = rotuloSync(st); chip.classList.toggle('pendente', st.status !== 'ok'); }
 });
-STORE.on('pull', () => { if(STORE.getConhecimento().versao===window.CONHECIMENTO_VERSAO) _avisoConhecimento=''; if (!document.querySelector('dialog[open], textarea:focus, input:focus, select:focus') && ROTA.nome !== 'editor') renderApp(); });
+STORE.on('pull', () => { if(STORE.getConhecimento().versao===window.CONHECIMENTO_VERSAO) _avisoConhecimento=''; if (!document.querySelector('dialog[open], textarea:focus, input:focus, select:focus') && !['editor','formacao-editor','formacao'].includes(ROTA.nome)) renderApp(); });
+STORE.on('escopoGestor', () => {if(SESSAO?.papel==='gestor' && ['pessoas','mapa','meus'].includes(ROTA.nome))renderApp();});
 STORE.on('pullErro', msg => { _ultimoSync = { status: 'erro' }; const chip = $('#chip-sync'); if (chip) { chip.textContent = 'Atualização pendente'; chip.title = msg; } });
 STORE.on('sessao', msg => { AUTH.esquecer(); STORE.setUser(null); SESSAO = null; _ultimoSync = null; renderApp(); toast(msg, 'erro'); });
-STORE.on('quota', () => toast('Memória do aparelho cheia — o registro pode não ter sido salvo.', 'erro'));
+STORE.on('quota', () => { _ultimoSync=STORE.resumoSync(); const chip=$('#chip-sync'); if(chip){chip.textContent=rotuloSync(_ultimoSync);chip.classList.add('pendente');} toast('Não foi possível gravar neste aparelho. Abra o estado de sincronização para tentar novamente ou baixar uma cópia.', 'erro'); });
 
 function htmlTopo(aba) {
-  const links=[['inicio','Início','#/'],['pops','POPs','#/pops'],['fab','Fabricação','#/fab'],['meus','Meu aprendizado','#/meus'],['conhecimento','Conhecimento','#/conhecimento']];
+  const links=[['inicio','Minha formação','#/'],['pops','POPs','#/pops'],['fab','Fabricação','#/fab'],['meus','Meu aprendizado','#/meus'],['conhecimento','Conhecimento','#/conhecimento']];
   if (souAdmin() || meusSetores().length) links.push(['pessoas','Equipe','#/pessoas'],['mapa','Acompanhamento','#/mapa']);
+  if(souAdmin() || meusSetores().length || window.EDUCACAO?.podeAcompanhar())links.push(['escola','Escola e acompanhamento','#/escola']);
   links.push(['menu','Minha conta','#/menu']);
   return '<a class="pular" href="#conteudo">Ir para o conteúdo</a><header class="app-cab"><div class="topo">' +
     '<a href="#/" aria-label="Início"><img src="./logo-impresilk.png" alt="Impresilk"></a>' +
-    '<div class="tit"><b>POPs & Fabricação</b><span>Impresilk · '+esc(SESSAO.nome)+'</span></div>'+
+    '<div class="tit"><b>Painel de Educação</b><span>Impresilk · '+esc(SESSAO.nome)+'</span></div>'+
     '<button class="chip-sync" id="chip-sync" title="Conferir sincronização">'+rotuloSync(_ultimoSync)+'</button></div>'+
     '<nav class="abas" aria-label="Navegação principal">'+links.map(([id,nome,url])=>'<a href="'+url+'" '+(aba===id?'class="ativa" aria-current="page"':'')+'>'+nome+(id==='meus' && minhasPendencias().length?' <b>('+minhasPendencias().length+')</b>':'')+'</a>').join('')+'</nav></header>'+(_avisoConhecimento?'<div class="aviso amarelo aviso-app" role="status">'+esc(_avisoConhecimento)+'</div>':'')+(_avisoCache?'<div class="aviso amarelo aviso-app" role="status">'+esc(_avisoCache)+'</div>':'');
 }
@@ -407,7 +419,7 @@ function ligarTopo() {
     bt.insertAdjacentHTML('afterend','<p class="aviso amarelo">Você pode consultar este conteúdo. Para registrar seu aprendizado, a gestão precisa conferir seu vínculo com o RH.</p>');
   });
   const chip = $('#chip-sync');
-  if (chip) chip.onclick = () => { if (STORE.getFila().length) abrirPendencias(); else { sincronizarAgora(); toast('Conferindo atualizações…'); } };
+  if (chip) chip.onclick = () => { const escola=window.EDUCACAO?.estadoEnvio();if(escola?.pendente || escola?.erro){window.EDUCACAO.conferirEstado();return;} if (STORE.resumoSync().pendentes || ['erro','revisar'].includes(STORE.resumoSync().status)) abrirPendencias(); else { sincronizarAgora(); toast('Conferindo atualizações…'); } };
   associarRotulos($('#app'));
   const conteudo=$('.miolo'); if(conteudo){conteudo.id='conteudo';conteudo.tabIndex=-1;}
   const pular=$('.pular'); if(pular) pular.onclick=e=>{e.preventDefault();conteudo?.focus();};
@@ -431,7 +443,8 @@ function renderLogin(app) {
     finally {if(bt.isConnected){bt.disabled=false;bt.textContent='Entrar';}}
   };
 }
-function renderInicio(app) {
+function renderInicio(app) { return window.EDUCACAO.render(app); }
+function renderInicioLegado(app) {
   const p=minhaPessoa(), pend=minhasPendencias(), pops=STORE.col('pops'), jornadas=STORE.col('jornadas');
   const atribuicoes=p?atribuicoesValidasDe(p.id):[], concluidas=atribuicoes.length-pend.length;
   const revisar=pops.filter(x=>!revisaoPop(x).validada).length;
@@ -465,11 +478,38 @@ function htmlRelacionados(p) {
   const jornadas=dados.jornadas.filter(x=>sugestoes.jornadas.some(j=>j.id===x.id) && !ids.has('jornada:'+x.id));
   return '<section class="card conteudo-relacionado"><h2>Conexões deste procedimento</h2>'+(vinculados.length?'<h3>Vínculos registrados</h3>'+vinculados.map(cartaoConteudo).join(''):'<p class="dica">Ainda não há vínculos registrados pela gestão.</p>')+(relacionados.length || jornadas.length?'<h3>Referências relacionadas</h3><p class="dica">Sugestões da base documental para consultar o processo completo.</p><div class="conteudo-grid">'+relacionados.slice(0,4).map(x=>cartaoConteudo({...x,tipo:'pop'})).join('')+jornadas.slice(0,3).map(x=>cartaoConteudo({...x,tipo:'jornada'})).join('')+'</div>':'')+sugestoes.topicos.map(t=>'<a class="botao suave" href="#/conhecimento/'+encodeURIComponent(t.id)+'">'+esc(t.titulo)+'</a>').join(' ')+'</section>';
 }
+function abasConhecimento(referencias) {
+  return '<nav class="chips treino-abas" aria-label="Base de conhecimento"><a class="chip '+(!referencias?'marcado':'')+'" href="#/conhecimento"'+(!referencias?' aria-current="page"':'')+'>Treinamentos</a><a class="chip '+(referencias?'marcado':'')+'" href="#/conhecimento/referencias"'+(referencias?' aria-current="page"':'')+'>Referências da empresa</a></nav>';
+}
+function atribuirTreinamento(t) {
+  if (!souAdmin()) return;
+  abrirLote([{tipo:'treinamento',id:t.id,titulo:t.titulo,grupo:'Treinamentos'}]);
+}
 function renderConhecimento(app) {
+  if (ROTA.arg) { renderReferencias(app); return; }
+  const lista=STORE.col('treinamentos').slice().sort((a,b)=>String(a.titulo).localeCompare(String(b.titulo),'pt-BR'));
+  const ss=[...new Set(lista.map(t=>t.setor || 'Geral'))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  app.innerHTML=htmlTopo('conhecimento')+'<div class="miolo"><header class="treino-cab"><div><div class="eyebrow">BASE DE CONHECIMENTO</div><h1>Aprender para fazer melhor.</h1><p>Treinamentos e orientações para consultar no dia a dia.</p></div>'+(souAdmin()?'<a class="botao" href="#/editor/treinamento/novo">+ Novo treinamento</a>':'')+'</header>'+abasConhecimento(false)+
+    '<section class="card treino-filtros"><div class="campo"><label for="treino-busca">Encontrar treinamento</label><input id="treino-busca" type="search" placeholder="Título, assunto ou instrução"></div><div class="campo"><label for="treino-setor">Setor</label><select id="treino-setor"><option value="">Todos os setores</option>'+ss.map(x=>'<option>'+esc(x)+'</option>').join('')+'</select></div><p id="treino-contagem" class="dica" aria-live="polite"></p></section><div id="treino-lista" class="conteudo-grid"></div></div>';
+  function pintar() {
+    const q=norm($('#treino-busca').value), setor=$('#treino-setor').value;
+    const encontrados=lista.filter(t=>(!setor || (t.setor || 'Geral')===setor) && norm([t.titulo,t.resumo,t.setor,t.responsavel,blocosParaTexto(t.blocos),(t.materiais || []).map(m=>m.titulo).join(' ')].join(' ')).includes(q));
+    $('#treino-contagem').textContent=encontrados.length+' de '+lista.length+' treinamento(s)';
+    $('#treino-lista').innerHTML=encontrados.length?encontrados.map(t=>{
+      const c=conclusaoDe({tipo:'treinamento',refId:t.id},SESSAO.usuario), emDia=c && !c.desatualizado && !c.vencido;
+      const status=emDia?'Leitura em dia':c?.desatualizado?'Nova versão · releia':c?.vencido?'Reciclagem pendente':'Ainda não concluído';
+      return '<article class="card treino-card"><div class="meta"><span class="selo setor">'+esc(t.setor || 'Geral')+'</span><span class="selo '+(emDia?'lido':'pendente')+'">'+status+'</span></div><h2><a href="#/treinamento/'+encodeURIComponent(t.id)+'">'+esc(t.titulo)+'</a></h2><p>'+esc(t.resumo || 'Abra para consultar as instruções e os materiais de apoio.')+'</p><div class="dica">Versão '+esc(t.versao || '1.0')+((t.materiais || []).length?' · '+t.materiais.length+' material(is) de apoio':'')+'</div>'+(t.revisadoEm?'<p class="dica">Atualizado em '+fmtData(t.revisadoEm)+(t.revisadoPor?' por '+esc(t.revisadoPor):'')+'</p>':'')+'<div class="acoes"><a class="botao mini suave" href="#/treinamento/'+encodeURIComponent(t.id)+'">Abrir treinamento</a>'+(souAdmin()?'<a class="botao mini fantasma" href="#/editor/treinamento/'+encodeURIComponent(t.id)+'">Editar</a><button class="botao mini fantasma" data-atribuir-treino="'+esc(t.id)+'" aria-label="Atribuir '+esc(t.titulo)+'">Atribuir</button>':'')+'</div></article>';
+    }).join(''):'<section class="card treino-vazio"><h2>'+(lista.length?'Nenhum resultado':'O conhecimento da equipe começa aqui')+'</h2><p>'+(lista.length?'Tente outra palavra ou selecione todos os setores.':souAdmin()?'Cadastre um treinamento específico com instruções e materiais de apoio. Depois, escolha quem precisa fazê-lo.':'Os treinamentos cadastrados pela gestão aparecerão aqui.')+'</p></section>';
+    $$('[data-atribuir-treino]').forEach(bt=>bt.onclick=()=>atribuirTreinamento(STORE.um('treinamentos',bt.dataset.atribuirTreino)));
+  }
+  $('#treino-busca').oninput=pintar;$('#treino-setor').onchange=pintar;pintar();ligarTopo();
+}
+
+function renderReferencias(app) {
   const k=baseConhecimento(), alvo=ROTA.arg;
   const fontesHtml=t=>(t.fontes || []).map(id=>{const f=k.fonteDe(id);return f?'<li>'+esc(f.titulo)+' · '+fmtData(f.data)+(f.url && /^https:\/\//.test(f.url)?' · <a href="'+esc(f.url)+'" target="_blank" rel="noopener noreferrer">Abrir documento</a>':'')+'</li>':'';}).join('');
   const topico=t=>'<article class="card conhecimento-card"><div class="meta"><span class="selo setor">'+esc(k.status[t.status] || t.status || 'Referência')+'</span></div><h2>'+esc(t.titulo)+'</h2><p>'+esc(t.resumo)+'</p><ol>'+t.passos.map(x=>'<li>'+esc(x)+'</li>').join('')+(t.pendencias.length?'<div class="aviso amarelo"><b>Pontos para conferir</b><ul>'+t.pendencias.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul></div>':'')+'<div class="chips">'+STORE.col('pops').filter(p=>t.codigos.includes(p.codigo)).map(p=>'<a class="chip" href="#/pop/'+encodeURIComponent(p.id)+'">'+esc(p.codigo)+'</a>').join('')+'</div><details class="fonte-nota"><summary>Fontes desta orientação</summary><ul>'+fontesHtml(t)+'</ul></details></article>';
-  app.innerHTML=htmlTopo('conhecimento')+'<div class="miolo"><section class="painel-hero"><div class="eyebrow">BASE IMPRESILK</div><h1>Conhecimento que conecta a empresa.</h1><p>'+esc(k.aviso || 'A base de conhecimento será carregada na próxima sincronização com internet.')+'</p></section>'+(k.identidade?.missao?'<div class="painel-grid"><section class="card"><div class="sub">Nossa missão</div><h2>'+esc(k.identidade.missao)+'</h2></section><section class="card"><div class="sub">Nossa visão</div><h2>'+esc(k.identidade.visao)+'</h2></section></div>':'')+'<div class="card"><div class="campo busca-global"><label for="conhecimento-busca">Buscar na base</label><input id="conhecimento-busca" type="search" placeholder="Compras, preços, passagem de setor, comissões…"></div><div class="chips"><button class="chip" id="conhecimento-todos">Todos os temas</button></div><p class="dica">Organizado em '+fmtData(k.compiladoEm)+'. A data de cada fonte aparece no tema.</p></div><div id="conhecimento-lista"></div>'+(k.identidade?.missao?'<details class="card"><summary>Os 12 valores da Impresilk</summary>'+k.identidade.valores.map(v=>'<h3>'+esc(v.titulo)+'</h3><p>'+esc(v.texto)+'</p>').join('')+'</details>':'')+'</div>';
+  app.innerHTML=htmlTopo('conhecimento')+'<div class="miolo"><header class="treino-cab"><div><div class="eyebrow">BASE DE CONHECIMENTO</div><h1>Referências da empresa</h1><p>'+esc(k.aviso || 'A base de conhecimento será carregada na próxima sincronização com internet.')+'</p></div></header>'+abasConhecimento(true)+(k.identidade?.missao?'<div class="painel-grid"><section class="card"><div class="sub">Nossa missão</div><h2>'+esc(k.identidade.missao)+'</h2></section><section class="card"><div class="sub">Nossa visão</div><h2>'+esc(k.identidade.visao)+'</h2></section></div>':'')+'<div class="card"><div class="campo busca-global"><label for="conhecimento-busca">Buscar na base</label><input id="conhecimento-busca" type="search" placeholder="Compras, preços, passagem de setor, comissões…"></div><div class="chips"><button class="chip" id="conhecimento-todos">Todos os temas</button></div><p class="dica">Organizado em '+fmtData(k.compiladoEm)+'. A data de cada fonte aparece no tema.</p></div><div id="conhecimento-lista"></div>'+(k.identidade?.missao?'<details class="card"><summary>Os 12 valores da Impresilk</summary>'+k.identidade.valores.map(v=>'<h3>'+esc(v.titulo)+'</h3><p>'+esc(v.texto)+'</p>').join('')+'</details>':'')+'</div>';
   const pintar=q=>{const itens=k.buscar(q);$('#conhecimento-lista').innerHTML=itens.length?itens.map(topico).join(''):'<div class="card">Nenhum tema encontrado. Confira a sincronização ou tente outra busca.</div>';};
   const escolhido=k.topicos.find(t=>t.id===alvo);if(escolhido)$('#conhecimento-lista').innerHTML=topico(escolhido);else pintar('');
   $('#conhecimento-busca').oninput=e=>pintar(e.target.value);$('#conhecimento-todos').onclick=()=>{$('#conhecimento-busca').value='';pintar('');};ligarTopo();
@@ -660,17 +700,20 @@ function renderTreinamento(app) {
   const venc = expiracaoTreinamento(t, feito?.em);
   const desatualizado = feito && feito.versaoLida !== (t.versao || '1.0');
   const vencido = venc && venc < new Date();
-  app.innerHTML = htmlTopo('meus') +
-    '<div class="miolo">' +
+  app.innerHTML = htmlTopo('conhecimento') +
+    '<div class="miolo"><div class="acoes treino-navegacao"><a class="botao mini fantasma" href="#/conhecimento">← Treinamentos</a>' + (souAdmin()?'<a class="botao mini suave" href="#/editor/treinamento/'+encodeURIComponent(t.id)+'">Editar treinamento</a><button class="botao mini" id="treino-atribuir">Atribuir à equipe</button>':'') + '</div>' +
     '<div class="card pop-cab">' +
     '<div class="cod" style="color:var(--cinza-4);font-weight:700;font-size:12.5px">' +
     (t.tipo === 'etica' ? 'CÓDIGO DE ÉTICA' : t.tipo === 'norma' ? 'NORMA' : 'TREINAMENTO') + '</div>' +
     '<h1>' + esc(t.titulo) + '</h1>' +
     '<div class="linha-meta"><span>versão ' + esc(t.versao || '1.0') + '</span>' +
-    (t.validadeMeses ? '<span>reciclagem a cada ' + esc(t.validadeMeses) + ' meses</span>' : '') + '</div>' +
+    (t.validadeMeses ? '<span>reciclagem a cada ' + esc(t.validadeMeses) + ' meses</span>' : '') + (t.setor?'<span>'+esc(t.setor)+'</span>':'') + '</div>' +
+    (t.responsavel?'<p class="dica">Responsável pelo conteúdo: '+esc(t.responsavel)+'</p>':'') +
+    (t.revisadoEm?'<p class="dica">Atualizado em '+fmtDataHora(t.revisadoEm)+(t.revisadoPor?' por '+esc(t.revisadoPor):'')+'</p>':'') +
     (t.resumo ? '<div class="aviso azul" style="margin-bottom:0">' + esc(t.resumo) + '</div>' : '') +
     '</div>' +
     '<div class="card">' + blocosParaHtml(t.blocos) + '</div>' +
+    htmlMateriaisTreinamento(t.materiais) +
     (desatualizado ? '<div class="aviso amarelo">O documento mudou. Leia a versão atual e confirme novamente.</div>' : '') +
     (vencido ? '<div class="aviso amarelo">Sua confirmação venceu em ' + fmtData(venc.toISOString()) + '. Releia e confirme de novo.</div>' : '') +
     '<div class="acoes">' +
@@ -684,6 +727,7 @@ function renderTreinamento(app) {
     '</div>';
   ligarTopo();
   $('#bt-whats').onclick = () => abrirEnviarWhats(t, 'treinamento');
+  if ($('#treino-atribuir')) $('#treino-atribuir').onclick=()=>atribuirTreinamento(t);
   const bt = $('#bt-ok');
   if (bt) bt.onclick = () => {
     if (t.exigeAceite && !confirm('Confirmar o aceite de "' + t.titulo + '"?\n\nFica registrado com o seu nome, a data e a versão do documento.')) return;
@@ -1023,6 +1067,60 @@ function renderMapa(app) {
 }
 
 /* ══════════ editores ══════════ */
+function htmlMateriaisTreinamento(materiais) {
+  const links=(Array.isArray(materiais)?materiais:[]).filter(m=>m && window.POPS_TREINAMENTOS.urlSegura(m.url));
+  if (!links.length) return '';
+  return '<section class="card"><h2>Materiais de apoio</h2><p class="dica">Os links abrem em outra aba. Alguns materiais podem exigir acesso do responsável.</p><div class="treino-materiais">'+links.map(m=>'<a class="treino-material" href="'+esc(m.url)+'" target="_blank" rel="noopener noreferrer"><b>'+esc(m.titulo)+'</b><span>'+esc(new URL(m.url).hostname)+' · Abrir ↗</span></a>').join('')+'</div></section>';
+}
+function renderEditorTreinamento(app) {
+  if (!souAdmin()) { location.hash='#/conhecimento'; return; }
+  const novo=ROTA.arg==='novo';
+  const t=novo?{id:uuid(),titulo:'',tipo:'treinamento',setor:'',resumo:'',blocos:[],materiais:[],versao:'1.0',exigeAceite:false,validadeMeses:0}:STORE.um('treinamentos',ROTA.arg);
+  if (!t) { location.hash='#/conhecimento'; return; }
+  const textoOriginal=blocosParaTexto(t.blocos);
+  let materiais=(t.materiais || []).map(m=>({...m}));
+  const tipos=[...new Set([t.tipo || '', 'treinamento','norma','etica'])];
+  const tiposRot={treinamento:'Treinamento',norma:'Norma',etica:'Código de ética','':'Treinamento (cadastro anterior)'};
+  const ss=[...new Set(['',...(t.setor?[t.setor]:[]),...setores()])];
+  app.innerHTML=htmlTopo('conhecimento')+'<div class="miolo treino-editor"><div class="treino-cab"><div><div class="eyebrow">BASE DE CONHECIMENTO</div><h1>'+(novo?'Novo treinamento':'Editar treinamento')+'</h1><p>Transforme uma orientação em conteúdo que a equipe pode consultar.</p></div><a class="botao fantasma" href="'+(novo?'#/conhecimento':'#/treinamento/'+encodeURIComponent(t.id))+'">Voltar</a></div><form id="treino-form" novalidate>'+
+    '<section class="card"><h2>Sobre o treinamento</h2><div class="campo"><label for="tr-titulo">Título *</label><input id="tr-titulo" maxlength="200" required value="'+esc(t.titulo)+'" placeholder="Ex.: Conferência antes de sair para instalação"></div><div class="painel-grid"><div class="campo"><label for="tr-setor">Setor</label><select id="tr-setor">'+ss.map(x=>'<option value="'+esc(x)+'"'+(x===(t.setor || '')?' selected':'')+'>'+esc(x || 'Geral · todos os setores')+'</option>').join('')+'</select></div><div class="campo"><label for="tr-resp">Responsável pelo conteúdo</label><input id="tr-resp" maxlength="200" value="'+esc(t.responsavel || '')+'" placeholder="Nome ou função"></div></div><div class="campo"><label for="tr-resumo">Resumo</label><textarea id="tr-resumo" class="treino-resumo" maxlength="2000" placeholder="O que a pessoa aprenderá e quando usar">'+esc(t.resumo || '')+'</textarea></div></section>'+
+    '<section class="card"><h2>O que precisa ser aprendido</h2><div class="campo"><label for="tr-conteudo">Conteúdo e instruções *</label><textarea id="tr-conteudo" class="treino-conteudo" required placeholder="Explique a atividade, os cuidados e como conferir o resultado.">'+esc(textoOriginal)+'</textarea><p class="dica">Use ## para subtítulo, 1. para passo, - para lista, ! para destaque, !! para alerta e [ ] para checklist.</p></div><details id="tr-previa"><summary>Ver como ficará a leitura</summary><div id="tr-previa-corpo" class="treino-previa"></div></details></section>'+
+    '<section class="card"><h2>Materiais de apoio</h2><p class="dica">Inclua links HTTPS de vídeos, PDFs, apresentações ou outros documentos. Até 20 materiais.</p><div id="tr-materiais"></div><button type="button" id="tr-add-material" class="botao mini suave">+ Adicionar material</button></section>'+
+    '<section class="card"><h2>Versão e confirmação</h2><div class="painel-grid"><div class="campo"><label for="tr-versao">Versão *</label><input id="tr-versao" maxlength="40" required value="'+esc(t.versao || '1.0')+'"><p class="dica">Ao mudar as instruções, use outra versão (ex.: 1.1). Quem já concluiu verá que precisa reler.</p></div><div class="campo"><label for="tr-validade">Reciclagem a cada (meses)</label><input id="tr-validade" type="number" min="0" max="120" step="1" value="'+esc(t.validadeMeses || 0)+'"><p class="dica">0 = sem vencimento programado.</p></div><div class="campo"><label for="tr-tipo">Tipo de conteúdo</label><select id="tr-tipo">'+tipos.map(x=>'<option value="'+esc(x)+'"'+(x===(t.tipo || '')?' selected':'')+'>'+esc(tiposRot[x] || x)+'</option>').join('')+'</select></div></div><label class="linha-lote"><input type="checkbox" id="tr-aceite"'+(t.exigeAceite?' checked':'')+'><span>Pedir confirmação de leitura e compromisso com as orientações.</span></label><p class="dica">O conteúdo fica disponível à equipe. Depois de salvar, use “Atribuir à equipe” para indicar quem precisa fazê-lo.</p></section>'+
+    '<div id="tr-erro" class="aviso amarelo" role="alert" tabindex="-1" hidden></div><div class="acoes treino-salvar"><button class="botao" type="submit" id="tr-salvar">Salvar treinamento</button>'+(!novo?'<button class="botao fantasma" type="button" id="tr-arquivar">Arquivar treinamento</button>':'')+'</div></form></div>';
+  function lerMateriais() {
+    $$('[data-material]').forEach((el,i)=>{materiais[i]={...materiais[i],titulo:$('[data-material-titulo]',el).value.trim(),url:$('[data-material-url]',el).value.trim()};});
+  }
+  function pintarMateriais() {
+    $('#tr-materiais').innerHTML=materiais.map((m,i)=>'<div class="treino-material-editor" data-material="'+i+'"><div class="campo"><label for="tr-mtitulo-'+i+'">Nome do material '+(i+1)+'</label><input id="tr-mtitulo-'+i+'" data-material-titulo maxlength="200" value="'+esc(m.titulo)+'" placeholder="Ex.: Vídeo de demonstração"></div><div class="campo"><label for="tr-murl-'+i+'">Link HTTPS</label><input id="tr-murl-'+i+'" data-material-url type="url" maxlength="2000" value="'+esc(m.url)+'" placeholder="https://…"></div><button type="button" class="botao mini fantasma" data-remover-material="'+i+'" aria-label="Remover material '+(i+1)+'">Remover</button></div>').join('');
+    $('#tr-add-material').disabled=materiais.length>=20;
+    $$('[data-remover-material]').forEach(bt=>bt.onclick=()=>{lerMateriais();materiais.splice(Number(bt.dataset.removerMaterial),1);pintarMateriais();$('#tr-add-material').focus();});
+  }
+  $('#tr-add-material').onclick=()=>{lerMateriais();if(materiais.length>=20)return;materiais.push({titulo:'',url:''});pintarMateriais();$('#tr-mtitulo-'+(materiais.length-1)).focus();};
+  $('#tr-previa').ontoggle=()=>{if($('#tr-previa').open)$('#tr-previa-corpo').innerHTML=blocosParaHtml(textoParaBlocos($('#tr-conteudo').value)) || '<p class="dica">Escreva as instruções para visualizar.</p>';};
+  $('#tr-conteudo').oninput=()=>{if($('#tr-previa').open)$('#tr-previa').ontoggle();};
+  function erro(msg) {const el=$('#tr-erro');el.hidden=false;el.textContent=msg;el.focus();}
+  $('#treino-form').onsubmit=e=>{
+    e.preventDefault();lerMateriais();
+    const textoAtual=$('#tr-conteudo').value;
+    const salvo={...t,titulo:$('#tr-titulo').value.trim(),tipo:$('#tr-tipo').value,setor:$('#tr-setor').value,responsavel:$('#tr-resp').value.trim(),resumo:$('#tr-resumo').value.trim(),versao:$('#tr-versao').value.trim(),validadeMeses:Number($('#tr-validade').value),exigeAceite:$('#tr-aceite').checked,materiais,
+      blocos:(!novo && textoAtual===textoOriginal)?t.blocos:textoParaBlocos(textoAtual)};
+    const problema=window.POPS_TREINAMENTOS.validar(novo?null:t,salvo);
+    if(problema){erro(problema);return;}
+    // Autoria provisória local; o servidor confirma estes carimbos no envio.
+    salvo.revisadoEm=new Date().toISOString();salvo.revisadoPor=SESSAO.nome;
+    if(novo){salvo.criadoEm=salvo.revisadoEm;salvo.criadoPor=SESSAO.nome;}
+    if(!salvarLocal('treinamentos',salvo)){erro('Não foi possível guardar. Seu formulário continua aqui para tentar novamente.');return;}
+    toast(mensagemSalvo());location.hash='#/treinamento/'+encodeURIComponent(salvo.id);
+  };
+  if($('#tr-arquivar'))$('#tr-arquivar').onclick=()=>{
+    if(!confirm('Arquivar “'+t.titulo+'”? Ele sairá do catálogo. O conteúdo e os registros de leitura serão preservados; você poderá restaurá-lo em Minha conta.'))return;
+    if(!arquivarLocal('treinamentos',t.id))return;
+    toast('Arquivamento salvo neste aparelho · aguardando sincronização');location.hash='#/conhecimento';
+  };
+  pintarMateriais();ligarTopo();
+}
+
 function renderEditorPop(app) {
   const novo = ROTA.arg === 'novo';
   const p = novo
@@ -1178,19 +1276,19 @@ function renderTrocarSenha(app) {
 
 /* ══════════ menu ══════════ */
 function baixarRascunhos() {
-  const dados = { pendentes: STORE.getFila(), rascunhos: STORE.getRascunhos(), exportadoEm: new Date().toISOString() };
+  const dados = STORE.exportarRecuperacao();
   const url = URL.createObjectURL(new Blob([JSON.stringify(dados, null, 2)], { type: 'application/json' }));
   const a = document.createElement('a'); a.href = url; a.download = 'pops-meus-rascunhos.json'; a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 function abrirPendencias() {
-  const fila = STORE.getFila();
-  const m = abrirModal('<h3>Seus envios pendentes</h3><p class="dica">As alterações ficam guardadas neste aparelho até o servidor confirmar.</p>' +
+  const fila = STORE.getFila(), estado=STORE.resumoSync();
+  const m = abrirModal('<h3>Conferir gravação e sincronização</h3><p class="dica">Cada envio aguarda a confirmação do servidor.</p>'+ (estado.erro?'<p class="aviso amarelo">'+esc(estado.erro)+'</p>':'')+(estado.naoGravados?'<p class="aviso amarelo">'+estado.naoGravados+' alteração(ões) ainda não gravada(s), disponível(is) somente nesta sessão. Não feche antes de baixar uma cópia ou tentar novamente.</p>':'') +
     (fila.length ? fila.map(it => '<div class="card"><b>' + esc(it.registro?.titulo || it.colecao) + '</b><p>' + esc(it.erro || 'Aguardando envio') + '</p>' +
-      (it.bloqueado ? '<button class="botao suave" data-recuperar="' + esc(it.mutationId) + '">Usar versão do servidor</button><p class="dica">Seu rascunho será preservado e poderá ser baixado em Minha conta.</p>' : '') + '</div>').join('') : '<p>Nenhum envio pendente.</p>') +
+      (it.bloqueado ? '<button class="botao suave" data-recuperar="' + esc(it.mutationId) + '">Usar versão do servidor</button><p class="dica">Seu rascunho será preservado e poderá ser baixado em Minha conta.</p>' : '') + '</div>').join('') : estado.pendentes?'<p>Há '+estado.pendentes+' envio(s) preservado(s). Atualize seu acesso para conferir os registros autorizados; você também pode baixar uma cópia.</p>':'<p>Nenhum envio pendente.</p>') +
     '<div class="acoes"><button class="botao" id="p-enviar">Tentar sincronizar</button><button class="botao fantasma" id="p-baixar">Baixar cópia</button><button class="botao fantasma" id="p-fechar">Fechar</button></div>');
   $('#p-fechar', m).onclick = () => m.remove(); $('#p-baixar', m).onclick = baixarRascunhos;
-  $('#p-enviar', m).onclick = async () => { await STORE.trySync(); await STORE.pull(); if (m.isConnected) { m.remove(); abrirPendencias(); } };
+  $('#p-enviar', m).onclick = async () => { await STORE.tentarNovamente(); if (m.isConnected) { m.remove(); abrirPendencias(); } };
   $$('[data-recuperar]', m).forEach(bt => bt.onclick = async () => {
     bt.disabled = true;
     try { await STORE.recuperarServidor(bt.dataset.recuperar); m.remove(); renderApp(); abrirPendencias(); }
@@ -1276,11 +1374,15 @@ function renderApp() {
   const app = $('#app');
   if (!SESSAO) { renderLogin(app); return; }
   lerRota();
-  document.title = '📋 POPs · ' + (({conhecimento:'Conhecimento',inicio:'Início',pops:'POPs',fab:'Fabricação',pessoas:'Pessoas',mapa:'Mapa de treinamento',meus:'Meus treinamentos',menu:'Minha conta'})[ROTA.nome] || 'Fabricação');
+  document.title = 'Educação Impresilk · ' + (({conhecimento:'Conhecimento',inicio:'Início',pops:'POPs',fab:'Fabricação',pessoas:'Pessoas',mapa:'Mapa de treinamento',meus:'Meus treinamentos',menu:'Minha conta'})[ROTA.nome] || 'Fabricação');
   // Enquanto a senha for a temporária, o app inteiro fica atrás desta tela.
   if (SESSAO.trocarSenha && ROTA.nome !== 'senha') { location.hash = '#/senha'; return; }
   const R = {
     'inicio': renderInicio, '': renderInicio,
+    'formacao': a => window.EDUCACAO.render(a),
+    'formacao-editor': a => window.EDUCACAO.render(a),
+    'escola': a => window.EDUCACAO.render(a),
+    'conquistas': a => window.EDUCACAO.render(a),
     'conhecimento': renderConhecimento,
     'pops': (a) => renderPops(a),
     'pop': renderPop,
@@ -1296,7 +1398,7 @@ function renderApp() {
     'editor': (a) => {
       const [tipo] = (ROTA.arg || '').split('~');
       ROTA.arg = (ROTA.arg || '').split('~').slice(1).join('~');
-      if (tipo === 'pop') renderEditorPop(a); else renderEditorJornada(a);
+      if (tipo === 'pop') renderEditorPop(a); else if (tipo === 'treinamento') renderEditorTreinamento(a); else if (tipo === 'jornada') renderEditorJornada(a); else location.hash='#/conhecimento';
     },
   };
   (R[ROTA.nome] || renderInicio)(app);
@@ -1320,11 +1422,11 @@ window.addEventListener('hashchange', renderApp);
           ? (SESSAO?.usuario === r.usuario && !!SESSAO.trocarSenha) : !!r.trocarSenha;
         if (!STORE.setUser({ ...SESSAO, usuario: r.usuario, nome: r.nome, papel: r.papel, trocarSenha })) return;
         SESSAO = STORE.getUser();
-        if (ROTA.nome !== 'editor') renderApp();
+        if (!['editor','formacao-editor','formacao'].includes(ROTA.nome)) renderApp();
       }
       if (!SESSAO) return;
       await atualizarIdentidadeRH();
-      STORE.trySync(); STORE.pull().then(() => { if (ROTA.nome !== 'editor') renderApp(); });
+      STORE.trySync(); STORE.pull().then(() => { if (!['editor','formacao-editor','formacao'].includes(ROTA.nome)) renderApp(); });
     });
   }
   setInterval(() => { if (SESSAO && document.visibilityState === 'visible') { sincronizarAgora(); } }, 90000);

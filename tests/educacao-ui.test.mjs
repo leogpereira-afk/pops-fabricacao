@@ -26,7 +26,7 @@ class Element {
   setAttribute(k,v){this.attributes[k]=v;} focus(){} scrollIntoView(){} addEventListener(){} remove(){this.isConnected=false;}
 }
 const contents={aprender:'Aprender o procedimento',importancia:'Fazer bem o trabalho',comoFazer:'Seguir orientação',erros:'Evitar improviso',evidencia:'Responder e demonstrar'};
-const makeStage=(extra={})=>({id:'e1',titulo:'Etapa inicial',tipo:'cultura',obrigatoria:true,prerequisitos:[],pontos:10,conteudo:{...contents},quiz:[],minimoAcerto:70,maxTentativas:2,fontes:[],documentos:[],...extra});
+const makeStage=(extra={})=>({id:'e1',titulo:'Etapa inicial',tipo:'cultura',obrigatoria:true,prerequisitos:[],pontos:10,conteudo:{...contents},aprovacao:{por:'gestao',em:'2026-10-08T12:00:00Z',versao:'1'},quiz:[],minimoAcerto:70,maxTentativas:2,fontes:[],documentos:[],...extra});
 const formation=(etapas=[makeStage()],extra={})=>({id:'f1',titulo:'Jornada de teste',versao:'1',setor:'Produção',ativa:true,publicada:true,liberacao:{pessoas:['rh1'],cargos:[],setores:[],todos:false},etapas,...extra});
 const question={id:'q1',pergunta:'Como agir?',opcoes:['Conferir','Improvisar'],correta:0,explicacao:'Conferir evita o erro.',revisar:'Passo de conferência'};
 const row=(colecao,registro,revision=1)=>({colecao,id:registro.id,registro,revision,apagado:false});
@@ -44,7 +44,7 @@ function harness({data=snapshot(),api,backend:b,papel='equipe',storage=new Map()
   htmlTopo:()=>'',ligarTopo(){},toast:(m,t)=>toasts.push({m,t}),fmtDataHora:s=>s?'DATA '+s:'DATA AUSENTE',setores:()=>['Produção'],souAdmin:()=>sessao.papel==='admin',associarRotulos(){},confirm:()=>true,
   abrirModal:html=>{const dlg=new Element('dialog');dlg.innerHTML=html;app.children.push(dlg);dlg.remove=()=>{app.children=app.children.filter(n=>n!==dlg);dlg.isConnected=false;};return dlg;},
   $:node,$$:(s,root=app)=>root.querySelectorAll(s),
-  FormData:class{constructor(form){this.form=form;}get(k){const n=this.form.descendants().find(x=>x.attributes.name===k&&(x.type!=='radio'||x.checked));return n?.value??null;}},
+  FormData:class{constructor(form){this.form=form;}has(k){return this.get(k)!==null;}get(k){const n=this.form.descendants().find(x=>x.attributes.name===k&&(x.type!=='radio'||x.checked));return n?.value??null;}},
  });
  vm.runInContext(fs.readFileSync(new URL('../treinamentos.js',import.meta.url),'utf8'),ctx);
  vm.runInContext(fs.readFileSync(new URL('../educacao.js',import.meta.url),'utf8'),ctx);
@@ -116,7 +116,7 @@ test('falta de espaço impede envio sem chave recuperável e permite tentar nova
 test('nova versão exige nova leitura e novas respostas sem herdar tentativa anterior',async()=>{
  const f=formation([makeStage({tipo:'avaliacao',quiz:[question],status:'revisar'})],{versao:'2',progresso:{concluidas:0,total:1,percentual:0}});
  const h=harness({data:snapshot([f],{aprendizagem:[{formacaoId:'f1',formacaoVersao:'1',etapas:{e1:{status:'concluida',leituraEm:'2026-10-01T12:00:00Z',concluidaEm:'2026-10-01T12:00:00Z',tentativas:[{nota:100},{nota:100}]}}}]})});await h.route('formacao','f1~e1');
- assert.match(h.text(),/Leitura não registrada/);assert.match(h.text(),/0 de 2 tentativas/);assert.equal(h.node('#edu-quiz').querySelector('button').disabled,false);assert.doesNotMatch(h.text(),/Critério concluído em/);
+ assert.match(h.text(),/Leitura não registrada/);assert.match(h.text(),/0 de 2 tentativas/);assert.equal(h.node('#edu-quiz').querySelector('button').disabled,true);assert.doesNotMatch(h.text(),/Critério concluído em/);
 });
 test('acompanhamento calcula progresso do aluno sem usar o progresso pessoal do gestor',async()=>{
  const f=formation([makeStage({status:'nao_iniciada'})],{liberada:false,progresso:{concluidas:0,total:1,percentual:0}});

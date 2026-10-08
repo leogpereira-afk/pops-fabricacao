@@ -1,8 +1,8 @@
 // Service worker do Pops & Fabricação. Shell cacheado pra abrir sem sinal no
 // chão de fábrica; API NUNCA passa pelo cache (bypass por host supabase.co).
-const CACHE = 'pops-shell-v15-educacao';
+const CACHE = 'pops-shell-v16-escola';
 const SHELL = ['./', './index.html', './styles.css', './config.js', './auth.js',
-  './store.js', './organizacao.js', './conhecimento.js', './treinamentos.js', './educacao.js', './app.js', './logo-impresilk.png', './manifest.webmanifest'];
+  './store.js', './organizacao.js', './conhecimento.js', './treinamentos.js', './educacao.js', './academia.js', './escola-gestao.js', './app.js', './logo-impresilk.png', './manifest.webmanifest'];
 self.addEventListener('install', e => {
   // cache:'reload' em cada arquivo: sem isto o SW guarda o que estiver no cache
   // HTTP do navegador (o Pages manda max-age=600) e passa a SERVIR a versão

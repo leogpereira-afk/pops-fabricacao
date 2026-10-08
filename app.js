@@ -395,16 +395,16 @@ STORE.on('sync', st => {
   const chip = $('#chip-sync');
   if (chip) { chip.textContent = rotuloSync(st); chip.classList.toggle('pendente', st.status !== 'ok'); }
 });
-STORE.on('pull', () => { if(STORE.getConhecimento().versao===window.CONHECIMENTO_VERSAO) _avisoConhecimento=''; if (!document.querySelector('dialog[open], textarea:focus, input:focus, select:focus') && !['editor','formacao-editor','formacao'].includes(ROTA.nome)) renderApp(); });
+STORE.on('pull', () => { if(STORE.getConhecimento().versao===window.CONHECIMENTO_VERSAO) _avisoConhecimento=''; if (!document.querySelector('dialog[open], textarea:focus, input:focus, select:focus') && !['editor','formacao-editor','formacao','material-editor','material','perfil-editor','perfil-teste'].includes(ROTA.nome)) renderApp(); });
 STORE.on('escopoGestor', () => {if(SESSAO?.papel==='gestor' && ['pessoas','mapa','meus'].includes(ROTA.nome))renderApp();});
 STORE.on('pullErro', msg => { _ultimoSync = { status: 'erro' }; const chip = $('#chip-sync'); if (chip) { chip.textContent = 'Atualização pendente'; chip.title = msg; } });
 STORE.on('sessao', msg => { AUTH.esquecer(); STORE.setUser(null); SESSAO = null; _ultimoSync = null; renderApp(); toast(msg, 'erro'); });
 STORE.on('quota', () => { _ultimoSync=STORE.resumoSync(); const chip=$('#chip-sync'); if(chip){chip.textContent=rotuloSync(_ultimoSync);chip.classList.add('pendente');} toast('Não foi possível gravar neste aparelho. Abra o estado de sincronização para tentar novamente ou baixar uma cópia.', 'erro'); });
 
 function htmlTopo(aba) {
-  const links=[['inicio','Minha formação','#/'],['pops','POPs','#/pops'],['fab','Fabricação','#/fab'],['meus','Meu aprendizado','#/meus'],['conhecimento','Conhecimento','#/conhecimento']];
+  const links=[['inicio','Minha formação','#/'],['pops','POPs','#/pops'],['fab','Fabricação','#/fab'],['meus','Meu aprendizado','#/meus'],['conhecimento','Biblioteca e vídeos','#/biblioteca']];
   if (souAdmin() || meusSetores().length) links.push(['pessoas','Equipe','#/pessoas'],['mapa','Acompanhamento','#/mapa']);
-  if(souAdmin() || meusSetores().length || window.EDUCACAO?.podeAcompanhar())links.push(['escola','Escola e acompanhamento','#/escola']);
+  if(souAdmin() || meusSetores().length || window.EDUCACAO?.podeAcompanhar())links.push(['escola','Gestão da escola','#/escola'],['alunos','Alunos','#/alunos']);
   links.push(['menu','Minha conta','#/menu']);
   return '<a class="pular" href="#conteudo">Ir para o conteúdo</a><header class="app-cab"><div class="topo">' +
     '<a href="#/" aria-label="Início"><img src="./logo-impresilk.png" alt="Impresilk"></a>' +
@@ -1374,7 +1374,7 @@ function renderApp() {
   const app = $('#app');
   if (!SESSAO) { renderLogin(app); return; }
   lerRota();
-  document.title = 'Educação Impresilk · ' + (({conhecimento:'Conhecimento',inicio:'Início',pops:'POPs',fab:'Fabricação',pessoas:'Pessoas',mapa:'Mapa de treinamento',meus:'Meus treinamentos',menu:'Minha conta'})[ROTA.nome] || 'Fabricação');
+  document.title = 'Educação Impresilk · ' + (({biblioteca:'Biblioteca',videos:'Vídeos',material:'Material de estudo','material-editor':'Preparar material',nrs:'Normas Regulamentadoras',perfil:'Perfil e Desenvolvimento','perfil-editor':'Preparar instrumento','perfil-teste':'Autoconhecimento',alunos:'Alunos',aluno:'Formação do aluno',avaliacoes:'Minhas avaliações',escola:'Gestão da escola',formacao:'Minha jornada','formacao-editor':'Preparar jornada',conquistas:'Meu histórico',conhecimento:'Conhecimento',inicio:'Início',pops:'POPs',fab:'Fabricação',pessoas:'Pessoas',mapa:'Mapa de treinamento',meus:'Meus treinamentos',menu:'Minha conta'})[ROTA.nome] || 'Fabricação');
   // Enquanto a senha for a temporária, o app inteiro fica atrás desta tela.
   if (SESSAO.trocarSenha && ROTA.nome !== 'senha') { location.hash = '#/senha'; return; }
   const R = {
@@ -1384,6 +1384,11 @@ function renderApp() {
     'escola': a => window.EDUCACAO.render(a),
     'conquistas': a => window.EDUCACAO.render(a),
     'conhecimento': renderConhecimento,
+    'biblioteca': a => ACADEMIA.render(a),
+    ...Object.fromEntries(['nrs','perfil','perfil-editor','perfil-teste','alunos','aluno','avaliacoes'].map(r=>[r,a=>ESCOLA_GESTAO.render(a)])),
+    'videos': a => ACADEMIA.render(a),
+    'material': a => ACADEMIA.render(a),
+    'material-editor': a => ACADEMIA.render(a),
     'pops': (a) => renderPops(a),
     'pop': renderPop,
     'fab': renderFab,
@@ -1422,11 +1427,11 @@ window.addEventListener('hashchange', renderApp);
           ? (SESSAO?.usuario === r.usuario && !!SESSAO.trocarSenha) : !!r.trocarSenha;
         if (!STORE.setUser({ ...SESSAO, usuario: r.usuario, nome: r.nome, papel: r.papel, trocarSenha })) return;
         SESSAO = STORE.getUser();
-        if (!['editor','formacao-editor','formacao'].includes(ROTA.nome)) renderApp();
+        if (!['editor','formacao-editor','formacao','material-editor','material','perfil-editor','perfil-teste'].includes(ROTA.nome)) renderApp();
       }
       if (!SESSAO) return;
       await atualizarIdentidadeRH();
-      STORE.trySync(); STORE.pull().then(() => { if (!['editor','formacao-editor','formacao'].includes(ROTA.nome)) renderApp(); });
+      STORE.trySync(); STORE.pull().then(() => { if (!['editor','formacao-editor','formacao','material-editor','material','perfil-editor','perfil-teste'].includes(ROTA.nome)) renderApp(); });
     });
   }
   setInterval(() => { if (SESSAO && document.visibilityState === 'visible') { sincronizarAgora(); } }, 90000);

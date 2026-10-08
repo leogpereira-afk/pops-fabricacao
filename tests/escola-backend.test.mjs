@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {backend} from './helpers.mjs';
 const conteudo={aprender:'Aprender exemplo',importancia:'Aplicação no trabalho',comoFazer:'Instrução revisada',erros:'Erros comuns',evidencia:'Demonstrar corretamente'};
-const etapa=(id,tipo='cultura',extra={})=>({id,titulo:id,tipo,obrigatoria:true,prerequisitos:[],pontos:10,conteudo,quiz:[],minimoAcerto:70,maxTentativas:2,fontes:[],documentos:[],...extra});
+const etapa=(id,tipo='cultura',extra={})=>({id,titulo:id,tipo,obrigatoria:true,prerequisitos:[],pontos:10,conteudo,aprovacao:{por:'gestao',em:'2026-10-08T12:00:00Z',versao:'1'},quiz:[],minimoAcerto:70,maxTentativas:2,fontes:[],documentos:[],...extra});
 const quiz=[{id:'q1',pergunta:'Exemplo?',opcoes:['Correto','Errado'],correta:0,explicacao:'O motivo da resposta é este',revisar:'Instrução revisada'}];
 const f=(etapas=[etapa('cultura')],extra={})=>({id:'f1',titulo:'Formação fictícia',versao:'1',setor:'Produção',ativa:true,publicada:true,liberacao:{pessoas:['rh1'],cargos:[],setores:[],todos:false},etapas,...extra});
 const row=(colecao,registro,revision=1)=>({colecao,id:registro.id,registro,revision,apagado:false});
@@ -180,4 +180,18 @@ test('replay de salvarFormacao por outro editor autorizado não produz falso suc
 });
 test('pendências de atribuição usam lista RH autorizada calculada no servidor também para admin',async()=>{
  const b=app(f(undefined,{liberacao:{pessoas:[],cargos:['c1'],setores:[],cargosGestor:'gestao',cargosSetores:['Produção']}}),{config:{gestores:{gestao:['Produção']}}});const r=await cmd(b,'painel',{}, {sub:'admin',papel:'admin'});assert.deepEqual(r.body.formacoes[0].pessoasLiberadas,['rh1']);assert.deepEqual(r.body.formacoes[0].liberacao.cargosSetoresEfetivos,['Produção']);const e=await cmd(b,'painel');assert.equal(e.body.formacoes[0].pessoasLiberadas,undefined);
+});
+test('prova exige aprovação responsável e nova versão invalida aprovação anterior',async()=>{
+ const e=etapa('cultura','avaliacao',{quiz});delete e.aprovacao;const b=app(f([e]));
+ await atividade(b,'leitura');assert.equal((await atividade(b,'responder',{respostas:{q1:0}})).status,409);
+ let r=await cmd(b,'aprovarAvaliacao',{formacaoId:'f1',etapaId:'cultura',expectedRevision:1,mutationId:'aprovar1',parecer:'Questões conferidas com o material completo.'},{sub:'gestao',papel:'admin'});assert.equal(r.status,200);
+ assert.equal((await atividade(b,'responder',{respostas:{q1:0}})).status,200);
+ const atual=r.body.registro;atual.versao='2';atual.etapas[0].quiz[0].pergunta='Pergunta revisada';
+ r=await cmd(b,'salvarFormacao',{formacao:atual,expectedRevision:r.body.revision,mutationId:'mudanca2'},{sub:'gestao',papel:'admin'});assert.equal(r.status,200);assert.equal(r.body.registro.etapas[0].aprovacao,undefined);
+});
+test('material integral vinculado exige estudo declarado antes da leitura da etapa',async()=>{
+ const e=etapa('cultura','avaliacao',{quiz,materiais:[{id:'video1',versao:'1'}]});const b=app(f([e]),{rows:[row('materiais',{id:'video1',titulo:'Material',tipo:'video',versao:'1',setor:'Produção',ativa:true,publicada:true,youtubeId:'dQw4w9WgXcQ',liberacao:{pessoas:['rh1']}})]});
+ assert.equal((await atividade(b,'leitura')).status,409);
+ for(const evento of ['abrir','leitura'])assert.equal((await cmd(b,'academia.registrarMaterial',{materialId:'video1',versao:'1',evento,mutationId:'mat-'+evento})).status,200);
+ assert.equal((await atividade(b,'leitura')).status,200);
 });

@@ -12,11 +12,13 @@ export function jwt(payload = {}) {
   return `${header}.${data}.${createHmac('sha256', secret).update(`${header}.${data}`).digest('base64url')}`;
 }
 
-export function backend({ rows = [], config = {}, queryError = false, revocationError = false, revoked = false, tables = {}, persistWrites = false } = {}) {
+export function backend({ rows = [], config = {}, queryError = false, revocationError = false, revoked = false, tables = {}, persistWrites = false, storageFiles = {} } = {}) {
   let handler;
   const writes = [];
   const queries = [];
+  const files=new Map(Object.entries(storageFiles));
   const sb = {
+    storage:{from(bucket){return {upload:async(path,bytes)=>{const key=bucket+'/'+path;if(files.has(key))return {error:{statusCode:'409'}};files.set(key,new Uint8Array(bytes));return {error:null};},download:async(path)=>{const bytes=files.get(bucket+'/'+path);return bytes?{data:{arrayBuffer:async()=>bytes.buffer},error:null}:{data:null,error:{message:'not found'}};}}}},
     rpc: async (name, args) => {
       if (name === 'acesso_revogado') return { data: revoked, error: revocationError ? { message: 'banco fora' } : null };
       writes.push({ rpc: name, args });

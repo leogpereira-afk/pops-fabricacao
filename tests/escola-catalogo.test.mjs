@@ -93,7 +93,9 @@ test('aluno vê o catálogo e o curso recomendado antes, sem bloqueio; rascunho 
  const b=app({rows:[row('formacoes',formacao({id:'f0',titulo:'Fundamentos fictícios',etapas:[etapa('base')]})),row('formacoes',formacao({catalogo:{trilha:'mubisys',ordem:2,preRequisitos:['f0','rascunho']}})),row('formacoes',formacao({id:'rascunho',titulo:'Rascunho fictício',publicada:false}))]});
  let p=await cmd(b,'painel');
  const f1=p.body.formacoes.find(f=>f.id==='f1');
- assert.deepEqual(f1.catalogo,{trilha:'mubisys',ordem:2,preRequisitos:['f0','rascunho']});
+ // O id do rascunho não chega ao aluno nem em catalogo.preRequisitos.
+ assert.deepEqual(f1.catalogo,{trilha:'mubisys',ordem:2,preRequisitos:['f0']});
+ assert.equal(JSON.stringify(p.body.formacoes).includes('"rascunho"'),false);
  assert.deepEqual(f1.recomendadas,[{id:'f0',titulo:'Fundamentos fictícios',concluida:false,liberada:true}]);
  assert.equal(p.body.catalogo.trilhas.mubisys.nome,'Sistema de gestão');
  // Recomendação não bloqueia: dá para estudar o curso seguinte primeiro.
@@ -206,7 +208,8 @@ test('gestão recebe todos os cargos e as vagas vivas do RH, sem pessoa, salári
  const rh=b.queries.filter(q=>q.table==='registros');
  assert.equal(rh.some(q=>q.eqs.some(([k,v])=>k==='colecao'&&v==='candidatos')),false);
  for(const q of rh)assert.equal(/faixas|salario|(^|,)\s*registro\s*(,|$)/.test(q.select),false,q.select);
- const g=await cmd(b,'painel',{},gestor);assert.equal(g.body.gestao.cargosRH.length,4);assert.equal(g.body.gestao.vagasRH.length,2);
+ // Nenhuma das vagas deste cenário tem divulgação interna: ficam com a administração.
+ const g=await cmd(b,'painel',{},gestor);assert.equal(g.body.gestao.cargosRH.length,4);assert.equal(g.body.gestao.vagasRH.length,0);
  const e=await cmd(b,'painel');assert.equal(e.body.gestao.cargosRH,undefined);assert.equal(e.body.gestao.vagasRH,undefined);assert.equal(e.body.gestao.catalogo,undefined);
  assert.equal(e.body.catalogo.trilhas.mubisys.nome,'Sistema de gestão');
 });
@@ -256,4 +259,115 @@ test('biblioteca consulta as formações uma vez, não uma por material',async()
  const b=app({rows:[...mats,row('formacoes',formacao({etapas:[etapa('aula1','aula',{materiais:mats.map(m=>({id:m.id,versao:'1'}))})]}))]});
  const r=await cmd(b,'academia.biblioteca');assert.equal(r.status,200);assert.equal(r.body.materiais.length,5);
  assert.equal(b.queries.filter(q=>q.table==='pops_registros'&&q.eqs.some(([k,v])=>k==='colecao'&&v==='formacoes')).length,1);
+});
+
+// ───── Correções da revisão de 14/10 (servidor) ─────
+const materialFicticio=(extra={})=>({id:'mat1',tipo:'texto',titulo:'Material fictício',versao:'1',setor:'Produção',objetivo:'Objetivo fictício',paginas:['Página fictícia'],publicada:true,ativa:true,liberacao:{pessoas:[],cargos:[],setores:[],todos:false},...extra});
+
+test('catálogo lido pela tela: dado antigo não grava por cima de outra administração e reenvio igual não regrava',async()=>{
+ const config=configBase(),b=app({config});
+ // A administração 1 abre a Matriz; a administração 2 grava logo depois.
+ const lido=structuredClone((await cmd(b,'painel',{},admin)).body.catalogo);
+ const da2={familias:{'operacao-ficticia':{nome:'Operação fictícia',cargos:['operador-ficticio','designer-ficticio']},'design-ficticio':{nome:'Design fictício',cargos:['designer-ficticio']}},trilhas:lido.trilhas};
+ let r=await cmd(b,'configurarCatalogo',{catalogo:da2,catalogoAnterior:lido},{sub:'admin2',papel:'admin'});
+ assert.equal(r.status,200);config.educacao.catalogo=r.body.catalogo;// o sandbox não grava a configuração
+ // A administração 1 só acrescenta uma trilha, com a tela antiga: 409, nada gravado.
+ const escritas=b.writes.length;
+ r=await cmd(b,'configurarCatalogo',{catalogo:{familias:lido.familias,trilhas:{...lido.trilhas,'trilha-nova':{nome:'Trilha nova fictícia'}}},catalogoAnterior:lido},admin);
+ assert.equal(r.status,409);assert.match(r.body.erro,/O catálogo mudou desde que você abriu esta tela/);assert.equal(b.writes.length,escritas);
+ assert.deepEqual(config.educacao.catalogo.familias['operacao-ficticia'].cargos,['operador-ficticio','designer-ficticio']);
+ // Lendo de novo, a mesma alteração passa e conserva o que a outra pessoa gravou.
+ const atual=structuredClone((await cmd(b,'painel',{},admin)).body.catalogo);
+ const pedido={catalogo:{familias:atual.familias,trilhas:{...atual.trilhas,'trilha-nova':{nome:'Trilha nova fictícia'}}},catalogoAnterior:atual};
+ r=await cmd(b,'configurarCatalogo',pedido,admin);
+ assert.equal(r.status,200);assert.deepEqual(Object.keys(r.body.catalogo.familias).sort(),['design-ficticio','operacao-ficticia']);assert.ok(r.body.catalogo.trilhas['trilha-nova']);
+ config.educacao.catalogo=r.body.catalogo;
+ // Resposta perdida: o reenvio do mesmo pedido devolve o gravado, sem 409 e sem gravar.
+ const antes=b.writes.length;r=await cmd(b,'configurarCatalogo',pedido,admin);
+ assert.equal(r.status,200);assert.equal(r.body.repetido,true);assert.equal(b.writes.length,antes);
+ // Catálogo lido malformado é recusado; tela antiga, sem o campo, segue como antes.
+ assert.equal((await cmd(b,'configurarCatalogo',{catalogo:da2,catalogoAnterior:[]},admin)).status,400);
+ assert.equal((await cmd(b,'configurarCatalogo',{catalogo:da2},admin)).status,200);
+});
+
+test('gestor vê só as vagas divulgadas e abertas; prevista e não divulgada ficam com a administração',async()=>{
+ const tables=tabelas();
+ tables.registros.push(
+  row('vagas',{id:'v5',titulo:'Substituição planejada fictícia',cargoId:'operador-ficticio',status:'Prevista',divulgacaoInterna:false}),
+  row('vagas',{id:'v6',titulo:'Vaga não divulgada fictícia',cargoId:'operador-ficticio',status:'Aberta',divulgacaoInterna:false}),
+  row('vagas',{id:'v7',titulo:'Vaga do mural fictícia',cargoId:'designer-ficticio',status:'Aberta',divulgacaoInterna:true}),
+  // O ->> do banco devolve texto: 'true' também vale.
+  row('vagas',{id:'v8',titulo:'Vaga em triagem fictícia',cargoId:'designer-ficticio',status:'Em triagem',divulgacaoInterna:'true'}),
+  row('vagas',{id:'v9',titulo:'Prevista divulgada fictícia',status:'Prevista',divulgacaoInterna:true}));
+ const b=app({tables});
+ const g=await cmd(b,'painel',{},gestor);
+ assert.deepEqual(g.body.gestao.vagasRH.map(v=>v.id),['v7','v8']);
+ for(const v of g.body.gestao.vagasRH)assert.deepEqual(Object.keys(v),['id','titulo','cargoId','areaId','area','status','nivelId']);
+ for(const proibido of ['Substituição planejada','Vaga não divulgada','Prevista'])assert.equal(JSON.stringify(g.body).includes(proibido),false,proibido);
+ const a=await cmd(b,'painel',{},admin);
+ assert.deepEqual(a.body.gestao.vagasRH.map(v=>v.id).sort(),['v1','v3','v5','v6','v7','v8','v9']);
+ assert.ok(b.queries.some(q=>q.table==='registros'&&q.eqs.some(([k,v])=>k==='colecao'&&v==='vagas')&&/divulgacaoInterna:registro->>divulgacaoInterna/.test(q.select)));
+ assert.equal((await cmd(b,'painel')).body.gestao.vagasRH,undefined);
+});
+
+test('famílias: null vale como ausente, e o gestor não apaga a liberação por família do curso nem do material',async()=>{
+ const b=app({rows:[row('formacoes',formacao({liberacao:{pessoas:[],cargos:[],setores:[],todos:false,familias:['operacao-ficticia']}})),row('materiais',materialFicticio({liberacao:{pessoas:[],cargos:[],setores:[],todos:false,familias:['operacao-ficticia']}}))]});
+ const semFamilia=familias=>({pessoas:[],cargos:[],setores:[],todos:false,familias});
+ let r=await cmd(b,'salvarFormacao',{formacao:formacao({liberacao:semFamilia(null)}),expectedRevision:1,mutationId:'fam-null-gestor'},gestor);
+ assert.equal(r.status,200);assert.deepEqual(r.body.registro.liberacao.familias,['operacao-ficticia']);
+ assert.equal((await cmd(b,'painel')).body.formacoes[0].liberada,true,'Quem tem o cargo da família continua recebendo');
+ // Com a lista vazia, a recusa de antes continua.
+ assert.equal((await cmd(b,'salvarFormacao',{formacao:formacao({liberacao:semFamilia([])}),expectedRevision:r.body.revision,mutationId:'fam-vazia-gestor'},gestor)).status,403);
+ r=await cmd(b,'academia.salvarMaterial',{material:materialFicticio({liberacao:semFamilia(null)}),expectedRevision:1,mutationId:'mat-null-gestor'},gestor);
+ assert.equal(r.status,200);assert.deepEqual(r.body.registro.liberacao.familias,['operacao-ficticia']);
+ // A administração continua retirando com a lista vazia.
+ r=await cmd(b,'salvarFormacao',{formacao:formacao({liberacao:semFamilia([])}),expectedRevision:2,mutationId:'fam-vazia-admin'},admin);
+ assert.equal(r.status,200);assert.equal(r.body.registro.liberacao.familias,undefined);
+});
+
+test('gestor salva curso e material liberados para todos sem mexer no público, mas não liga "todos"',async()=>{
+ const todos=v=>({pessoas:[],cargos:[],setores:[],todos:v});
+ const b=app({rows:[row('formacoes',formacao({liberacao:todos(true)})),row('formacoes',formacao({id:'f2',liberacao:todos(false)})),row('materiais',materialFicticio({liberacao:todos(true)})),row('materiais',materialFicticio({id:'mat2',liberacao:todos(false)}))]});
+ // Corrige um texto (versão nova) e salva com o "todos" herdado.
+ const revisto=formacao({liberacao:todos(true),versao:'2'});revisto.etapas[0].titulo='Etapa revista';
+ let r=await cmd(b,'salvarFormacao',{formacao:revisto,expectedRevision:1,mutationId:'todos-mantem'},gestor);
+ assert.equal(r.status,200);assert.equal(r.body.registro.liberacao.todos,true);assert.equal(r.body.registro.versao,'2');
+ assert.equal(r.body.registro.atribuicoesAnteriores.length,0,'Público igual não abre atribuição nova');
+ assert.equal((await cmd(b,'painel',{},{sub:'bruno'})).body.formacoes.find(f=>f.id==='f1').liberada,true);
+ // Ligar "todos" continua sendo da administração.
+ r=await cmd(b,'salvarFormacao',{formacao:formacao({id:'f2',liberacao:todos(true)}),expectedRevision:1,mutationId:'todos-liga'},gestor);
+ assert.equal(r.status,403);assert.match(r.body.erro,/Somente a administração/);
+ r=await cmd(b,'academia.salvarMaterial',{material:materialFicticio({liberacao:todos(true)}),expectedRevision:1,mutationId:'mat-todos-mantem'},gestor);
+ assert.equal(r.status,200);assert.equal(r.body.registro.liberacao.todos,true);
+ assert.equal((await cmd(b,'academia.salvarMaterial',{material:materialFicticio({id:'mat2',liberacao:todos(true)}),expectedRevision:1,mutationId:'mat-todos-liga'},gestor)).status,403);
+ // Retirar "todos" continua permitido ao gestor do setor.
+ r=await cmd(b,'salvarFormacao',{formacao:{...revisto,liberacao:{...todos(false),pessoas:['rh1']}},expectedRevision:2,mutationId:'todos-retira'},gestor);
+ assert.equal(r.status,200);assert.equal(r.body.registro.liberacao.todos,false);
+});
+
+test('curso que deixou de ser liberado fica na trilha certa do catálogo, sem recomendados, e o bloqueio fala em curso',async()=>{
+ const b=app({rows:[row('formacoes',formacao({id:'f0',titulo:'Fundamentos fictícios'})),row('formacoes',formacao({catalogo:{trilha:'mubisys',ordem:3,area:'Comercial',preRequisitos:['f0']}}))]});
+ assert.equal((await registrar(b,{etapaId:'aula1',evento:'leitura'})).status,200);
+ const atual=(await cmd(b,'painel',{},admin)).body.formacoes.find(f=>f.id==='f1');
+ assert.equal((await cmd(b,'salvarFormacao',{formacao:{...atual,liberacao:{pessoas:[],cargos:[],setores:[],todos:false}},expectedRevision:1,mutationId:'retira-ana'},admin)).status,200);
+ const f=(await cmd(b,'painel')).body.formacoes.find(x=>x.id==='f1');
+ assert.equal(f.somenteHistorico,true);assert.deepEqual(f.catalogo,{trilha:'mubisys',ordem:3});
+ assert.equal(f.etapas[0].motivoBloqueio,'Este curso não está mais liberado para você. Seu histórico continua preservado em Meu histórico.');
+});
+
+test('mensagens do servidor falam curso e aula, sem jornada, formação nem etapa',async()=>{
+ const b=app({rows:[row('formacoes',formacao({id:'f9',setor:'Financeiro',liberacao:{pessoas:[],cargos:[],setores:[],todos:false}}))]});
+ const erros=[];
+ const pedir=async(...a)=>{const r=await cmd(...a);assert.ok(r.status>=400,JSON.stringify(r.body));erros.push(r.body.erro);return r;};
+ await pedir(b,'salvarFormacao',{formacao:formacao({id:'f-nova',etapas:[etapa('a1','aula',{obrigatoria:false})]}),expectedRevision:0,mutationId:'sem-obrigatoria'},admin);
+ assert.equal(erros.at(-1),'Defina pelo menos uma aula obrigatória para concluir o curso.');
+ await pedir(b,'salvarFormacao',{formacao:formacao({id:'f-nova',etapas:[]}),expectedRevision:0,mutationId:'sem-aula'},admin);
+ await pedir(b,'salvarFormacao',{formacao:formacao({id:'f9',setor:'Financeiro'}),expectedRevision:1,mutationId:'outro-setor'},gestor);
+ await pedir(b,'salvarFormacao',{formacao:formacao({id:'f-nova',etapas:[etapa('a1'),etapa('a1')]}),expectedRevision:0,mutationId:'repetida'},admin);
+ await pedir(b,'salvarFormacao',{formacao:formacao({id:'f-nova',etapas:[etapa('a1','aula',{prerequisitos:['a2']}),etapa('a2')]}),expectedRevision:0,mutationId:'ordem'},admin);
+ await pedir(b,'salvarFormacao',{formacao:formacao({id:'f-nova',catalogo:'texto'}),expectedRevision:0,mutationId:'catalogo-texto'},admin);
+ await pedir(b,'salvarFormacao',{formacao:formacao({id:'f-nova',prazo:'amanhã'}),expectedRevision:0,mutationId:'prazo'},admin);
+ await pedir(b,'registrar',{formacaoId:'f9',formacaoVersao:'1',etapaId:'aula1',evento:'leitura',mutationId:'nao-liberada'});
+ await pedir(b,'registrar',{formacaoId:'inexistente',formacaoVersao:'1',etapaId:'aula1',evento:'leitura',mutationId:'inexistente'});
+ for(const m of erros)assert.doesNotMatch(m,/jornada|forma[cç][aã]o|etapa/i,m);
 });

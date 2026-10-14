@@ -14,10 +14,16 @@ before(async()=>{
  await db.exec(fs.readFileSync(new URL('../supabase/migrations/0006_entrada_aluno.sql',import.meta.url),'utf8'));
 });
 after(async()=>await db?.close());
-const limiteReal={pops_entrada_aluno:async a=>{try{const r=await db.query('select pops_entrada_aluno($1,$2,$3) r',[a.p_acao,a.p_chave_id,a.p_chave_ip]);return {data:r.rows[0].r,error:null};}catch(e){return {data:null,error:{message:e.message}};}}};
+const sql=async(texto,params)=>{try{const r=await db.query(texto,params);return {data:r.rows[0].r,error:null};}catch(e){return {data:null,error:{message:e.message}};}};
+const limiteReal={
+ pops_entrada_aluno:a=>sql('select pops_entrada_aluno(p_acao=>$1,p_chave_id=>$2,p_chave_ip=>$3,p_chave_nome=>$4) r',[a.p_acao,a.p_chave_id,a.p_chave_ip,a.p_chave_nome]),
+ pops_entrada_aluno_bloqueios:a=>sql('select pops_entrada_aluno_bloqueios($1) r',[a.p_liberar]),
+};
 const zerarLimite=()=>db.exec('delete from pops_entrada_tentativas');
-// IP fictício por teste: o limite do IP não vaza de um teste para outro.
-let ipSeq=0;const novoIp=()=>({'x-forwarded-for':'203.0.113.'+(++ipSeq)+', 10.0.0.1'});
+// IP fictício por teste: o limite do IP não vaza de um teste para outro. Como chega
+// pela Supabase: o item da esquerda é o que o cliente mandou (aqui, um falso fixo);
+// o proxy acrescenta o IP real à direita.
+let ipSeq=0;const novoIp=()=>({'x-forwarded-for':'198.18.0.1, 203.0.113.'+(++ipSeq)});
 
 const row=(colecao,registro,extra={})=>({colecao,id:registro.id,registro,revision:1,apagado:false,...extra});
 const conteudo={aprender:'Aprender exemplo',importancia:'Aplicação no trabalho',comoFazer:'Instrução revisada',erros:'Erros comuns',evidencia:'Demonstrar corretamente'};
@@ -37,7 +43,7 @@ const tabelas=()=>({registros:rh(),acesso_conta:[{id:'acc2',usuario:'bruno',ativ
 function app({config={},rows=[],rpcs=limiteReal,...resto}={}){return backend({tables:tabelas(),config,persistWrites:true,rpcs,rows:[row('formacoes',curso),...rows],...resto});}
 const entrar=(b,id,nome,headers=novoIp())=>b.call({action:'entrarAluno',id,nome},{}, {semCracha:true,headers});
 const comoAluno=(b,body,token=jwtAluno())=>b.call(body,{}, {token});
-const gravacoes=b=>b.writes.filter(w=>['pops_gravar','pops_configurar','pops_sincronizar_pessoas'].includes(w.rpc)||w.table);
+const gravacoes=b=>b.writes.filter(w=>['pops_gravar','pops_configurar','pops_sincronizar_pessoas'].includes(w.rpc)||(w.rpc==='pops_entrada_aluno_bloqueios'&&w.args?.p_liberar)||w.table);
 
 test('aluno entra com o ID do RH e o primeiro nome; crachá próprio, sem dado da ficha',async()=>{
  await zerarLimite();const b=app();
@@ -93,20 +99,59 @@ test('entrada certa zera o ID; 30 erros do mesmo IP bloqueiam o IP',async()=>{
  for(let i=0;i<4;i++)await entrar(b,'100001','errado',ip);
  assert.equal((await entrar(b,'100001','ana',ip)).status,200);
  for(let i=0;i<4;i++)assert.equal((await entrar(b,'100001','errado',ip)).status,401,'nova janela para o ID depois da entrada certa');
- // IP: 30 erros com IDs diferentes (22 a mais, somando os 8 de cima).
- for(let i=0;i<22;i++)assert.equal((await entrar(b,String(200000+i),'ninguem',ip)).status,401);
+ // IP: 30 erros com IDs e nomes diferentes (22 a mais, somando os 8 de cima).
+ for(let i=0;i<22;i++)assert.equal((await entrar(b,String(200000+i),'ninguem'+String.fromCharCode(97+i),ip)).status,401);
  assert.equal((await entrar(b,'100002','bruno',ip)).status,429,'IP bloqueado vale para qualquer ID');
  assert.equal((await entrar(b,'100002','bruno')).status,200,'outro IP segue');
  // cf-connecting-ip vem antes do x-forwarded-for.
  assert.equal((await entrar(b,'100002','bruno',{'cf-connecting-ip':'198.51.100.7','x-forwarded-for':ip['x-forwarded-for']})).status,200);
 });
 
-test('o banco recebe o ID e o IP cifrados, nunca em claro',async()=>{
- await zerarLimite();const b=app();await entrar(b,'100001','errado',{'x-forwarded-for':'192.0.2.44'});
- const chaves=(await db.query('select chave from pops_entrada_tentativas')).rows.map(r=>r.chave);
- assert.equal(chaves.length,2);for(const c of chaves)assert.match(c,/^(id|ip):[0-9a-f]{64}$/);
- assert.doesNotMatch(chaves.join(' '),/100001|192\.0\.2\.44/);
- const chamada=b.writes.find(w=>w.rpc==='pops_entrada_aluno');assert.doesNotMatch(JSON.stringify(chamada.args),/100001|192\.0\.2\.44/);
+test('o banco recebe o ID, o nome e o IP cifrados, nunca em claro',async()=>{
+ await zerarLimite();const b=app();await entrar(b,'100001','Errado',{'x-forwarded-for':'192.0.2.44'});
+ const chaves=(await db.query('select chave from pops_entrada_tentativas order by chave')).rows.map(r=>r.chave);
+ assert.deepEqual(chaves.map(c=>c.split(':')[0]),['geral','id','ip','nome']);for(const c of chaves)assert.match(c,/^(id|nome|ip|geral):[0-9a-f]{64}$/);
+ assert.doesNotMatch(chaves.join(' '),/100001|192\.0\.2\.44|errado/i);
+ const chamada=b.writes.find(w=>w.rpc==='pops_entrada_aluno');assert.doesNotMatch(JSON.stringify(chamada.args),/100001|192\.0\.2\.44|errado/i);
+ // O nome conta pela forma normalizada: "ERRADO", " errado " e "Érrado" caem no mesmo contador.
+ for(const nome of ['ERRADO',' errado ','Érrado'])await entrar(b,'100002',nome,{'x-forwarded-for':'192.0.2.45'});
+ assert.equal((await db.query("select count(*)::integer n from pops_entrada_tentativas where chave like 'nome:%'")).rows[0].n,1);
+});
+
+test('IP do limite: o item da esquerda do x-forwarded-for é do cliente e não abre balde novo',async()=>{
+ await zerarLimite();const b=app();
+ // O mesmo cliente real (à direita) forjando um endereço diferente à esquerda a cada pedido.
+ const forjado=i=>({'x-forwarded-for':'198.18.'+(i>>8)+'.'+(i&255)+', 203.0.113.9'});
+ for(let i=0;i<30;i++)assert.equal((await entrar(b,String(300000+i),'nome'+String.fromCharCode(97+(i%26))+i,forjado(i))).status,401,'tentativa '+(i+1));
+ assert.equal((await entrar(b,'100002','bruno',forjado(99))).status,429,'o forjado da esquerda não muda o balde');
+ // Sem forjar, outro cliente real segue entrando.
+ assert.equal((await entrar(b,'100002','bruno',{'x-forwarded-for':'203.0.113.10'})).status,200);
+});
+
+test('IP do limite: cf-connecting-ip vence; IPv6 conta pela rede /64; endereço inválido não vira chave',async()=>{
+ const {ipNormal,ipDe}=app().contexto;
+ const casos=[['203.0.113.9','203.0.113.9'],['203.000.113.009','203.0.113.9'],['256.1.1.1',''],['2001:db8:a:b:1:2:3:4','2001:db8:a:b::/64'],['2001:DB8:a:b::99','2001:db8:a:b::/64'],['[2001:db8::1]','2001:db8:0:0::/64'],['::ffff:192.0.2.7','192.0.2.7'],['::1','0:0:0:0::/64'],['fe80::1%eth0','fe80:0:0:0::/64'],['1:2:3:4:5:6:7::8',''],['1::2::3',''],['abc',''],['',''],['10.0.0.1, 10.0.0.2','']];
+ for(const [entrada,esperado] of casos)assert.equal(ipNormal(entrada),esperado,entrada);
+ const req=h=>new Request('http://local.test',{method:'POST',headers:h});
+ assert.equal(ipDe(req({'cf-connecting-ip':'198.51.100.7','x-forwarded-for':'1.1.1.1, 203.0.113.9'})),'198.51.100.7');
+ assert.equal(ipDe(req({'cf-connecting-ip':'lixo','x-forwarded-for':'1.1.1.1, 203.0.113.9'})),'203.0.113.9','cf inválido: o da direita');
+ assert.equal(ipDe(req({'x-forwarded-for':'1.1.1.1,  203.0.113.9 '})),'203.0.113.9');
+ assert.equal(ipDe(req({'x-forwarded-for':'203.0.113.9, lixo'})),'desconhecido','o da direita inválido não cai para o da esquerda');
+ assert.equal(ipDe(req({})),'desconhecido');
+ // Na porta: dois endereços do mesmo /64 dividem o balde.
+ await zerarLimite();const b=app();
+ for(let i=0;i<30;i++)await entrar(b,String(400000+i),'nome'+i,{'cf-connecting-ip':'2001:db8:1:2::'+(i+1).toString(16)});
+ assert.equal((await entrar(b,'100002','bruno',{'cf-connecting-ip':'2001:db8:1:2:ffff::1'})).status,429);
+ assert.equal((await entrar(b,'100002','bruno',{'cf-connecting-ip':'2001:db8:1:3::1'})).status,200,'outra rede /64 segue');
+});
+
+test('varredura com um nome comum, cada pedido de um IP real diferente: o nome bloqueia no 21º',async()=>{
+ await zerarLimite();const b=app();
+ for(let i=0;i<20;i++)assert.equal((await entrar(b,String(500000+i),'Ana',{'cf-connecting-ip':'203.0.114.'+(i+1)})).status,401,'tentativa '+(i+1));
+ for(let i=20;i<40;i++)assert.equal((await entrar(b,String(500000+i),'ana',{'cf-connecting-ip':'203.0.114.'+(i+1)})).status,429,'tentativa '+(i+1));
+ // Até a Ana certa espera: o bloqueio é do nome. Outro nome segue.
+ assert.equal((await entrar(b,'100001','ana',{'cf-connecting-ip':'203.0.114.200'})).status,429);
+ assert.equal((await entrar(b,'100002','bruno',{'cf-connecting-ip':'203.0.114.201'})).status,200);
 });
 
 test('limite indisponível fecha a porta: 503 e nenhum crachá',async()=>{
@@ -263,7 +308,7 @@ test('cada ação fora da porta estreita é recusada com 403 e nada é gravado',
   {action:'upsert',colecao:'pops',registro:{id:'p1',titulo:'Troca',setor:'Produção',versao:'2.0'}},{action:'upsert',colecao:'pessoas',registro:{id:'p-rh1',usuario:'aluno:rh1'}},
   {action:'upsert',colecao:'atribuicoes',registro:{id:'a9',pessoaId:'p-rh1',tipo:'pop',refId:'p1'}},{action:'upsert',colecao:'treinamentos',registro:{id:'t9'}},{action:'upsert',colecao:'jornadas',registro:{id:'j9'}},
   {action:'upsert',colecao:'formacoes',registro:{id:'f9'}},{action:'get',colecao:'formacoes',id:'f1'},{action:'list',colecao:'aprendizagem'},{action:'acaoInventada'},
-  ...['salvarFormacao','aprovarAvaliacao','validar','reciclar','configurarCatalogo','configurarInstrutores','configurarEntradaAluno','academia.salvarMaterial','academia.enviarPDF','academia.salvarCapacitacao','academia.salvarInstrumento','academia.aprovarInstrumento','operacaoInventada']
+  ...['salvarFormacao','aprovarAvaliacao','validar','reciclar','configurarCatalogo','configurarInstrutores','configurarEntradaAluno','liberarEntradaAluno','academia.salvarMaterial','academia.enviarPDF','academia.salvarCapacitacao','academia.salvarInstrumento','academia.aprovarInstrumento','operacaoInventada']
    .map(operacao=>({action:'escola',operacao,formacao:curso,formacaoId:'f1',colaboradorId:'rh2',etapaId:'e1',ativa:false,validadeDias:1,instrutores:{},catalogo:{},mutationId:'x-'+operacao}))];
  for(const body of negadas){
   const b=app({rows});const r=await comoAluno(b,body);
@@ -276,7 +321,7 @@ test('administração liga, desliga e muda a validade; o resto da escola fica co
  const cfg={gestores:{gestao:['Produção']},educacao:{instrutores:{bruno:['Produção']},catalogo:{familias:{},trilhas:{}}}};
  const configurar={pops_configurar:async a=>{Object.assign(cfg,structuredClone(a.p_patch));return {data:{ok:true,config:cfg},error:null};},...limiteReal};
  const b=app({config:cfg,rpcs:configurar});const adm={sub:'gestao',papel:'admin'};
- let p=await b.call({action:'escola',operacao:'painel'},adm);assert.deepEqual(p.body.gestao.entradaAluno,{ativa:true,validadeDias:7},'sem configuração, ligada');
+ let p=await b.call({action:'escola',operacao:'painel'},adm);assert.deepEqual(p.body.gestao.entradaAluno,{ativa:true,validadeDias:7,bloqueios:0},'sem configuração, ligada');
  assert.equal((await b.call({action:'escola',operacao:'painel'},{papel:'gestor',sub:'gestao'})).body.gestao.entradaAluno,undefined,'só a administração vê a configuração');
  for(const who of [{papel:'gestor',sub:'gestao'},{papel:'equipe',sub:'bruno'}])assert.equal((await b.call({action:'escola',operacao:'configurarEntradaAluno',ativa:false,validadeDias:7},who)).status,403);
  for(const [ativa,dias] of [['nao',7],[false,0],[false,31],[false,'7'],[undefined,7]])assert.equal((await b.call({action:'escola',operacao:'configurarEntradaAluno',ativa,validadeDias:dias},adm)).status,400);
@@ -311,4 +356,23 @@ test('a Central continua igual: crachá de equipe e administração não vira al
  assert.equal((await b.call({action:'conhecimento'},{sub:'bruno'})).status,200);
  // Equipe com payload de aluno no corpo do crachá (papel aluno) é recusada pela Central.
  assert.equal((await b.call({action:'ping'},{papel:'aluno',sub:'aluno:rh1',colaboradorId:'rh1'})).status,401);
+});
+
+test('administração vê os bloqueios da entrada do aluno e libera na hora; ninguém mais libera',async()=>{
+ await zerarLimite();const b=app(),fabrica={'cf-connecting-ip':'203.0.113.200'},adm={sub:'gestao',papel:'admin'};
+ // Dia de implantação: a turma inteira atrás do mesmo IP erra 30 vezes; a Ana certa espera.
+ for(let i=0;i<30;i++)await entrar(b,String(600000+i),'turma'+i,fabrica);
+ assert.equal((await entrar(b,'100001','ana',fabrica)).status,429);
+ let p=await b.call({action:'escola',operacao:'painel'},adm);assert.equal(p.body.gestao.entradaAluno.bloqueios,1);
+ for(const who of [{papel:'gestor',sub:'gestao'},{papel:'equipe',sub:'bruno'}]){const r=await b.call({action:'escola',operacao:'liberarEntradaAluno'},who);assert.equal(r.status,403);}
+ assert.equal((await comoAluno(b,{action:'escola',operacao:'liberarEntradaAluno'})).status,403);
+ assert.equal((await entrar(b,'100001','ana',fabrica)).status,429,'ninguém liberou ainda');
+ const r=await b.call({action:'escola',operacao:'liberarEntradaAluno'},adm);
+ assert.equal(r.status,200);assert.deepEqual(r.body,{ok:true,liberados:1,bloqueios:0});
+ assert.equal((await entrar(b,'100001','ana',fabrica)).status,200,'liberada, a Ana entra');
+ p=await b.call({action:'escola',operacao:'painel'},adm);assert.equal(p.body.gestao.entradaAluno.bloqueios,0);
+ // Contagem fora do ar: o painel segue, sem a contagem; liberar responde 503.
+ const fora=app({rpcs:{...limiteReal,pops_entrada_aluno_bloqueios:async()=>({data:null,error:{message:'banco fora'}})}});
+ p=await fora.call({action:'escola',operacao:'painel'},adm);assert.equal(p.status,200);assert.deepEqual(p.body.gestao.entradaAluno,{ativa:true,validadeDias:7});
+ assert.equal((await fora.call({action:'escola',operacao:'liberarEntradaAluno'},adm)).status,503);
 });

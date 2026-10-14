@@ -225,18 +225,45 @@ async function conferirAluno(cracha: any, cfg: any) {
 const ERRO_ALUNO = "ID ou nome não conferem.";
 const MUITAS_ALUNO = "Muitas tentativas. Tente de novo em 15 minutos.";
 const INDISPONIVEL_ALUNO = "Não consegui conferir sua entrada agora. Tente novamente.";
+// IP em forma única: IPv4 como veio (cada parte até 255); IPv6 agrupado pela rede
+// /64 (quem tem um /64 tem 2^64 endereços, um balde só); IPv4 dentro de IPv6 vira
+// IPv4. Fora do formato: "" (não serve de chave).
+function ipNormal(bruto: string): string {
+  let ip = String(bruto || "").trim().toLowerCase();
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return ip.split(".").every(n => Number(n) <= 255) ? ip.split(".").map(n => String(Number(n))).join(".") : "";
+  ip = ip.replace(/^\[|\]$/g, "").split("%")[0];
+  const v4 = ip.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (v4) return ipNormal(v4[1]);
+  if (!/^[0-9a-f:]{2,39}$/.test(ip) || (ip.match(/::/g) || []).length > 1) return "";
+  const [esq, dir] = ip.split("::");
+  const a = esq ? esq.split(":") : [], b = dir === undefined ? null : dir ? dir.split(":") : [];
+  if (b && a.length + b.length > 7) return "";
+  const grupos = b ? [...a, ...Array(8 - a.length - b.length).fill("0"), ...b] : a;
+  if (grupos.length !== 8 || grupos.some(g => !/^[0-9a-f]{1,4}$/.test(g))) return "";
+  return grupos.slice(0, 4).map(g => g.replace(/^0+(?=.)/, "")).join(":") + "::/64";
+}
+// IP de quem chama, só do que o cliente não escolhe: o cf-connecting-ip, que a
+// Cloudflare (na frente da Supabase) sobrescreve; sem ele, o item mais à DIREITA
+// do x-forwarded-for, o que o proxy acrescentou. O da esquerda é do cliente: um
+// "x-forwarded-for: 198.18.0.N" diferente a cada pedido criaria um balde novo a
+// cada vez. Sem IP válido, um balde só para todos ("desconhecido"), o lado
+// seguro. O teto do total (na rotina do banco) não depende do IP.
 function ipDe(req: Request) {
-  const ip = (req.headers.get("cf-connecting-ip") || (req.headers.get("x-forwarded-for") || "").split(",")[0] || "").trim().toLowerCase();
-  return /^[0-9a-f:.]{2,64}$/.test(ip) ? ip : "desconhecido";
+  const cf = ipNormal(req.headers.get("cf-connecting-ip") || "");
+  if (cf) return cf;
+  const itens = (req.headers.get("x-forwarded-for") || "").split(",").map(s => s.trim()).filter(Boolean);
+  return (itens.length && ipNormal(itens[itens.length - 1])) || "desconhecido";
 }
 async function entrarAluno(body: any, req: Request) {
   if (!JWT_SECRET) throw new Falha(INDISPONIVEL_ALUNO, 503);
   const id = typeof body.id === "string" && /^\d{6}$/.test(body.id.trim()) ? body.id.trim() : "";
   const nome = typeof body.nome === "string" && body.nome.length <= 120 ? norm(body.nome) : "";
-  // Chaves do limite cifradas com segredo do servidor: o banco não guarda ID nem IP.
+  // Chaves do limite cifradas com segredo do servidor: o banco não guarda ID, nome
+  // nem IP. O nome tem contador próprio: fixar um nome comum e percorrer os IDs
+  // de muitos endereços esbarra nele (e no teto do total, que o banco soma sozinho).
   const k = await chaveHmac(await derivada("pops-aluno-tentativas-v1"), ["sign"]);
   const cifrar = async (s: string) => hex(new Uint8Array(await crypto.subtle.sign("HMAC", k, enc(s))));
-  const chaves = { p_chave_id: id ? "id:" + await cifrar("id:" + id) : null, p_chave_ip: "ip:" + await cifrar("ip:" + ipDe(req)) };
+  const chaves = { p_chave_id: id ? "id:" + await cifrar("id:" + id) : null, p_chave_nome: nome ? "nome:" + await cifrar("nome:" + nome) : null, p_chave_ip: "ip:" + await cifrar("ip:" + ipDe(req)) };
   const tentativa = await sb.rpc("pops_entrada_aluno", { p_acao: "tentar", ...chaves });
   if (tentativa.error || !tentativa.data || typeof tentativa.data !== "object") throw new Falha(INDISPONIVEL_ALUNO, 503);
   if (tentativa.data.bloqueado) throw new Falha(MUITAS_ALUNO, 429);

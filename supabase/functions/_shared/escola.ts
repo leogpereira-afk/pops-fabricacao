@@ -313,6 +313,15 @@ export async function escola(body: any, ctx: any) {
     if(res.error?.code==='40001')fail('A configuração mudou. Atualize antes de salvar.',409);
     conferir(res);return {ok:true,entradaAluno:entradaAlunoCfg({educacao})};
   }
+  // Muitos erros seguidos bloqueiam a entrada do aluno por 15 minutos (por ID,
+  // nome, rede ou no total). A turma inteira da fábrica sai pelo mesmo IP: se ela
+  // ficou bloqueada, a administração libera na hora, zerando as tentativas contadas.
+  if(op==='liberarEntradaAluno') {
+    if(!admin)fail('Somente a administração libera a entrada do aluno.',403);
+    const res=await sb.rpc('pops_entrada_aluno_bloqueios',{p_liberar:true});
+    if(res.error||!objeto(res.data)||res.data.ok!==true)fail('Não consegui liberar a entrada do aluno agora. Tente novamente.',503);
+    return {ok:true,liberados:Number.isInteger(res.data.liberados)?res.data.liberados:0,bloqueios:0};
+  }
   if(op==='configurarCatalogo') {
     if(!admin)fail('Somente a administração organiza o catálogo da escola.',403);
     const c=body.catalogo;
@@ -423,7 +432,11 @@ export async function escola(body: any, ctx: any) {
     if(aluno)return {ok:true,pessoa,motivoVinculo:identidade.motivo||null,formacoes,aprendizagem:pessoais,catalogo,gestao:{podeGerir:false,podeValidar:false,pessoas:[],registros:[]},atualizadoEm:new Date().toISOString()};
     const gestaoReg=rs.filter(r=>{const f=fs.find(f=>f.id===r.formacaoId),p=ps.find(p=>p.colaboradorId===r.colaboradorId);return f&&p&&(admin ||(gerencia(f)&&corresponde(p,setores))||f.etapas.some((e:any)=>validar(f,e,p)));});
     const ids=new Set(gestaoReg.map(r=>r.colaboradorId));
-    return {ok:true,pessoa,motivoVinculo:identidade.motivo||null,formacoes,aprendizagem:pessoais,catalogo,gestao:{instrutores:admin?(cfg.educacao?.instrutores||{}):undefined,...(admin?{entradaAluno:entradaAlunoCfg(cfg)}:{}),...(gere?{cargosRH:cargos,vagasRH:vagas,catalogo}:{}),podeGerir:admin||gestor,podeValidar:!!pessoa&&(admin||gestor||fs.some(f=>f.etapas.some((e:any)=>(e.validadores||[]).map(norm).includes(usuario)))),pessoas:ps.filter(p=>admin||(gestor&&corresponde(p,setores))||ids.has(p.colaboradorId)),registros:gestaoReg.map(r=>registroGestao(r,fs.find(f=>f.id===r.formacaoId),ps.find(p=>p.colaboradorId===r.colaboradorId)))},atualizadoEm:new Date().toISOString()};
+    // Administração: quantos bloqueios da entrada do aluno valem agora. Sem a
+    // contagem (banco fora), o cartão segue sem ela; o painel não cai por isso.
+    let bloqueiosAluno:number|null=null;
+    if(admin){try{const b=await sb.rpc('pops_entrada_aluno_bloqueios',{p_liberar:false});if(!b.error&&Number.isInteger(b.data?.bloqueios))bloqueiosAluno=b.data.bloqueios;}catch{/* sem contagem */}}
+    return {ok:true,pessoa,motivoVinculo:identidade.motivo||null,formacoes,aprendizagem:pessoais,catalogo,gestao:{instrutores:admin?(cfg.educacao?.instrutores||{}):undefined,...(admin?{entradaAluno:{...entradaAlunoCfg(cfg),...(bloqueiosAluno===null?{}:{bloqueios:bloqueiosAluno})}}:{}),...(gere?{cargosRH:cargos,vagasRH:vagas,catalogo}:{}),podeGerir:admin||gestor,podeValidar:!!pessoa&&(admin||gestor||fs.some(f=>f.etapas.some((e:any)=>(e.validadores||[]).map(norm).includes(usuario)))),pessoas:ps.filter(p=>admin||(gestor&&corresponde(p,setores))||ids.has(p.colaboradorId)),registros:gestaoReg.map(r=>registroGestao(r,fs.find(f=>f.id===r.formacaoId),ps.find(p=>p.colaboradorId===r.colaboradorId)))},atualizadoEm:new Date().toISOString()};
   }
   if(op==='aprovarAvaliacao') {
     const f=await getF(body.formacaoId);if(!gerencia(f))fail('Somente a gestão responsável aprova avaliações.',403);

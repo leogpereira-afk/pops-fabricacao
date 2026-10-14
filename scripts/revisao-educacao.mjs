@@ -26,7 +26,7 @@ export function servidorRevisao(){
  if(process.env.EDUCACAO_FONTES){try{const q=JSON.parse(readFileSync(path.join(path.dirname(process.env.EDUCACAO_FONTES),'avaliacao-etica-rascunho.json'),'utf8'));privados.push(row('formacoes',q.formacao));}catch(e){if(e.code!=='ENOENT')throw e;}}
  // Entrada do aluno na prévia: IDs fictícios 900001 (Ana), 900002 (Bruno), 900003 (Gestão); limite de tentativas sempre livre;
  // a configuração gravada pela tela fica na memória da prévia.
- const b=backend({config:cfg,tables,persistWrites:true,storageFiles,rpcs:{pops_entrada_aluno:async()=>({data:{ok:true,bloqueado:false},error:null}),pops_configurar:async a=>{Object.assign(cfg,structuredClone(a.p_patch));return {data:{ok:true,config:cfg},error:null};}},rows:[...privados,...Object.entries(data).flatMap(([col,rs])=>rs.map(r=>row(col,r))),row('formacoes',formacao),row('formacoes',sistema),row('formacoes',rascunho)]});
+ const b=backend({config:cfg,tables,persistWrites:true,storageFiles,rpcs:{pops_entrada_aluno:async()=>({data:{ok:true,bloqueado:false},error:null}),pops_entrada_aluno_bloqueios:async a=>({data:{ok:true,bloqueios:0,...(a.p_liberar?{liberados:0}:{})},error:null}),pops_configurar:async a=>{Object.assign(cfg,structuredClone(a.p_patch));return {data:{ok:true,config:cfg},error:null};}},rows:[...privados,...Object.entries(data).flatMap(([col,rs])=>rs.map(r=>row(col,r))),row('formacoes',formacao),row('formacoes',sistema),row('formacoes',rascunho)]});
  return http.createServer(async(req,res)=>{
   const url=new URL(req.url,'http://localhost');
   try{
@@ -48,7 +48,7 @@ export function servidorRevisao(){
    if(name==='config.js')out=Buffer.from('window.API_BASE="/api";window.API_FN={sync:"pops-sync"};window.CONHECIMENTO_VERSAO="2026.10.05";');
    if(name==='index.html' && url.searchParams.get('entrada')==='1'){
     // ?entrada=1 abre a tela de entrada (sem sessão) para conferir as duas portas.
-    out=Buffer.from(out.toString().replace('<body>','<body><script>localStorage.removeItem("pops_user");localStorage.removeItem("pops_cracha");</script>'));
+    out=Buffer.from(out.toString().replace('<body>','<body><script>localStorage.removeItem("pops_user");localStorage.removeItem("pops_cracha");localStorage.removeItem("pops_cracha_aluno");</script>'));
    }else if(name==='index.html'){
     const user=usuarios[url.searchParams.get('pessoa')] || usuarios.ana;
     const token=['demo',Buffer.from(JSON.stringify({sub:user.usuario})).toString('base64url'),'demo'].join('.');

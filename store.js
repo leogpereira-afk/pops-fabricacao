@@ -117,12 +117,26 @@ const STORE = (() => {
     }
   } catch { falhaGravacao(); }
 
+  // Sessão do aluno só fala com o servidor com o crachá DELE (AUTH.crachaDe confere
+  // sis, sub e ficha contra a sessão). Sem ele, nenhuma chamada sai: nem com o
+  // crachá da Central que a Entrada Única do Painel guarda nesta mesma origem.
+  const FIM_ALUNO = 'Sua entrada de aluno terminou. Entre de novo com seu ID do RH e primeiro nome.';
+  function crachaDaSessao(u) {
+    if (typeof AUTH === 'undefined') return '';
+    if (perfil(u) === 'aluno') return typeof AUTH.crachaDe === 'function' ? AUTH.crachaDe(u) : '';
+    return AUTH.cracha();
+  }
   async function api(action, body, timeoutMs) {
-    const sessaoDaChamada = epoch;
+    const sessaoDaChamada = epoch, u = getUser(), cracha = crachaDaSessao(u);
+    if (perfil(u) === 'aluno' && !cracha) {
+      const erro = Object.assign(new Error(FIM_ALUNO), { status: 401 });
+      avisar('sessao', erro.message);
+      throw erro;
+    }
     const ctrl = new AbortController(), t = setTimeout(() => ctrl.abort(), timeoutMs || 15000);
     try {
       const r = await fetch(window.API_BASE + '/' + window.API_FN.sync, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', authorization: 'Bearer ' + (typeof AUTH !== 'undefined' ? AUTH.cracha() : '') },
+        method: 'POST', headers: { 'Content-Type': 'application/json', authorization: 'Bearer ' + cracha },
         body: JSON.stringify({ action, ...(body || {}) }), signal: ctrl.signal,
       });
       let data; try { data = await r.json(); } catch { throw new Error('Resposta incompleta do servidor.'); }

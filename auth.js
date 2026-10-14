@@ -18,10 +18,38 @@ const AUTH = (() => {
   const URL_AUTH = window.API_BASE + '/equipe-auth';
   const SISTEMA = 'pops';
   const K_TOKEN = 'pops_cracha';
+  // O crachá do aluno mora numa chave só dele. 'pops_cracha' é também a chave que
+  // a Entrada Única do Painel grava e apaga nesta mesma origem (github.io) com o
+  // crachá da Central de quem entrou lá: dividida, ela trocava o crachá da aluna
+  // pelo do gestor no meio da aula, e o Sair da aluna apagava o do gestor.
+  const K_ALUNO = 'pops_cracha_aluno';
 
   const pegar = () => localStorage.getItem(K_TOKEN) || '';
-  const guardar = t => { if (t) localStorage.setItem(K_TOKEN, t); };
-  const esquecer = () => localStorage.removeItem(K_TOKEN);
+  const guardar = t => { if (t) { localStorage.setItem(K_TOKEN, t); localStorage.removeItem(K_ALUNO); } };
+  const esquecer = () => { localStorage.removeItem(K_TOKEN); localStorage.removeItem(K_ALUNO); };
+  const pegarAluno = () => localStorage.getItem(K_ALUNO) || '';
+  const esquecerAluno = () => localStorage.removeItem(K_ALUNO);
+  // Corpo do crachá, só para saber de quem é. Não confere a assinatura (o aparelho
+  // não tem o segredo); quem confere é o servidor.
+  function corpo(t) {
+    try {
+      const p = String(t || '').split('.')[1];
+      if (!p) return null;
+      const b64 = p.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(p.length / 4) * 4, '=');
+      const bin = atob(b64), bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+      const dados = JSON.parse(new TextDecoder().decode(bytes));
+      return dados && typeof dados === 'object' ? dados : null;
+    } catch { return null; }
+  }
+  // O crachá do aluno só serve à sessão daquele aluno: sis e papel de aluno, e
+  // sub e ficha do RH iguais aos da sessão. Qualquer outro (de outro aluno, ou um
+  // da Central que alguém tenha posto ali) não sai daqui: devolve vazio.
+  function crachaAlunoDe(sessao) {
+    const t = pegarAluno(), p = corpo(t);
+    if (!sessao || !p || p.sis !== 'pops-aluno' || p.papel !== 'aluno' || typeof p.sub !== 'string' || p.sub !== sessao.usuario) return '';
+    if (sessao.colaboradorId && p.colaboradorId !== sessao.colaboradorId) return '';
+    return t;
+  }
 
   async function chamar(acao, corpo, comCracha) {
     const cab = { 'Content-Type': 'application/json' };
@@ -46,7 +74,12 @@ const AUTH = (() => {
     temCracha: () => !!pegar(),
     // O store precisa do crachá para assinar cada chamada ao servidor.
     cracha: pegar,
+    // Crachá de quem está na sessão: o do aluno (conferido contra a sessão) ou o da Central.
+    crachaDe: sessao => sessao && sessao.papel === 'aluno' ? crachaAlunoDe(sessao) : pegar(),
+    crachaAluno: pegarAluno,
     esquecer,
+    // Sair do aluno: só o crachá dele. O da Central é da Entrada Única do Painel.
+    esquecerAluno,
 
     async loginRH(usuario, senha) {
       const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), 15000);
@@ -69,7 +102,7 @@ const AUTH = (() => {
     // nome, sem senha. Quem confere é o servidor (pops-sync, ação pública
     // entrarAluno), com limite de tentativas no banco; o crachá do aluno é outro
     // (sis "pops-aluno", chave própria) e só alcança o próprio aprendizado. Fica
-    // no mesmo lugar do crachá da Central: um crachá por aparelho, e Sair apaga.
+    // em 'pops_cracha_aluno', que o Painel não grava nem apaga; Sair apaga.
     async entrarAluno(id, nome) {
       const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), 15000);
       try {
@@ -89,7 +122,7 @@ const AUTH = (() => {
         }
         if (typeof r.token !== 'string' || r.token.split('.').length !== 3 || r.papel !== 'aluno' || !/^aluno:/.test(r.usuario || '') || !r.colaboradorId)
           throw new Error('Resposta de entrada incompleta. Tente novamente.');
-        guardar(r.token);
+        localStorage.setItem(K_ALUNO, r.token);
         return { usuario: r.usuario, nome: r.nome || 'Aluno', papel: 'aluno', colaboradorId: r.colaboradorId, validoAte: r.validoAte || null, origemLogin: 'aluno' };
       } finally { clearTimeout(timer); }
     },

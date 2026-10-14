@@ -295,7 +295,9 @@ window.EDUCACAO = (() => {
     return '<section class="card entrada-aluno" id="edu-entrada-aluno" aria-labelledby="edu-entrada-aluno-titulo"><div class="secao-titulo"><h2 id="edu-entrada-aluno-titulo">Entrada do aluno</h2><span class="edu-status '+(ent.ativa?'concluida':'revisar')+'">'+(ent.ativa?'Ligada':'Desligada')+'</span></div>'+
       '<p><b>Quem entra:</b> qualquer pessoa ativa no RH, com o ID do RH (6 números) e o primeiro nome, sem senha. Desligada ou fora do RH, não entra.</p>'+
       '<p><b>O que alcança:</b> os próprios cursos, provas, histórico e perfil; a biblioteca, os vídeos e as NRs liberados para a pessoa; POPs e Fabricação e os treinamentos, só para leitura. Não alcança gestão, acompanhamento de outras pessoas, configurações nem as referências da empresa.</p>'+
-      '<p class="dica">Administração, gestão e instrutores continuam entrando com usuário e senha. Desligar encerra na hora a entrada de todos os alunos; ao ligar de novo, cada um entra outra vez. Errar 5 vezes o mesmo ID bloqueia esse ID por 15 minutos.</p>'+
+      '<p class="dica">Administração, gestão e instrutores continuam entrando com usuário e senha. Desligar encerra na hora a entrada de todos os alunos; ao ligar de novo, cada um entra outra vez.</p>'+
+      '<p class="dica">Erros seguidos bloqueiam a entrada por 15 minutos: 5 no mesmo ID, 20 com o mesmo primeiro nome, 30 na mesma rede ou 300 no total. Na fábrica, todos saem pela mesma rede: se a turma ficou bloqueada, libere aqui.</p>'+
+      '<div class="acoes"><span class="dica" id="edu-entrada-bloqueios">'+(Number.isInteger(ent.bloqueios)?(ent.bloqueios?ent.bloqueios+(ent.bloqueios===1?' bloqueio valendo agora.':' bloqueios valendo agora.'):'Nenhum bloqueio agora.'):'Não consegui contar os bloqueios agora.')+'</span><button type="button" class="botao mini suave" id="edu-entrada-liberar">Liberar a entrada agora</button></div>'+
       (ent.atualizadoEm?'<p class="dica">Última mudança em '+esc(fmtDataHora(ent.atualizadoEm))+(ent.atualizadoPor?' por '+esc(ent.atualizadoPor):'')+'.</p>':'<p class="dica">Ligada por padrão: ninguém mudou esta configuração ainda.</p>')+
       '<form id="edu-entrada-aluno-form" class="entrada-aluno-form"><div class="campo"><label for="edu-entrada-validade">Validade da entrada no aparelho</label><select id="edu-entrada-validade">'+dias.map(d=>'<option value="'+d+'"'+(d===ent.validadeDias?' selected':'')+'>'+d+(d===1?' dia':' dias')+'</option>').join('')+'</select></div>'+
       '<div class="acoes"><button type="submit" class="botao mini suave" id="edu-entrada-salvar">Salvar validade</button><button type="button" class="botao mini '+(ent.ativa?'fantasma':'')+'" id="edu-entrada-alternar">'+(ent.ativa?'Desligar a entrada do aluno':'Ligar a entrada do aluno')+'</button></div><p id="edu-entrada-erro" class="aviso amarelo" role="alert" hidden></p></form></section>';
@@ -312,6 +314,14 @@ window.EDUCACAO = (() => {
     };
     form.onsubmit=ev=>{ev.preventDefault();gravar(ent.ativa,$('#edu-entrada-salvar'));};
     $('#edu-entrada-alternar').onclick=()=>gravar(!ent.ativa,$('#edu-entrada-alternar'));
+    // Zera as tentativas erradas contadas: quem estava bloqueado tenta de novo na hora.
+    $('#edu-entrada-liberar').onclick=async()=>{
+      const bt=$('#edu-entrada-liberar'),el=$('#edu-entrada-erro');el.hidden=true;
+      if(!confirm('Liberar a entrada do aluno agora? As tentativas erradas contadas são zeradas e quem estava bloqueado pode tentar de novo.'))return;
+      bt.disabled=true;
+      const r=await executar({operacao:'liberarEntradaAluno'},async res=>{await carregar();if(snapshot)gestao(app);toast(res?.liberados?'Entrada do aluno liberada.':'Não havia bloqueio; as tentativas contadas foram zeradas.');});
+      if(!r){bt.disabled=false;el.textContent=erro||'Não foi possível liberar. Tente novamente.';el.hidden=false;}
+    };
     // Vindo de "Entrada do aluno" no menu Escola, o cartão é o destino.
     // Depois do scrollTo(0,0) do renderApp, que roda logo após o desenho.
     if(ROTA.arg==='entrada')setTimeout(()=>$('#edu-entrada-aluno')?.scrollIntoView?.({block:'start'}),0);

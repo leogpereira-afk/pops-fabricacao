@@ -288,11 +288,14 @@ async function atualizarIdentidadeRH() {
   try { await identidadeEmCurso; } finally { identidadeEmCurso = null; }
 }
 async function conferirIdentidadeRH() {
-  const usuario = SESSAO?.usuario, cracha = AUTH.cracha();
+  const usuario = SESSAO?.usuario, cracha = AUTH.crachaDe(SESSAO);
   if (!usuario) return;
   try {
     const r = await STORE.api('identidadeRH');
-    if (SESSAO?.usuario !== usuario || AUTH.cracha() !== cracha) return;
+    if (SESSAO?.usuario !== usuario || AUTH.crachaDe(SESSAO) !== cracha) return;
+    // Aluno: a ficha que volta tem de ser a da sessão. Outra pessoa é sinal de
+    // crachá trocado; a sessão termina em vez de mostrar (e gravar) a ficha alheia.
+    if (souAluno() && r.vinculada && r.pessoa?.colaboradorId !== SESSAO.colaboradorId) { encerrarSessaoAluno(FIM_ALUNO); return; }
     const proxima = { ...SESSAO, pessoaRH:r.vinculada ? r.pessoa : null, vinculoRH:r.motivo || '', identidadeConferida:true };
     if (JSON.stringify(proxima) !== JSON.stringify(SESSAO) && STORE.setUser(proxima)) SESSAO = STORE.getUser();
   } catch { /* Offline conserva o último vínculo validado, sem inventar uma pessoa. */ }
@@ -409,20 +412,38 @@ STORE.on('pullErro', msg => { _ultimoSync = { status: 'erro' }; const chip = $('
 // Cache da escola no aparelho sai junto com a sessão, mesmo com envio pendente:
 // o próximo crachá do aparelho não lê o pacote de quem saiu.
 function limparEscolaDoAparelho() { try { window.EDUCACAO?.limparCacheAparelho?.(); } catch { /* sem cache */ } }
+// Fim da sessão do aluno sem ser pelo Sair (401 do servidor, entrada vencida,
+// crachá que não é dele): sai do aparelho tudo o que é do aluno, o cache dos POPs
+// com a fila (sem destino: o servidor não aceita mais aquele crachá), o crachá
+// dele e o cache da escola. O crachá da Central, que é da Entrada Única, fica.
+const FIM_ALUNO = 'Sua entrada de aluno terminou. Entre de novo com seu ID do RH e primeiro nome.';
+function encerrarSessaoAluno(msg) {
+  limparEscolaDoAparelho();
+  try { STORE.descartarConta(STORE.getUser()); } catch { /* nada guardado */ }
+  AUTH.esquecerAluno(); STORE.setUser(null); SESSAO = null; _ultimoSync = null; renderApp();
+  if (msg) toast(msg, 'erro');
+}
 // Sair. Para o aluno, sai tudo o que é dele neste aparelho (crachá, cache e fila
 // dos POPs, envio da escola guardado na aba) e o cache da escola de quem quer que
-// seja; registro ainda não enviado só sai se a pessoa confirmar.
+// seja; registro ainda não enviado só sai se a pessoa confirmar. Qualquer Sair
+// apaga também o cache de outros alunos que ficou no aparelho (aparelho dividido).
 function sairDaConta() {
-  if (souAluno()) {
+  const aluno = souAluno();
+  if (aluno) {
     const st = STORE.resumoSync(), envio = window.EDUCACAO?.estadoEnvio?.() || {}, faltam = (st.pendentes || 0) + (st.naoGravados || 0) + (envio.pendente ? 1 : 0);
     if (faltam && !confirm('Há ' + faltam + (faltam === 1 ? ' registro seu ainda não enviado' : ' registros seus ainda não enviados') + '. Saindo agora, ' + (faltam === 1 ? 'ele é apagado' : 'eles são apagados') + ' deste aparelho. Sair mesmo assim?')) return false;
     try { window.EDUCACAO?.descartarEnvio?.(); } catch { /* nada guardado */ }
     STORE.descartarConta(STORE.getUser());
   }
-  limparEscolaDoAparelho(); AUTH.esquecer(); STORE.setUser(null); SESSAO = null; location.hash = '#/'; renderApp();
+  STORE.limparOutrosAlunos(null);
+  // O aluno leva só o crachá dele: o da Central é da Entrada Única do Painel.
+  limparEscolaDoAparelho(); if (aluno) AUTH.esquecerAluno(); else AUTH.esquecer(); STORE.setUser(null); SESSAO = null; location.hash = '#/'; renderApp();
   return true;
 }
-STORE.on('sessao', msg => { limparEscolaDoAparelho(); AUTH.esquecer(); STORE.setUser(null); SESSAO = null; _ultimoSync = null; renderApp(); toast(msg, 'erro'); });
+STORE.on('sessao', msg => {
+  if (souAluno() || STORE.getUser()?.papel === 'aluno') { encerrarSessaoAluno(msg); return; }
+  limparEscolaDoAparelho(); AUTH.esquecer(); STORE.setUser(null); SESSAO = null; _ultimoSync = null; renderApp(); toast(msg, 'erro');
+});
 STORE.on('quota', () => { _ultimoSync=STORE.resumoSync(); const chip=$('#chip-sync'); if(chip){chip.textContent=rotuloSync(_ultimoSync);chip.classList.add('pendente');} toast('Não foi possível gravar neste aparelho. Abra o estado de sincronização para tentar novamente ou baixar uma cópia.', 'erro'); });
 
 // Navegação enxuta (auditoria de 14/10/2026, P1): o aluno tem quatro destinos e
@@ -555,7 +576,7 @@ function renderLogin(app) {
       if(!STORE.setUser(sessao))throw new Error('Não consegui guardar a sessão neste aparelho.');
       SESSAO=STORE.getUser();_ultimoSync=null;await atualizarIdentidadeRH();if(!SESSAO)return;STORE.trySync();STORE.pull();location.hash='#/';renderApp();
     } catch(err){
-      const ajuda=err.status===401?' Confira o ID no seu cadastro do RH e escreva só o primeiro nome.':'';
+      const ajuda=err.status===401?' Confira o ID no seu cadastro do RH e escreva só o primeiro nome.':err.status===429?' Se outras pessoas na mesma rede também erraram, a administração pode liberar a entrada na hora.':'';
       erroAluno(esc(err.message || 'Não foi possível entrar. Tente novamente.')+ajuda);
     } finally {if(bt.isConnected){bt.disabled=false;bt.textContent='Entrar';}}
   };
@@ -1570,18 +1591,20 @@ window.addEventListener('hashchange', renderApp);
   // O Painel guarda o crachá, mas não cria pops_user neste aparelho.
   // Só o servidor pode transformar esse crachá em uma sessão dos POPs.
   if (SESSAO?.papel === 'aluno') {
-    // Entrada de aluno vencida no relógio deste aparelho: nem abre os dados.
-    if (!AUTH.temCracha() || (SESSAO.validoAte && Date.parse(SESSAO.validoAte) <= Date.now())) {
-      const venceu = AUTH.temCracha();
-      try { window.EDUCACAO?.limparCacheAparelho?.(); } catch { /* sem cache */ }
-      AUTH.esquecer(); STORE.setUser(null); SESSAO = null; renderApp();
-      if (venceu) toast('Sua entrada de aluno terminou. Entre de novo com seu ID do RH e primeiro nome.', 'erro');
+    // Sessão de aluno só segue com o crachá DELE ('pops_cracha_aluno', com sis,
+    // sub e ficha da sessão), nunca com o da Central que a Entrada Única do Painel
+    // guarda em 'pops_cracha'. Sem o dele, ou vencida no relógio deste aparelho:
+    // termina sem abrir dados, levando o cache do aluno.
+    if (!AUTH.crachaDe(SESSAO) || (SESSAO.validoAte && Date.parse(SESSAO.validoAte) <= Date.now())) {
+      encerrarSessaoAluno(FIM_ALUNO);
     } else {
       // identidadeRH com o crachá do aluno: 401 encerra a sessão pelo aviso do STORE.
       const usuario = SESSAO.usuario;
       atualizarIdentidadeRH().then(() => { if (SESSAO?.usuario !== usuario) return; STORE.trySync(); STORE.pull().then(() => { if (!ROTAS_DE_EDICAO.includes(ROTA.nome)) renderApp(); }); });
     }
   } else if (SESSAO || AUTH.temCracha()) {
+    // Crachá de aluno sem sessão de aluno não serve a ninguém.
+    AUTH.esquecerAluno?.();
     const usuario = SESSAO?.usuario, cracha = AUTH.cracha();
     AUTH.eu().then(async r => {
       if (AUTH.cracha() !== cracha || SESSAO?.usuario !== usuario) return;

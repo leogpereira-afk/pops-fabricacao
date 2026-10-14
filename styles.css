@@ -395,6 +395,7 @@ summary { cursor: pointer; font-weight: 700; min-height: 44px; padding: 6px 0 12
 /* Cartão "Entrada do aluno" (Gestão de cursos, só administração). */
 .entrada-aluno .secao-titulo { flex-wrap: wrap; }
 .entrada-aluno .botao { min-height: 44px; }
+.entrada-aluno .acoes { align-items: center; }
 .entrada-aluno-form .campo { max-width: 260px; }
 
 /* Mapa largo: rolagem contida e identificação da pessoa sempre visível. */

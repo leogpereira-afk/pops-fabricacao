@@ -260,11 +260,13 @@ window.EDUCACAO = (() => {
     app.innerHTML=header('escola')+intro('Cuidar de quem aprende.','Organize cursos e trilhas, acompanhe dificuldades e valide a prática com evidência.',g.podeGerir?'<a class="botao" href="#/formacao-editor/novo">+ Novo curso</a>':'')+aviso()+
       '<div class="edu-resumo"><span><strong>'+fs.length+'</strong> '+(fs.length===1?'curso':'cursos')+'</span><span><strong>'+registros.length+'</strong> '+(registros.length===1?'curso iniciado':'cursos iniciados')+'</span>'+(g.podeGerir?'<span><strong>'+aIniciar.length+'</strong> '+(aIniciar.length===1?'curso a iniciar':'cursos a iniciar')+'</span>':'')+'<span><strong>'+praticas.length+'</strong> práticas aguardando retorno</span></div>'+
       '<nav class="edu-atalhos" aria-label="Atalhos da gestão"><a href="#/escola" data-scroll="edu-validacoes">Práticas para validar</a><a href="#/escola" data-scroll="edu-acompanhamento">Acompanhamento individual</a>'+(g.podeGerir?'<a href="#/catalogo">Catálogo e trilhas</a><a href="#/matriz">Matriz de cargos</a>':'')+'<a href="#/pessoas">Equipe e vínculos RH</a><a href="#/mapa">Histórico anterior</a></nav>'+
+      (souAdmin()?cartaoEntradaAluno(g.entradaAluno):'')+
       (souAdmin()?'<details class="card"><summary>Responsáveis pela prática · instrutores</summary><p>Escolha quem acompanha as práticas e em quais setores. Depois vincule a pessoa às atividades práticas do curso. Ninguém pode validar a própria prática.</p><form id="edu-instrutores"><div id="edu-instrutores-lista"></div><p id="edu-instrutores-erro" class="aviso amarelo" role="alert" hidden></p><div class="acoes"><button type="button" id="edu-adicionar-instrutor" class="botao mini suave">+ Adicionar responsável</button><button id="edu-salvar-instrutores" type="submit" class="botao mini">Salvar responsáveis</button></div></form></details>':'')+
       '<section><h2>Cursos da escola</h2><div class="edu-grid">'+fs.map(f=>'<article class="edu-jornada">'+(metaCurso(f).length?'<span class="ac-kicker">'+esc(metaCurso(f).join(' · '))+'</span>':'')+'<h3>'+esc(f.titulo)+'</h3><p>'+esc(f.setor || 'Geral')+' · versão '+esc(f.versao)+'</p><span class="edu-status '+(f.publicada?'em_andamento':'nao_iniciada')+'">'+(f.ativa===false?'Arquivada':f.publicada?'Liberada':'Em preparação')+'</span><p class="dica">'+(f.etapas || []).length+' aulas · '+(Array.isArray(f.pessoasLiberadas)?f.pessoasLiberadas.length+' pessoas no público':(f.liberacao?.pessoas || []).length+' liberações individuais')+'</p><div class="acoes"><a class="botao mini suave" href="'+rota(f.id)+'">Ver curso</a>'+(g.podeGerir?'<a class="botao mini" href="#/formacao-editor/'+encodeURIComponent(f.id)+'">Editar e liberar</a>':'')+'</div></article>').join('')+'</div></section>'+
       '<section class="card" id="edu-validacoes"><h2>Práticas aguardando validação</h2>'+ (praticas.length?praticas.map(({p,r,etapaId},i)=>{const f=fs.find(f=>f.id===p.formacaoId),e=f?.etapas.find(e=>e.id===etapaId);return '<article class="edu-linha"><div><h3>'+esc(p.nome || p.colaboradorId)+' · '+esc(e?.titulo || etapaId)+'</h3><p>'+esc(f?.titulo || p.formacaoId)+'</p><p class="edu-evidencia">'+esc(r.evidencia || 'Sem descrição de evidência')+'</p></div><button class="botao mini" data-validar="'+i+'">Analisar prática</button></article>';}).join(''):'<p class="dica">Nenhuma prática aguardando validação no seu escopo.</p>')+'</section>'+
       '<section class="card" id="edu-acompanhamento"><h2>Acompanhar e apoiar</h2><div class="campo"><label for="edu-busca-pessoa">Buscar pessoa ou curso</label><input type="search" id="edu-busca-pessoa" placeholder="Nome ou curso"></div><div id="edu-registros"></div>'+(g.podeGerir?'<h3>Quem ainda precisa começar</h3><p class="dica">Pessoas do seu escopo com curso liberado por pessoa, cargo, família de cargos ou setor e sem registro de início.</p><div id="edu-iniciar"></div>':'')+'</section></div>';
     fim(app);
+    ligarEntradaAluno(app,g.entradaAluno);
     const instrutores=$('#edu-instrutores');if(instrutores){
       let linhas=Object.entries(g.instrutores || {}).map(([usuario,setores])=>({usuario,setores:[...setores]}));
       const setoresAtuais=[...new Set([...setores(),...fs.map(f=>f.setor),...(g.pessoas || []).flatMap(p=>[p.setor,p.area])].filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
@@ -283,6 +285,36 @@ window.EDUCACAO = (() => {
     }
     $('#edu-busca-pessoa').oninput=registrosHtml;registrosHtml();
     $$('[data-validar]').forEach(bt=>bt.onclick=()=>{const {p,r,etapaId}=praticas[Number(bt.dataset.validar)],f=fs.find(f=>f.id===p.formacaoId),e=f?.etapas.find(e=>e.id===etapaId);const dlg=abrirModal('<h3>Validar prática de '+esc(p.nome || p.colaboradorId)+'</h3><p>'+esc(e?.titulo || etapaId)+'</p><p class="edu-evidencia">'+esc(r.evidencia)+'</p><ul>'+(e?.checklist || []).map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul><form id="edu-validar-form"><div class="campo"><label for="edu-validar-feedback">Retorno sobre o que foi observado</label><textarea id="edu-validar-feedback" required maxlength="2000"></textarea></div><div class="campo"><label for="edu-validar-resultado">Resultado</label><select id="edu-validar-resultado"><option value="revisar">Precisa praticar novamente</option><option value="aprovado">Prática validada</option></select></div><p class="dica">Confirme somente após acompanhar a execução. Pontos e medalhas não substituem esta avaliação.</p><button class="botao">Registrar avaliação</button><button class="botao suave" type="button" id="edu-val-cancelar">Cancelar</button></form>');$('#edu-val-cancelar').onclick=()=>dlg.remove();$('#edu-validar-form').onsubmit=async ev=>{ev.preventDefault();const btn=ev.target.querySelector('button');btn.disabled=true;const res=await executar({operacao:'validar',colaboradorId:p.colaboradorId,formacaoId:p.formacaoId,etapaId,formacaoVersao:f?.versao,aprovado:$('#edu-validar-resultado').value==='aprovado',feedback:$('#edu-validar-feedback').value},async()=>{dlg.remove();await carregar();gestao(app);toast('Avaliação confirmada pelo servidor.');});if(!res)btn.disabled=false;};});
+  }
+  // Entrada do aluno (ID do RH e primeiro nome): ligada por padrão, só a
+  // administração liga, desliga e escolhe a validade. O servidor guarda em
+  // educacao.entradaAluno sem tocar no resto e recusa se outra pessoa mudou antes.
+  const VALIDADES_ALUNO=[1,3,7,15,30];
+  function cartaoEntradaAluno(e){
+    const ent=e||{ativa:true,validadeDias:7},dias=VALIDADES_ALUNO.includes(ent.validadeDias)?VALIDADES_ALUNO:[...VALIDADES_ALUNO,ent.validadeDias].sort((a,b)=>a-b);
+    return '<section class="card entrada-aluno" id="edu-entrada-aluno" aria-labelledby="edu-entrada-aluno-titulo"><div class="secao-titulo"><h2 id="edu-entrada-aluno-titulo">Entrada do aluno</h2><span class="edu-status '+(ent.ativa?'concluida':'revisar')+'">'+(ent.ativa?'Ligada':'Desligada')+'</span></div>'+
+      '<p><b>Quem entra:</b> qualquer pessoa ativa no RH, com o ID do RH (6 números) e o primeiro nome, sem senha. Desligada ou fora do RH, não entra.</p>'+
+      '<p><b>O que alcança:</b> os próprios cursos, provas, histórico e perfil; a biblioteca, os vídeos e as NRs liberados para a pessoa; POPs e Fabricação e os treinamentos, só para leitura. Não alcança gestão, acompanhamento de outras pessoas, configurações nem as referências da empresa.</p>'+
+      '<p class="dica">Administração, gestão e instrutores continuam entrando com usuário e senha. Desligar encerra na hora a entrada de todos os alunos; ao ligar de novo, cada um entra outra vez. Errar 5 vezes o mesmo ID bloqueia esse ID por 15 minutos.</p>'+
+      (ent.atualizadoEm?'<p class="dica">Última mudança em '+esc(fmtDataHora(ent.atualizadoEm))+(ent.atualizadoPor?' por '+esc(ent.atualizadoPor):'')+'.</p>':'<p class="dica">Ligada por padrão: ninguém mudou esta configuração ainda.</p>')+
+      '<form id="edu-entrada-aluno-form" class="entrada-aluno-form"><div class="campo"><label for="edu-entrada-validade">Validade da entrada no aparelho</label><select id="edu-entrada-validade">'+dias.map(d=>'<option value="'+d+'"'+(d===ent.validadeDias?' selected':'')+'>'+d+(d===1?' dia':' dias')+'</option>').join('')+'</select></div>'+
+      '<div class="acoes"><button type="submit" class="botao mini suave" id="edu-entrada-salvar">Salvar validade</button><button type="button" class="botao mini '+(ent.ativa?'fantasma':'')+'" id="edu-entrada-alternar">'+(ent.ativa?'Desligar a entrada do aluno':'Ligar a entrada do aluno')+'</button></div><p id="edu-entrada-erro" class="aviso amarelo" role="alert" hidden></p></form></section>';
+  }
+  function ligarEntradaAluno(app,e){
+    const form=$('#edu-entrada-aluno-form');if(!form)return;
+    const ent=e||{ativa:true,validadeDias:7},anterior={ativa:ent.ativa,validadeDias:ent.validadeDias};
+    const gravar=async(ativa,bt)=>{
+      const validadeDias=Number($('#edu-entrada-validade').value),el=$('#edu-entrada-erro');el.hidden=true;
+      if(!ativa&&ent.ativa&&!confirm('Desligar a entrada do aluno? Quem entrou pelo ID do RH sai na próxima consulta, e ninguém entra assim até ligar de novo.'))return;
+      bt.disabled=true;
+      const r=await executar({operacao:'configurarEntradaAluno',ativa,validadeDias,entradaAnterior:anterior},async res=>{await carregar();if(snapshot)gestao(app);toast(res?.entradaAluno?.ativa===false?'Entrada do aluno desligada.':'Entrada do aluno salva.');});
+      if(!r){bt.disabled=false;el.textContent=erro||'Não foi possível salvar. Tente novamente.';el.hidden=false;}
+    };
+    form.onsubmit=ev=>{ev.preventDefault();gravar(ent.ativa,$('#edu-entrada-salvar'));};
+    $('#edu-entrada-alternar').onclick=()=>gravar(!ent.ativa,$('#edu-entrada-alternar'));
+    // Vindo de "Entrada do aluno" no menu Escola, o cartão é o destino.
+    // Depois do scrollTo(0,0) do renderApp, que roda logo após o desenho.
+    if(ROTA.arg==='entrada')setTimeout(()=>$('#edu-entrada-aluno')?.scrollIntoView?.({block:'start'}),0);
   }
   function opcoesResponsaveis(pessoas,selecionados){
     const conhecidos=new Map(pessoas.filter(p=>p.usuario).map(p=>[norm(p.usuario),p]));
@@ -406,5 +438,7 @@ window.EDUCACAO = (() => {
   return {conferirIdentidade,executar,render,zerar,carregar,progresso,bloqueio,status,tipos,estadoEnvio,conferirEstado,podeAcompanhar,
     obterPainel,limparCacheAparelho,invalidar,htmlAtualizacaoPainel,aparelho,marcarRender,houveInteracao,htmlAtualizacao,concluirAtualizacao,assinatura,
     contadorMutacoes:()=>mutacoes,identidadeAtual:pessoaKey,catalogoCfg,metaCurso,cargaTexto,niveis,rota,listaMarcar,marcados,ligarFiltros,alcance,
-    estadoGestao:()=>({podeGerir:!!snapshot?.gestao?.podeGerir,podeValidar:!!snapshot?.gestao?.podeValidar}),gestaoAtual:()=>snapshot?.gestao || null};
+    estadoGestao:()=>({podeGerir:!!snapshot?.gestao?.podeGerir,podeValidar:!!snapshot?.gestao?.podeValidar}),gestaoAtual:()=>snapshot?.gestao || null,
+    // Sair do aluno: o envio que ficou guardado nesta aba sai junto (a pessoa confirmou).
+    descartarEnvio:()=>{mutacao=null;erro='';limparEnvio();notificarEstado();}};
 })();

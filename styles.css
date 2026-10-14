@@ -385,6 +385,17 @@ summary { cursor: pointer; font-weight: 700; min-height: 44px; padding: 6px 0 12
 .login-alternativo summary { color: var(--cinza); font-size: 13px; }
 .login-alternativo .campo { margin: 12px 0 16px; }
 .login-alternativo > a { display: inline-block; padding: 10px 0; min-height: 44px; }
+/* Duas portas na entrada: "Sou aluno" (ID do RH e primeiro nome) e "Administração". */
+.login-portas { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 4px; padding: 4px; margin: 0 0 22px; background: var(--fundo); border: 1px solid var(--borda); border-radius: 14px; }
+.login-portas button { min-height: 44px; padding: 8px 10px; border: 0; border-radius: 10px; background: transparent; color: var(--cinza); font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; }
+.login-portas button[aria-selected="true"] { background: var(--branco); color: var(--azul-escuro); box-shadow: 0 1px 4px rgba(11,23,48,.14); }
+.login-portas button:focus-visible { outline: 3px solid var(--foco); outline-offset: 2px; }
+.cartao-login [role="tabpanel"] h2 { margin: 0; text-align: center; }
+.cartao-login #lg-id { font-size: 20px; letter-spacing: .18em; font-variant-numeric: tabular-nums; }
+/* Cartão "Entrada do aluno" (Gestão de cursos, só administração). */
+.entrada-aluno .secao-titulo { flex-wrap: wrap; }
+.entrada-aluno .botao { min-height: 44px; }
+.entrada-aluno-form .campo { max-width: 260px; }
 
 /* Mapa largo: rolagem contida e identificação da pessoa sempre visível. */
 /* position: relative prende ao rolador o texto só para leitor de tela (absoluto) das células. */
@@ -459,6 +470,9 @@ summary { cursor: pointer; font-weight: 700; min-height: 44px; padding: 6px 0 12
   .login-beneficios { gap: 10px; margin-top: 20px; padding-top: 18px; }
   .login-beneficios p { font-size: 13px; }
   .cartao-login { padding: 27px 24px; }
+  /* No celular a entrada vem primeiro: quem chega quer entrar, não ler a apresentação. */
+  .login-layout .cartao-login { order: -1; }
+  .login-portas button { font-size: 14px; padding: 8px 6px; }
   #overlays dialog.veu { padding: 8px; }
   #overlays .modal { max-height: 90dvh; padding: 23px 18px; }
   .tab-mapa th, .tab-mapa td { padding: 11px 10px; }

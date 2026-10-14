@@ -5,7 +5,8 @@ const STORE = (() => {
   const COLS = ['pops', 'jornadas', 'treinamentos', 'pessoas', 'atribuicoes', 'leituras', 'progresso'];
   const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
   const novoEnvio = () => crypto.randomUUID ? crypto.randomUUID() : Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2,'0')).join('');
-  const perfil = u => ['admin','gestor','equipe'].includes(u?.papel) ? u.papel : 'sem-perfil';
+  // 'aluno' é a entrada pelo ID do RH e primeiro nome: cache próprio, separado do da Central.
+  const perfil = u => ['admin','gestor','equipe','aluno'].includes(u?.papel) ? u.papel : 'sem-perfil';
   // O v3 de gestores continha acompanhamento amplo. A nova chave nunca adota
   // esses dados pessoais ou sua fila automaticamente; a origem fica preservada.
   const perfilV3 = u => 'pops_v3_' + encodeURIComponent(norm(u && u.usuario)) + '_' + perfil(u);
@@ -94,7 +95,8 @@ const STORE = (() => {
   // Ao mudar de papel, outro cache começa vazio e a fila anterior fica intacta.
   try {
     const antigo = getUser();
-    if (antigo && perfil(antigo) !== 'sem-perfil' && localStorage.getItem(key(antigo)) === null) {
+    // O aluno nasceu depois dos formatos antigos: nunca adota cache sem dono do aparelho.
+    if (antigo && perfil(antigo) !== 'sem-perfil' && perfil(antigo) !== 'aluno' && localStorage.getItem(key(antigo)) === null) {
       const temPerfil = key(antigo) !== perfilKey(antigo) && localStorage.getItem(perfilKey(antigo)) !== null;
       const origemGestor = !temPerfil && perfil(antigo) === 'gestor' ? [perfilV3(antigo) + sufixoRH(antigo), perfilV3(antigo)].find(k => localStorage.getItem(k) !== null) : null;
       const temV2 = localStorage.getItem(legacyKey(antigo)) !== null;
@@ -294,7 +296,8 @@ const STORE = (() => {
       const r = await api('rev'); if (inicio !== epoch) return false;
       if (!r.rev?.porColecao || typeof r.rev.porColecao !== 'object' || Array.isArray(r.rev.porColecao)) throw new Error('Resposta de atualização incompleta. Os últimos dados válidos foram preservados.');
       const deles = r.rev.porColecao;
-      if (window.CONHECIMENTO_VERSAO && state().conhecimento?.versao !== window.CONHECIMENTO_VERSAO) {
+      // A base de referências da empresa não é do aluno (o servidor recusa): nem pede.
+      if (window.CONHECIMENTO_VERSAO && perfil(getUser()) !== 'aluno' && state().conhecimento?.versao !== window.CONHECIMENTO_VERSAO) {
         // A base complementar pode estar temporariamente indisponível sem
         // impedir a atualização dos procedimentos e dos registros pessoais.
         try {
@@ -385,6 +388,29 @@ const STORE = (() => {
     if (!gravar(s)) throw new Error('Não consegui preservar o rascunho neste aparelho.');
     avisar('sync', resumoSync()); avisar('pull', null);
   }
+  // Aparelho dividido (fábrica): o aluno que sai leva junto o cache dele, com a
+  // fila; a entrada de outro aluno apaga o cache dos alunos anteriores. Só chaves
+  // de aluno deste sistema: o cache das contas da Central (com a fila de quem
+  // edita POPs) e os dos outros sistemas da mesma origem ficam como estão.
+  const PREFIXO_ALUNO = 'pops_v3_' + encodeURIComponent('aluno:');
+  // Chaves de cache de aluno no aparelho; dono: o prefixo do aluno (com ou sem o sufixo do RH).
+  function chavesDeAluno() {
+    const ks = [];
+    try { for (let i = 0; i < (localStorage.length || 0); i++) { const k = localStorage.key(i); if (k && k.startsWith(PREFIXO_ALUNO)) ks.push(k); } } catch { /* sem lista de chaves */ }
+    return ks;
+  }
+  const doAluno = (k, u) => k === perfilKey(u) || k.startsWith(perfilKey(u) + '_rh_');
+  function descartarConta(u) {
+    if (!u || perfil(u) !== 'aluno') return false;
+    try {
+      for (const k of new Set([key(u), perfilKey(u), ...chavesDeAluno().filter(k => doAluno(k, u))])) localStorage.removeItem(k);
+      estados.delete(key(u)); return true;
+    } catch { return false; }
+  }
+  function limparOutrosAlunos(u) {
+    try { const velhas = chavesDeAluno().filter(k => !(u && perfil(u) === 'aluno' && doAluno(k, u))); velhas.forEach(k => localStorage.removeItem(k)); return velhas.length; }
+    catch { return 0; }
+  }
   window.addEventListener('online', () => { trySync(); pull(); });
   window.addEventListener('offline', () => {
     if (perfil(getUser()) === 'gestor') { estadoLocal().gestorConfirmado = false; avisar('escopoGestor', {confirmado:false,motivo:'offline'}); }
@@ -394,7 +420,7 @@ const STORE = (() => {
     if (!estadoLocal().naoGravados.size) return;
     e.preventDefault(); e.returnValue = '';
   });
-  return { api, col, um, salvar, apagar, getUser, setUser, getFila, trySync, pull, agendarSync, salvarCFG, recuperarServidor, resumoSync, tentarNovamente, getNaoGravados, exportarRecuperacao,
+  return { api, col, um, salvar, apagar, getUser, setUser, getFila, trySync, pull, agendarSync, salvarCFG, recuperarServidor, resumoSync, tentarNovamente, getNaoGravados, exportarRecuperacao, descartarConta, limparOutrosAlunos,
     getCFG: () => { try { return state().cfg; } catch { return {}; } },
     getConhecimento: () => { try { return state().conhecimento || {}; } catch { return {}; } },
     getRascunhos: () => (state().rascunhos || []).filter(it => visivelGestor(it.colecao,it.registro || {id:it.id})),

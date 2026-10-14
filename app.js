@@ -49,6 +49,9 @@ function linhas() {
   return (l && l.length ? l.slice().sort((x, y) => (x.ordem || 0) - (y.ordem || 0)) : []);
 }
 function souAdmin() { return SESSAO && SESSAO.papel === 'admin'; }
+// Aluno: entrou pelo ID do RH e primeiro nome. Alcança o próprio aprendizado e a
+// leitura dos POPs, jornadas e treinamentos; nada de gestão (o servidor confere).
+function souAluno() { return !!SESSAO && SESSAO.papel === 'aluno'; }
 function meusSetores() {
   if (souAdmin()) return setores();
   const g = (STORE.getCFG().gestores || {})[norm(SESSAO && SESSAO.usuario)] || [];
@@ -406,6 +409,19 @@ STORE.on('pullErro', msg => { _ultimoSync = { status: 'erro' }; const chip = $('
 // Cache da escola no aparelho sai junto com a sessão, mesmo com envio pendente:
 // o próximo crachá do aparelho não lê o pacote de quem saiu.
 function limparEscolaDoAparelho() { try { window.EDUCACAO?.limparCacheAparelho?.(); } catch { /* sem cache */ } }
+// Sair. Para o aluno, sai tudo o que é dele neste aparelho (crachá, cache e fila
+// dos POPs, envio da escola guardado na aba) e o cache da escola de quem quer que
+// seja; registro ainda não enviado só sai se a pessoa confirmar.
+function sairDaConta() {
+  if (souAluno()) {
+    const st = STORE.resumoSync(), envio = window.EDUCACAO?.estadoEnvio?.() || {}, faltam = (st.pendentes || 0) + (st.naoGravados || 0) + (envio.pendente ? 1 : 0);
+    if (faltam && !confirm('Há ' + faltam + (faltam === 1 ? ' registro seu ainda não enviado' : ' registros seus ainda não enviados') + '. Saindo agora, ' + (faltam === 1 ? 'ele é apagado' : 'eles são apagados') + ' deste aparelho. Sair mesmo assim?')) return false;
+    try { window.EDUCACAO?.descartarEnvio?.(); } catch { /* nada guardado */ }
+    STORE.descartarConta(STORE.getUser());
+  }
+  limparEscolaDoAparelho(); AUTH.esquecer(); STORE.setUser(null); SESSAO = null; location.hash = '#/'; renderApp();
+  return true;
+}
 STORE.on('sessao', msg => { limparEscolaDoAparelho(); AUTH.esquecer(); STORE.setUser(null); SESSAO = null; _ultimoSync = null; renderApp(); toast(msg, 'erro'); });
 STORE.on('quota', () => { _ultimoSync=STORE.resumoSync(); const chip=$('#chip-sync'); if(chip){chip.textContent=rotuloSync(_ultimoSync);chip.classList.add('pendente');} toast('Não foi possível gravar neste aparelho. Abra o estado de sincronização para tentar novamente ou baixar uma cópia.', 'erro'); });
 
@@ -432,19 +448,22 @@ function grupoDaRota(r) {
 // Biblioteca, Vídeos e NRs são as telas de Conhecimento (com os botões de quem
 // gerencia): o menu diz isso, para ninguém sair da Escola sem perceber.
 function itensEscola() {
+  if (souAluno()) return [];
   const g = (typeof window !== 'undefined' && window.EDUCACAO?.estadoGestao?.()) || {};
   const gere = souAdmin() || meusSetores().length > 0 || !!g.podeGerir;
   if (!gere && !g.podeValidar) return [];
   const itens = [['escola', gere ? 'Gestão de cursos' : 'Práticas para validar', '#/escola']];
   if (gere) itens.push(['alunos','Acompanhamento','#/alunos'],['avaliacoes-equipe','Provas para aprovar','#/avaliacoes/equipe'],['matriz','Matriz de cargos','#/matriz']);
   if (souAdmin() || meusSetores().length > 0) itens.push(['pessoas','Equipe e vínculos','#/pessoas'],['mapa','Histórico anterior','#/mapa']);
-  if (souAdmin()) itens.push(['importar','Importar pacote','#/importar']);
+  if (souAdmin()) itens.push(['importar','Importar pacote','#/importar'],['entrada-aluno','Entrada do aluno','#/escola/entrada']);
   if (gere) itens.push(['biblioteca','Biblioteca','#/biblioteca','Abrem em Conhecimento'],['videos','Vídeos','#/videos','Abrem em Conhecimento'],['nrs','NRs','#/nrs','Abrem em Conhecimento']);
   return itens;
 }
 // Item do menu Escola que corresponde à rota atual.
 function itemEscolaAtual(id, r) {
   if (id === 'avaliacoes-equipe') return r.nome === 'avaliacoes' && r.arg === 'equipe';
+  if (id === 'entrada-aluno') return r.nome === 'escola' && r.arg === 'entrada';
+  if (id === 'escola' && r.nome === 'escola' && r.arg === 'entrada') return false;
   return r.nome === id || (id === 'escola' && r.nome === 'formacao-editor') || (id === 'alunos' && r.nome === 'aluno');
 }
 // Subnavegação do grupo: os destinos que dividem uma aba do topo. Fica numa linha
@@ -460,7 +479,7 @@ function htmlSubnav(grupo) {
   // título sobe na tela do celular. As listas pessoais (avaliações, histórico...) usam a fileira.
   if (!SUBNAV[grupo] || (grupo === 'inicio' && ['inicio','','formacao'].includes(r.nome))) return '';
   const atual = grupo === 'conhecimento' && r.nome === 'conhecimento' && r.arg ? 'referencias' : null;
-  return '<nav class="subnav" aria-label="Nesta área"><div class="subnav-itens">' + SUBNAV[grupo].map(([id, nome, url, rotas]) => {
+  return '<nav class="subnav" aria-label="Nesta área"><div class="subnav-itens">' + SUBNAV[grupo].filter(([id]) => !(souAluno() && id === 'referencias')).map(([id, nome, url, rotas]) => {
     const ativo = atual ? id === atual : rotas.includes(r.nome) && !(id === 'conhecimento' && r.nome === 'conhecimento' && r.arg);
     return '<a href="' + url + '"' + (ativo ? ' class="ativa" aria-current="page"' : '') + '>' + nome + '</a>';
   }).join('') + '</div></nav>';
@@ -503,9 +522,43 @@ function ligarTopo() {
 }
 
 /* ══════════ telas ══════════ */
+// Duas portas (pedido do Léo, 14/10/2026: "o acesso na escola é feito pelo id do
+// RH e o seu primeiro nome minúsculo; a senha fica pros adm"). "Sou aluno" é a
+// padrão: ID do RH e primeiro nome, sem senha. "Administração" é a de sempre:
+// usuário e senha da Central, para administração, gestão e instrutores.
 function renderLogin(app) {
   document.title="Escola Impresilk · Entrada";
-  app.innerHTML='<div class="tela-login"><div class="login-layout"><section class="login-apresentacao"><div class="eyebrow">IMPRESILK · CONHECIMENTO EM PRÁTICA</div><h1>O jeito certo de fazer.<br>Ao alcance da equipe.</h1><p>Procedimentos, jornadas de fabricação e aprendizado reunidos em um só lugar.</p><div class="login-beneficios"><p><b>01</b> Encontre o procedimento da sua tarefa.</p><p><b>02</b> Siga cada etapa com clareza.</p><p><b>03</b> Acompanhe o que precisa aprender.</p></div></section><div class="cartao-login"><img src="./logo-impresilk.png" alt="Impresilk"><h2>Entre com sua conta da equipe</h2><p class="sub2">O mesmo usuário e senha da Entrada Única. Sua ficha do RH acompanha você.</p><form id="lg-form"><div class="campo"><label for="lg-u">Usuário da equipe</label><input id="lg-u" type="text" autocomplete="username" autocapitalize="none" required></div><div class="campo"><label for="lg-s">Senha</label><input id="lg-s" type="password" autocomplete="current-password" required></div><div id="lg-erro" role="alert"></div><button class="botao largo" id="lg-entrar" type="submit">Entrar</button><details class="login-alternativo"><summary>Outras formas de acesso</summary><div class="campo"><label for="lg-tipo">Tipo de conta</label><select id="lg-tipo"><option value="rh">Conta da equipe / RH</option><option value="legado">Senha própria antiga dos POPs</option></select></div><a href="https://leogpereira-afk.github.io/painel-impresilk/">Abrir a Entrada Única</a></details></form><p class="dica">O primeiro acesso precisa de internet. Depois de sincronizar, consulte os conteúdos disponíveis mesmo sem sinal.</p></div></div></div>';
+  app.innerHTML='<div class="tela-login"><div class="login-layout"><section class="login-apresentacao"><div class="eyebrow">IMPRESILK · CONHECIMENTO EM PRÁTICA</div><h1>O jeito certo de fazer.<br>Ao alcance da equipe.</h1><p>Procedimentos, jornadas de fabricação e aprendizado reunidos em um só lugar.</p><div class="login-beneficios"><p><b>01</b> Encontre o procedimento da sua tarefa.</p><p><b>02</b> Siga cada etapa com clareza.</p><p><b>03</b> Acompanhe o que precisa aprender.</p></div></section><div class="cartao-login"><img src="./logo-impresilk.png" alt="Impresilk">'+
+    '<div class="login-portas" role="tablist" aria-label="Como você entra"><button type="button" role="tab" id="lg-porta-aluno" aria-controls="lg-painel-aluno" aria-selected="true">Sou aluno</button><button type="button" role="tab" id="lg-porta-adm" aria-controls="lg-painel-adm" aria-selected="false" tabindex="-1">Administração</button></div>'+
+    '<section id="lg-painel-aluno" role="tabpanel" aria-labelledby="lg-porta-aluno"><h2>Entre com seu ID do RH</h2><p class="sub2">Seu ID do RH e seu primeiro nome. Não precisa de senha.</p><form id="lg-aluno" novalidate><div class="campo"><label for="lg-id">ID do RH (6 números)</label><input id="lg-id" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" required aria-describedby="lg-id-ajuda"><p class="dica" id="lg-id-ajuda">O ID está no seu cadastro do RH.</p></div><div class="campo"><label for="lg-nome">Primeiro nome</label><input id="lg-nome" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="60" required></div><div id="lg-aluno-erro" role="alert"></div><button class="botao largo" id="lg-aluno-entrar" type="submit">Entrar</button></form></section>'+
+    '<section id="lg-painel-adm" role="tabpanel" aria-labelledby="lg-porta-adm" hidden><h2>Administração</h2><p class="sub2">Administração, gestão e instrutores: o mesmo usuário e senha da Entrada Única.</p><form id="lg-form"><div class="campo"><label for="lg-u">Usuário</label><input id="lg-u" type="text" autocomplete="username" autocapitalize="none" required></div><div class="campo"><label for="lg-s">Senha</label><input id="lg-s" type="password" autocomplete="current-password" required></div><div id="lg-erro" role="alert"></div><button class="botao largo" id="lg-entrar" type="submit">Entrar</button><details class="login-alternativo"><summary>Outras formas de acesso</summary><div class="campo"><label for="lg-tipo">Tipo de conta</label><select id="lg-tipo"><option value="rh">Conta da equipe / RH</option><option value="legado">Senha própria antiga dos POPs</option></select></div><a href="https://leogpereira-afk.github.io/painel-impresilk/">Abrir a Entrada Única</a></details></form></section>'+
+    '<p class="dica">O primeiro acesso precisa de internet. Depois de sincronizar, consulte os conteúdos disponíveis mesmo sem sinal.</p></div></div></div>';
+  // Abas acessíveis: setas trocam de porta, como num grupo de abas.
+  const portas=[['aluno','#lg-porta-aluno','#lg-painel-aluno','#lg-id'],['adm','#lg-porta-adm','#lg-painel-adm','#lg-u']];
+  const abrirPorta=(qual,foco)=>{for(const [nome,aba,painel,campo] of portas){const sim=nome===qual;$(aba).setAttribute('aria-selected',String(sim));$(aba).tabIndex=sim?0:-1;$(painel).hidden=!sim;if(sim&&foco)$(campo)?.focus();}};
+  for(const [nome,aba] of portas){$(aba).onclick=()=>abrirPorta(nome,true);$(aba).onkeydown=e=>{if(['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();const outra=nome==='aluno'?'adm':'aluno';abrirPorta(outra,false);$(portas.find(p=>p[0]===outra)[1]).focus();}};}
+  const erroAluno=html=>{$('#lg-aluno-erro').innerHTML=html?'<div class="aviso vermelho">'+html+'</div>':'';};
+  $('#lg-id').oninput=e=>{const so=e.target.value.replace(/\D/g,'').slice(0,6);if(so!==e.target.value)e.target.value=so;};
+  $('#lg-aluno').onsubmit=async e=>{
+    e.preventDefault();
+    const id=$('#lg-id').value.replace(/\s/g,''), nome=$('#lg-nome').value.trim();
+    if(!/^\d{6}$/.test(id)){erroAluno('O ID do RH tem 6 números. Ele está no seu cadastro do RH.');$('#lg-id').focus();return;}
+    if(!nome){erroAluno('Escreva seu primeiro nome.');$('#lg-nome').focus();return;}
+    if(/\s/.test(nome)){erroAluno('Escreva só o primeiro nome, sem o sobrenome.');$('#lg-nome').focus();return;}
+    const bt=$('#lg-aluno-entrar');bt.disabled=true;bt.textContent='Entrando…';erroAluno('');
+    try {
+      const r=await AUTH.entrarAluno(id,nome);
+      // Aparelho dividido: o que ficou de outra pessoa sai antes de a nova sessão começar.
+      limparEscolaDoAparelho();
+      const sessao={usuario:r.usuario,nome:r.nome,papel:'aluno',origemLogin:'aluno',colaboradorId:r.colaboradorId,validoAte:r.validoAte};
+      STORE.limparOutrosAlunos(sessao);
+      if(!STORE.setUser(sessao))throw new Error('Não consegui guardar a sessão neste aparelho.');
+      SESSAO=STORE.getUser();_ultimoSync=null;await atualizarIdentidadeRH();if(!SESSAO)return;STORE.trySync();STORE.pull();location.hash='#/';renderApp();
+    } catch(err){
+      const ajuda=err.status===401?' Confira o ID no seu cadastro do RH e escreva só o primeiro nome.':'';
+      erroAluno(esc(err.message || 'Não foi possível entrar. Tente novamente.')+ajuda);
+    } finally {if(bt.isConnected){bt.disabled=false;bt.textContent='Entrar';}}
+  };
   $('#lg-form').onsubmit=async e=>{
     e.preventDefault(); const u=$('#lg-u').value.trim(), senha=$('#lg-s').value;
     if(!u || !senha) return;
@@ -555,6 +608,7 @@ function htmlRelacionados(p) {
   return '<section class="card conteudo-relacionado"><h2>Conexões deste procedimento</h2>'+(vinculados.length?'<h3>Vínculos registrados</h3>'+vinculados.map(cartaoConteudo).join(''):'<p class="dica">Ainda não há vínculos registrados pela gestão.</p>')+(relacionados.length || jornadas.length?'<h3>Referências relacionadas</h3><p class="dica">Sugestões da base documental para consultar o processo completo.</p><div class="conteudo-grid">'+relacionados.slice(0,4).map(x=>cartaoConteudo({...x,tipo:'pop'})).join('')+jornadas.slice(0,3).map(x=>cartaoConteudo({...x,tipo:'jornada'})).join('')+'</div>':'')+sugestoes.topicos.map(t=>'<a class="botao suave" href="#/conhecimento/'+encodeURIComponent(t.id)+'">'+esc(t.titulo)+'</a>').join(' ')+'</section>';
 }
 function abasConhecimento(referencias) {
+  if (souAluno()) return '';
   return '<nav class="chips treino-abas" aria-label="Base de conhecimento"><a class="chip '+(!referencias?'marcado':'')+'" href="#/conhecimento"'+(!referencias?' aria-current="page"':'')+'>Treinamentos</a><a class="chip '+(referencias?'marcado':'')+'" href="#/conhecimento/referencias"'+(referencias?' aria-current="page"':'')+'>Referências da empresa</a></nav>';
 }
 function atribuirTreinamento(t) {
@@ -562,6 +616,7 @@ function atribuirTreinamento(t) {
   abrirLote([{tipo:'treinamento',id:t.id,titulo:t.titulo,grupo:'Treinamentos'}]);
 }
 function renderConhecimento(app) {
+  if (ROTA.arg && souAluno()) { location.hash = '#/conhecimento'; return; }
   if (ROTA.arg) { renderReferencias(app); return; }
   const lista=STORE.col('treinamentos').slice().sort((a,b)=>String(a.titulo).localeCompare(String(b.titulo),'pt-BR'));
   const ss=[...new Set(lista.map(t=>t.setor || 'Geral'))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
@@ -1397,7 +1452,23 @@ function abrirArquivados() {
   $('#arq-col', m).onchange = carregar; carregar();
 }
 
+function renderMenuAluno(app) {
+  const ate = SESSAO.validoAte ? fmtDataHora(SESSAO.validoAte) : '';
+  app.innerHTML = htmlTopo('menu') + '<div class="miolo">' +
+    '<div class="card"><div class="sub">Sua conta</div><p class="bloco-par"><b>' + esc(SESSAO.pessoaRH?.nome || SESSAO.nome) + '</b> · aluno</p>' +
+    '<p class="dica">Você entrou com o ID do RH e o primeiro nome.' + (ate ? ' Esta entrada vale até ' + esc(ate) + '; depois é só entrar de novo.' : '') + '</p>' +
+    '<p class="dica">Última sincronização: ' + (STORE.lastSync() ? fmtDataHora(STORE.lastSync()) : 'ainda não sincronizou') + '</p>' +
+    '<p class="dica">Versão da tela: ' + esc(window.ESCOLA_TELA_VERSAO || 'não informada') + '</p>' +
+    '<div class="acoes"><button class="botao fantasma" id="bt-sair">Sair</button></div>' +
+    '<p class="dica">Aparelho dividido? Saia ao terminar: seus cursos e registros saem deste aparelho junto.</p></div>' +
+    '<div class="card"><h2>Sincronização</h2><p class="dica">Confira se seus registros chegaram ao servidor.</p><div class="acoes"><button class="botao suave" id="bt-pendencias">Ver pendências</button></div></div>' +
+    '</div>';
+  ligarTopo();
+  $('#bt-pendencias').onclick = abrirPendencias;
+  $('#bt-sair').onclick = sairDaConta;
+}
 function renderMenu(app) {
+  if (souAluno()) { renderMenuAluno(app); return; }
   const cfgInicial = STORE.getCFG();
   app.innerHTML = htmlTopo('menu') +
     '<div class="miolo">' +
@@ -1421,9 +1492,7 @@ function renderMenu(app) {
   $('#bt-pendencias').onclick = abrirPendencias;
   $('#bt-rascunhos').onclick = baixarRascunhos;
   if ($('#bt-arquivados')) $('#bt-arquivados').onclick = abrirArquivados;
-  $('#bt-sair').onclick = () => {
-    limparEscolaDoAparelho(); AUTH.esquecer(); STORE.setUser(null); SESSAO = null; location.hash = '#/'; renderApp();
-  };
+  $('#bt-sair').onclick = sairDaConta;
   const sc = $('#bt-salvar-cfg');
   if (sc) sc.onclick = async () => {
     const gestores = {};
@@ -1441,6 +1510,7 @@ function renderMenu(app) {
 
 /* ══════════ rotas ══════════ */
 let ROTA = { nome: 'inicio', arg: '' };
+const ROTAS_ALUNO = ['inicio','','formacao','conquistas','avaliacoes','perfil','perfil-teste','meus','catalogo','pops','pop','fab','jornada','etapa','conhecimento','treinamento','biblioteca','videos','material','nrs','menu'];
 function lerRota() {
   const h = location.hash.replace(/^#\/?/, '');
   const [nome, ...resto] = h.split('/');
@@ -1454,6 +1524,9 @@ function renderApp() {
   document.title = 'Escola Impresilk · ' + (({biblioteca:'Biblioteca',videos:'Vídeos',material:'Material de estudo','material-editor':'Preparar material',nrs:'Normas Regulamentadoras',perfil:'Perfil e Desenvolvimento','perfil-editor':'Preparar instrumento','perfil-teste':'Autoconhecimento',alunos:'Acompanhamento',aluno:'Cursos do aluno',avaliacoes:'Avaliações',escola:'Gestão de cursos',formacao:'Curso','formacao-editor':'Preparar curso',conquistas:'Meu histórico',conhecimento:'Conhecimento',catalogo:'Catálogo',matriz:'Matriz de cargos',importar:'Importar pacote',inicio:'Início',pops:'POPs',pop:'POP',fab:'Fabricação',jornada:'Jornada de fabricação',etapa:'Etapa de fabricação',treinamento:'Treinamento',editor:'Editor',senha:'Trocar senha',pessoas:'Equipe',mapa:'Histórico anterior',meus:'Atribuições anteriores',menu:'Minha conta'})[ROTA.nome] || 'Início');
   // Enquanto a senha for a temporária, o app inteiro fica atrás desta tela.
   if (SESSAO.trocarSenha && ROTA.nome !== 'senha') { location.hash = '#/senha'; return; }
+  // Aluno: Início, Catálogo, POPs e Fabricação e Conhecimento (e o que mora neles).
+  // Telas de gestão nem desenham; o servidor recusa as operações de qualquer jeito.
+  if (souAluno() && (!ROTAS_ALUNO.includes(ROTA.nome) || (ROTA.nome === 'avaliacoes' && ROTA.arg === 'equipe'))) { location.hash = '#/'; return; }
   const R = {
     'inicio': renderInicio, '': renderInicio,
     'formacao': a => window.EDUCACAO.render(a),
@@ -1496,7 +1569,19 @@ window.addEventListener('hashchange', renderApp);
   renderApp();
   // O Painel guarda o crachá, mas não cria pops_user neste aparelho.
   // Só o servidor pode transformar esse crachá em uma sessão dos POPs.
-  if (SESSAO || AUTH.temCracha()) {
+  if (SESSAO?.papel === 'aluno') {
+    // Entrada de aluno vencida no relógio deste aparelho: nem abre os dados.
+    if (!AUTH.temCracha() || (SESSAO.validoAte && Date.parse(SESSAO.validoAte) <= Date.now())) {
+      const venceu = AUTH.temCracha();
+      try { window.EDUCACAO?.limparCacheAparelho?.(); } catch { /* sem cache */ }
+      AUTH.esquecer(); STORE.setUser(null); SESSAO = null; renderApp();
+      if (venceu) toast('Sua entrada de aluno terminou. Entre de novo com seu ID do RH e primeiro nome.', 'erro');
+    } else {
+      // identidadeRH com o crachá do aluno: 401 encerra a sessão pelo aviso do STORE.
+      const usuario = SESSAO.usuario;
+      atualizarIdentidadeRH().then(() => { if (SESSAO?.usuario !== usuario) return; STORE.trySync(); STORE.pull().then(() => { if (!ROTAS_DE_EDICAO.includes(ROTA.nome)) renderApp(); }); });
+    }
+  } else if (SESSAO || AUTH.temCracha()) {
     const usuario = SESSAO?.usuario, cracha = AUTH.cracha();
     AUTH.eu().then(async r => {
       if (AUTH.cracha() !== cracha || SESSAO?.usuario !== usuario) return;

@@ -28,7 +28,7 @@ test('quem estuda vê quatro destinos e a conta no topo, sem o menu da escola',(
 });
 
 test('menu Escola conforme a permissão: administração, gestão e instrutor',()=>{
- assert.deepEqual(menu(topo({papel:'admin'})('escola')),[['Gestão de cursos','#/escola'],['Acompanhamento','#/alunos'],['Provas para aprovar','#/avaliacoes/equipe'],['Matriz de cargos','#/matriz'],['Equipe e vínculos','#/pessoas'],['Histórico anterior','#/mapa'],['Importar pacote','#/importar'],['Biblioteca','#/biblioteca'],['Vídeos','#/videos'],['NRs','#/nrs']]);
+ assert.deepEqual(menu(topo({papel:'admin'})('escola')),[['Gestão de cursos','#/escola'],['Acompanhamento','#/alunos'],['Provas para aprovar','#/avaliacoes/equipe'],['Matriz de cargos','#/matriz'],['Equipe e vínculos','#/pessoas'],['Histórico anterior','#/mapa'],['Importar pacote','#/importar'],['Entrada do aluno','#/escola/entrada'],['Biblioteca','#/biblioteca'],['Vídeos','#/videos'],['NRs','#/nrs']]);
  const gestor=menu(topo({papel:'gestor',gestores:{ana:['Produção']}})('escola'));
  assert.equal(gestor.length,9);assert.equal(gestor.some(([,h])=>h==='#/importar'),false);assert.ok(gestor.some(([,h])=>h==='#/pessoas'));
  assert.deepEqual(menu(topo({gestao:{podeValidar:true}})('inicio')),[['Práticas para validar','#/escola']]);

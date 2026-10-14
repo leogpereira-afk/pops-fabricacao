@@ -65,6 +65,35 @@ const AUTH = (() => {
       } finally { clearTimeout(timer); }
     },
 
+    // Entrada do aluno (pedido do Léo, 14/10/2026): ID do RH (6 números) e primeiro
+    // nome, sem senha. Quem confere é o servidor (pops-sync, ação pública
+    // entrarAluno), com limite de tentativas no banco; o crachá do aluno é outro
+    // (sis "pops-aluno", chave própria) e só alcança o próprio aprendizado. Fica
+    // no mesmo lugar do crachá da Central: um crachá por aparelho, e Sair apaga.
+    async entrarAluno(id, nome) {
+      const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), 15000);
+      try {
+        let response;
+        try {
+          response = await fetch(window.API_BASE + '/' + window.API_FN.sync, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctrl.signal,
+            body: JSON.stringify({ action: 'entrarAluno', id: String(id || ''), nome: String(nome || '') }),
+          });
+        } catch { throw Object.assign(new Error('Sem conexão com o servidor. A primeira entrada precisa de internet.'), { status: 0 }); }
+        let r; try { r = await response.json(); } catch { r = null; }
+        if (!response.ok || !r?.ok) {
+          const msg = response.status === 429 ? 'Muitas tentativas. Tente de novo em 15 minutos.'
+            : response.status === 401 ? 'ID ou nome não conferem.'
+            : (r?.erro || 'Não consegui conferir sua entrada agora. Tente novamente.');
+          throw Object.assign(new Error(msg), { status: response.status });
+        }
+        if (typeof r.token !== 'string' || r.token.split('.').length !== 3 || r.papel !== 'aluno' || !/^aluno:/.test(r.usuario || '') || !r.colaboradorId)
+          throw new Error('Resposta de entrada incompleta. Tente novamente.');
+        guardar(r.token);
+        return { usuario: r.usuario, nome: r.nome || 'Aluno', papel: 'aluno', colaboradorId: r.colaboradorId, validoAte: r.validoAte || null, origemLogin: 'aluno' };
+      } finally { clearTimeout(timer); }
+    },
+
     async login(usuario, senha) {
       const r = await chamar('login', { usuario, senha });
       if (!r.token || !r.usuario || !r.papel) throw new Error('Resposta de login incompleta. Tente novamente.');

@@ -34,11 +34,12 @@ export function backend({ rows = [], config = {}, queryError = false, revocation
       return { data: { ok: true, revision: 2, registro: args?.p_registro }, error: null };
     },
     from(table) {
-      const q = { table, filters: [], orders: [], range: null, limit: Infinity, single: false, mutation: null };
+      // select e eqs ficam registrados para os testes conferirem a projeção e o alvo de cada leitura.
+      const q = { table, filters: [], eqs: [], select: '', orders: [], range: null, limit: Infinity, single: false, mutation: null };
       queries.push(q);
       const chain = {
-        select() { return chain; },
-        eq(k,v) { q.filters.push(r=>(k.startsWith('registro->>')?r.registro?.[k.slice(11)]:r[k])===v); return chain; },
+        select(campos='') { q.select=campos; return chain; },
+        eq(k,v) { q.eqs.push([k,v]); q.filters.push(r=>(k.startsWith('registro->>')?r.registro?.[k.slice(11)]:r[k])===v); return chain; },
         gt(k,v) { q.filters.push(r=>r[k]>v); return chain; },
         gte(k,v) { q.filters.push(r=>r[k]>=v); return chain; },
         lte(k,v) { q.filters.push(r=>r[k]<=v); return chain; },
@@ -76,12 +77,20 @@ export function backend({ rows = [], config = {}, queryError = false, revocation
   const ctx = vm.createContext({ __sb: sb, Deno:{env:{get:k=>k==='EQUIPE_JWT_SECRET'?secret:k==='POPS_TOKEN'?'maquina-ficticia':'http://exemplo.test'},serve:fn=>handler=fn}, crypto:webcrypto, TextEncoder,TextDecoder,Uint8Array,atob,btoa,Request,Response,URL,console:{error(){}} });
   const escolaSource=fs.readFileSync(new URL('supabase/functions/_shared/escola.ts',root),'utf8').replace('export async function escola','async function escola');
   const source=fs.readFileSync(new URL('supabase/functions/pops-sync/index.ts',root),'utf8').replace(/^import .*createClient.*;$/m,'const createClient = () => __sb;').replace(/^import .*escola.*;$/m,()=> '{ '+escolaSource+'; globalThis.__escola = escola; } const escola = globalThis.__escola;');
+  // Relógio do contexto avançável, para testar caches com validade.
+  ctx.__deslocamentoMs=0;
+  vm.runInContext('{const real=Date.now;Date.now=()=>real()+globalThis.__deslocamentoMs;}',ctx);
   vm.runInContext(stripTypeScriptTypes(source),ctx);
-  async function call(body,payload={}) {
-    const response=await handler(new Request('http://local.test',{method:'POST',headers:{authorization:'Bearer '+jwt(payload),'content-type':'application/json'},body:JSON.stringify(body)}));
+  // opcoes.xToken simula a automação (backup do Hub); opcoes.semCracha omite o crachá.
+  async function call(body,payload={},opcoes={}) {
+    const headers={'content-type':'application/json'};
+    if(!opcoes.semCracha)headers.authorization='Bearer '+jwt(payload);
+    if(opcoes.xToken)headers['x-token']=opcoes.xToken;
+    const response=await handler(new Request('http://local.test',{method:'POST',headers,body:JSON.stringify(body)}));
     return {status:response.status,body:await response.json()};
   }
-  return {call,writes,queries};
+  const avancar=ms=>{ctx.__deslocamentoMs+=ms;};
+  return {call,writes,queries,avancar};
 }
 
 export function store({initial={},fetcher=async()=>({ok:true,json:async()=>({ok:true})}),online=false}={}) {

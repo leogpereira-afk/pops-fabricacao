@@ -2,8 +2,25 @@
 // fabricar progresso, liberar uma prática ou escrever pontos diretamente.
 const norm = (v: any) => String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
 const copy = (v: any) => JSON.parse(JSON.stringify(v));
-const tipos = ['cultura', 'etica', 'caderno', 'pop', 'pratica', 'avaliacao', 'continua'];
+// 'aula' é conteúdo próprio da escola, inclusive aula de sistema (o ERP, por
+// exemplo): conclui por leitura e, se tiver avaliação, por compreensão. Não
+// depende de POP nem de treinamento como fonte; documentos e materiais são opcionais.
+const tipos = ['cultura', 'etica', 'caderno', 'pop', 'pratica', 'avaliacao', 'continua', 'aula'];
 const texto = (v: any, max = 4000) => typeof v === 'string' && v.trim().length <= max ? v.trim() : '';
+// Catálogo organiza o curso (trilha, área, nível, carga, ordem); não muda o que
+// se aprende, por isso fica fora dos campos pedagógicos e não pede versão nova.
+const kebab = (v: any, max = 80) => typeof v === 'string' && v.length <= max && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(v);
+const idFormato = (v: any) => typeof v === 'string' && /^[a-zA-Z0-9._:-]{1,160}$/.test(v);
+const inteiro = (v: any, min: number, max: number) => Number.isInteger(v) && v >= min && v <= max;
+const objeto = (v: any) => !!v && typeof v === 'object' && !Array.isArray(v);
+const niveis = ['essencial', 'intermediario', 'avancado'];
+const catalogoCfg = (cfg: any) => { const c = cfg?.educacao?.catalogo; return { familias: objeto(c?.familias) ? c.familias : {}, trilhas: objeto(c?.trilhas) ? c.trilhas : {} }; };
+// Família é uma lista de cargos do RH mantida pela administração: quem muda de
+// cargo no RH entra ou sai da família sem ninguém editar a formação.
+const familiaTem = (cfg: any, fam: any, cargoId: any) => {
+  const fs = catalogoCfg(cfg).familias;
+  return !!cargoId && typeof fam === 'string' && Object.hasOwn(fs, fam) && Array.isArray(fs[fam]?.cargos) && fs[fam].cargos.includes(cargoId);
+};
 const estavel = (v: any): string => Array.isArray(v) ? '[' + v.map(estavel).join(',') + ']' : v && typeof v === 'object' ? '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + estavel(v[k])).join(',') + '}' : JSON.stringify(v);
 const iguais = (a: any, b: any) => estavel(a) === estavel(b);
 const limparEtapa = (e:any) => {const r=copy(e);for(const k of ['aprovacao','avaliacaoPendente','status','statusFonte','motivoBloqueio'])delete r[k];return r;};
@@ -13,11 +30,55 @@ const liberada = (f: any, p: any, cfg: any) => {
   if(!p || f.ativa===false || f.publicada!==true)return false;
   const l=f.liberacao||{};
   const porCargo=(l.cargos||[]).includes(p.cargoId) && (!l.cargosGestor || (corresponde(p,l.cargosSetores||[]) && corresponde(p,cfg.gestores?.[l.cargosGestor]||[])));
-  return l.todos===true || (l.pessoas||[]).includes(p.colaboradorId) || porCargo || corresponde(p,l.setores||[]);
+  const porFamilia=(Array.isArray(l.familias)?l.familias:[]).some((fam:any)=>familiaTem(cfg,fam,p.cargoId));
+  return l.todos===true || (l.pessoas||[]).includes(p.colaboradorId) || porCargo || porFamilia || corresponde(p,l.setores||[]);
+};
+// O cadastro do RH (fichas, cargos, áreas e vagas) é o mesmo para todos e muda
+// pouco. Guardado por até 60 s nesta instância da função, poupa leituras inteiras
+// das tabelas a cada tela. Só entram projeções sem dado sensível; quem chama
+// continua conferido na hora (identidadeRH), e gravar configuração limpa tudo.
+const RH_VALIDADE_MS = 60_000;
+const cacheRH = new Map<string, { em: number; valor: Promise<any[]> }>();
+const CAMPOS_RH: Record<string, string> = {
+  colaboradores: 'id,nome:registro->>nome,cargoId:registro->>cargoId,areaId:registro->>areaId,setor:registro->>setor,statusId:registro->>statusId,dataDesligamento:registro->>dataDesligamento,cargoLivre:registro->>cargoLivre,funcao:registro->>funcao',
+  // Nunca faixas nem salário praticado do cargo; nunca candidatos da vaga.
+  cargos: 'id,nome:registro->>nome,areaId:registro->>areaId,trilha:registro->>trilha',
+  areas: 'id,nome:registro->>nome',
+  vagas: 'id,titulo:registro->>titulo,nome:registro->>nome,cargoId:registro->>cargoId,areaId:registro->>areaId,status:registro->>status,nivelId:registro->>nivelId',
+};
+const lerRH = (sb: any, conferir: any, colecao: string): Promise<any[]> => {
+  const agora = Date.now(), salvo = cacheRH.get(colecao);
+  if (salvo && agora - salvo.em < RH_VALIDADE_MS) return salvo.valor;
+  const campos = CAMPOS_RH[colecao].split(',').map(c => c.split(':')[0]);
+  const valor = (async () => {
+    const out: any[] = []; let de = 0;
+    for (;;) {
+      const rows = conferir(await sb.from('registros').select(CAMPOS_RH[colecao]).eq('colecao', colecao).eq('apagado', false).order('id').range(de, de + 499));
+      // Lista fechada de campos: mesmo que a consulta traga o registro inteiro,
+      // nada além da projeção sai daqui.
+      for (const row of rows) { const o: any = {}; for (const k of campos) o[k] = k === 'id' ? row.id : (row[k] ?? row.registro?.[k] ?? null); out.push(o); }
+      if (rows.length < 500) return out;
+      de += 500;
+    }
+  })();
+  cacheRH.set(colecao, { em: agora, valor });
+  // Leitura que falhou não fica guardada: a próxima chamada tenta de novo.
+  valor.catch(() => { if (cacheRH.get(colecao)?.valor === valor) cacheRH.delete(colecao); });
+  return valor;
 };
 export async function escola(body: any, ctx: any) {
-  const { sb, cracha, maquina, identidadeRH, config, registro, conferir, Falha } = ctx;
+  const { sb, cracha, maquina, identidadeRH, config, conferir, Falha } = ctx;
   const fail = (m: string, s = 400): never => { throw new Falha(m, s); };
+  // Cache desta requisição: cada registro, coleção e leitura do RH é feito uma
+  // vez por chamada, mesmo que várias formações apontem para o mesmo material.
+  // Morre com a requisição, então nada de uma pessoa chega à chamada de outra.
+  const lidos = new Map<string, Promise<any>>();
+  const lembrar = (chave: string, ler: () => Promise<any>): Promise<any> => {
+    let p = lidos.get(chave);
+    if (!p) { p = ler(); lidos.set(chave, p); p.catch(() => { if (lidos.get(chave) === p) lidos.delete(chave); }); }
+    return p;
+  };
+  const registro = (col: string, rid: string) => lembrar('r:' + col + ':' + rid, () => ctx.registro(col, rid));
   if (maquina || !cracha) fail('Entre com sua conta pessoal para acessar a escola.', 401);
   const usuario = norm(cracha.sub), admin = cracha.papel === 'admin';
   const cfg = await config(), setores = cfg.gestores?.[usuario] || [];
@@ -25,7 +86,7 @@ export async function escola(body: any, ctx: any) {
   const gerencia = (f: any) => admin || (gestor && setores.map(norm).includes(norm(f.setor)));
   const identidade = await identidadeRH(cracha), pessoa = identidade.vinculada ? identidade.pessoa : null;
   const id = (v: any) => { if (typeof v !== 'string' || !/^[a-zA-Z0-9._:-]{1,160}$/.test(v)) fail('Identificador inválido.'); return v; };
-  const todos = async (col: string) => {
+  const todos = (col: string) => lembrar('t:' + col, async () => {
     const out: any[] = []; let de = 0;
     for (;;) {
       const rows = conferir(await sb.from('pops_registros').select('id,registro,revision,apagado').eq('colecao', col).eq('apagado', false).order('id').range(de, de + 499));
@@ -33,28 +94,17 @@ export async function escola(body: any, ctx: any) {
       if (rows.length < 500) return out;
       de += 500;
     }
-  };
-  const pessoasRH = async () => {
-    const out: any[] = []; let de = 0;
-    for (;;) {
-      // Projection excludes sensitive RH fields at the database boundary.
-      const rows = conferir(await sb.from('registros').select('id,nome:registro->>nome,cargoId:registro->>cargoId,areaId:registro->>areaId,setor:registro->>setor,statusId:registro->>statusId,dataDesligamento:registro->>dataDesligamento,cargoLivre:registro->>cargoLivre,funcao:registro->>funcao').eq('colecao','colaboradores').eq('apagado',false).order('id').range(de,de+499));
-      for (const row of rows) {
-        const r = row.registro || row;
-        if (r.dataDesligamento || ['inativo','abandono'].includes(r.statusId)) continue;
-        out.push({ id:'p-'+row.id, colaboradorId:row.id, nome:r.nome || '', cargoId:r.cargoId || '', areaId:r.areaId || '', setor:r.setor || '', funcao:r.cargoLivre || r.funcao || '', area:'' });
-      }
-      if (rows.length < 500) break; de += 500;
+  });
+  const pessoasRH = () => lembrar('pessoasRH', async () => {
+    // Projeção sem campo sensível na fronteira do banco (CAMPOS_RH).
+    const [fichas, areasRH, cargosRH] = await Promise.all(['colaboradores', 'areas', 'cargos'].map(c => lerRH(sb, conferir, c)));
+    const out: any[] = [];
+    for (const r of fichas) {
+      if (r.dataDesligamento || ['inativo','abandono'].includes(r.statusId)) continue;
+      out.push({ id:'p-'+r.id, colaboradorId:r.id, nome:r.nome || '', cargoId:r.cargoId || '', areaId:r.areaId || '', setor:r.setor || '', funcao:r.cargoLivre || r.funcao || '', area:'' });
     }
-    const areas = new Map<string,string>(), cargos = new Map<string,string>();
-    for (const [col, map] of [['areas',areas],['cargos',cargos]] as const) {
-      let offset = 0;
-      for (;;) {
-        const rows = conferir(await sb.from('registros').select('id,nome:registro->>nome').eq('colecao',col).eq('apagado',false).order('id').range(offset,offset+499));
-        for (const r of rows) map.set(r.id,r.nome || r.registro?.nome || '');
-        if(rows.length<500)break;offset+=500;
-      }
-    }
+    const areas = new Map<string,string>(areasRH.map((r:any) => [r.id, r.nome || ''])), cargos = new Map<string,string>(cargosRH.map((r:any) => [r.id, r.nome || '']));
+    // Contas e papéis são da Central de Acessos: lidos a cada requisição, sem cache da instância.
     const contas:any[]=[],papeis:any[]=[];
     for(const [t,campos,destino] of [['acesso_conta','id,usuario,colaborador_id',contas],['acesso_papel','conta_id,login',papeis]] as const) {
       let offset=0;
@@ -67,7 +117,22 @@ export async function escola(body: any, ctx: any) {
       const vinculadas=contas.filter(c=>c.colaborador_id===p.colaboradorId&&papeis.some(a=>a.conta_id===c.id));
       return {...p,area:areas.get(p.areaId)||'',funcao:cargos.get(p.cargoId)||p.funcao,usuario:vinculadas.length===1?vinculadas[0].usuario:''};
     });
-  };
+  });
+  // Catálogo do RH para quem monta a grade: todos os cargos, inclusive os que
+  // ainda não têm ninguém, e as vagas vivas. Somente leitura, sem pessoa nenhuma.
+  const nomesAreas = () => lembrar('areasRH', async () => new Map<string,string>((await lerRH(sb, conferir, 'areas')).map((a:any) => [a.id, a.nome || ''])));
+  const porNome = (a:any, b:any) => String(a.nome || a.titulo).localeCompare(String(b.nome || b.titulo), 'pt-BR') || String(a.id).localeCompare(String(b.id));
+  const cargosRH = () => lembrar('cargosRH', async () => {
+    const [cs, areas] = await Promise.all([lerRH(sb, conferir, 'cargos'), nomesAreas()]);
+    const fams = catalogoCfg(cfg).familias;
+    return cs.map((c:any) => ({ id:c.id, nome:c.nome || '', areaId:c.areaId || '', area:areas.get(c.areaId) || '', trilha:c.trilha || '', familias:Object.keys(fams).filter(k => familiaTem(cfg, k, c.id)) })).sort(porNome);
+  });
+  const vagasRH = () => lembrar('vagasRH', async () => {
+    const [vs, areas] = await Promise.all([lerRH(sb, conferir, 'vagas'), nomesAreas()]);
+    // Vaga fechada ou cancelada não forma ninguém; prevista, aberta e em triagem sim.
+    return vs.filter((v:any) => !['fechada', 'cancelada'].includes(norm(v.status)))
+      .map((v:any) => ({ id:v.id, titulo:v.titulo || v.nome || '', cargoId:v.cargoId || '', areaId:v.areaId || '', area:areas.get(v.areaId) || '', status:v.status || '', nivelId:v.nivelId || '' })).sort(porNome);
+  });
   const validar = (f:any,e:any,p:any) => {
     // Responsável designado nunca aprova a si mesmo. Gestores continuam no setor.
     if (!pessoa || !p || p.colaboradorId === pessoa?.colaboradorId || norm(p.usuario) === usuario) return false;
@@ -80,12 +145,16 @@ export async function escola(body: any, ctx: any) {
     const etapas:any={};for(const e of f.etapas)if(e.tipo==='pratica'&&validar(f,e,p)&&r.etapas?.[e.id])etapas[e.id]=r.etapas[e.id];
     return {id:r.id,colaboradorId:r.colaboradorId,nome:r.nome,formacaoId:r.formacaoId,formacaoVersao:r.formacaoVersao,etapas,atualizadoEm:r.atualizadoEm};
   };
-  const getF = async (fid:any) => { const r=await registro('formacoes',id(fid));if(!r||r.apagado)fail('Formação não disponível.',404);return {...r.registro,_serverRevision:r.revision}; };
+  // Cópia integral: o registro lido fica no cache da requisição e não pode ser
+  // alterado por quem vai editar a formação antes de gravar.
+  const getF = async (fid:any) => { const r=await registro('formacoes',id(fid));if(!r||r.apagado)fail('Formação não disponível.',404);return {...copy(r.registro),_serverRevision:r.revision}; };
   const getP = async (pid:any) => { const ps=await pessoasRH();const p=ps.find(x=>x.colaboradorId===id(pid));if(!p)fail('Pessoa não disponível no RH.',404);return p; };
   const idApr = async (pid:string,fid:string) => 'ap-'+Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(pid+'\n'+fid)))).map(n=>n.toString(16).padStart(2,'0')).join('');
   const gravar = async (col:string,r:any,revision:number,mutation:string) => {
     if(JSON.stringify(r).length>500_000)fail('Histórico atingiu o limite. A gestão deve preparar uma nova jornada; nenhum registro foi apagado.',409);
     const res=await sb.rpc('pops_gravar',{p_colecao:col,p_id:r.id,p_registro:r,p_acao:'upsert',p_expected:revision,p_mutation:mutation});
+    // Depois de gravar, a próxima leitura desta requisição vai ao banco.
+    lidos.delete('r:'+col+':'+r.id);lidos.delete('t:'+col);
     if(res.error?.code==='40001')fail('O registro mudou em outro aparelho. Atualize e tente novamente; sua resposta continua disponível.',409);
     return conferir(res);
   };
@@ -93,6 +162,9 @@ export async function escola(body: any, ctx: any) {
     if(e.preparacaoPendente) return 'Conteúdo em preparação pela gestão.';
     if(!e.conteudo || ['aprender','importancia','comoFazer','erros','evidencia'].some(k=>!texto(e.conteudo[k],20000)))return 'A orientação desta etapa ainda precisa ser preparada.';
     if(['etica','caderno','pop'].includes(e.tipo) && !(e.fontes?.length || e.documentos?.length || e.materiais?.length))return 'Falta vincular o documento oficial desta etapa.';
+    // Busca materiais e fontes ao mesmo tempo (e uma vez só, pelo cache da
+    // requisição); as conferências abaixo seguem na mesma ordem de antes.
+    await Promise.all([...(e.materiais||[]).map((ref:any)=>registro('materiais',ref.id)),...(e.fontes||[]).map((fonte:any)=>registro(fonte.tipo==='pop'?'pops':'treinamentos',fonte.refId))]);
     for(const ref of e.materiais||[]){const m=await registro('materiais',ref.id);if(!m||m.apagado||m.registro.versao!==ref.versao||m.registro.publicada!==true||m.registro.ativa===false)return 'Um material integral vinculado mudou ou ainda não foi liberado. Revise a etapa.';}
     for(const d of e.documentos || []) if(d.oficialConfirmado!==true || !d.conferidoPor || !d.conferidoEm)return 'A gestão precisa conferir a versão oficial deste documento.';
     for(const fonte of e.fontes || []) {
@@ -109,7 +181,7 @@ export async function escola(body: any, ctx: any) {
   const decorar = async (f:any,r:any,privado:boolean,ps:any[]=[]) => {
     const res=copy(f),novaVersao=!!r && r.formacaoVersao!==f.versao;
     let concluidas=0;const obrigatorias=f.etapas.filter((e:any)=>e.obrigatoria!==false);
-    const fontesPendentes=new Map<string,string>();for(const e of f.etapas)fontesPendentes.set(e.id,await pendenciaFonte(e));
+    const fontesPendentes=new Map<string,string>(),pendencias=await Promise.all(f.etapas.map((e:any)=>pendenciaFonte(e)));f.etapas.forEach((e:any,i:number)=>fontesPendentes.set(e.id,pendencias[i]));
     for(const e of res.etapas) {
       const a=!novaVersao?r?.etapas?.[e.id]:null;
       const falta=fontesPendentes.get(e.id)||'', prereq=(e.prerequisitos||[]).find((pid:string)=>novaVersao||r?.etapas?.[pid]?.status!=='concluida'||fontesPendentes.get(pid));
@@ -135,8 +207,105 @@ export async function escola(body: any, ctx: any) {
     res.revisaoNecessaria=novaVersao;res.liberada=liberada(f,pessoa,cfg);res.liberadaParaMim=res.liberada;
     return res;
   };
+  // Público por família: só a administração escolhe (como "todos"). Quem não é
+  // admin pode salvar o curso mantendo as famílias que já estavam, sem mudá-las.
+  const familiasLiberacao = (lista:any, anteriores:any) => {
+    if(lista==null)return [];
+    if(!Array.isArray(lista)||lista.length>50||lista.some((x:any)=>!kebab(x))||new Set(lista).size!==lista.length)fail('Famílias de cargos inválidas.');
+    const ant=Array.isArray(anteriores)?anteriores:[];
+    if(!admin&&!iguais([...lista].sort(),[...ant].sort()))fail('Somente a administração libera por família de cargos.',403);
+    // Família que não existe no catálogo não alcança ninguém e não avisaria.
+    const fams=catalogoCfg(cfg).familias,fora=lista.filter((x:string)=>!ant.includes(x)&&!Object.hasOwn(fams,x));
+    if(fora.length)fail('Família não cadastrada no catálogo: '+fora.join(', ')+'.',409);
+    return [...lista];
+  };
+  // Tela antiga não conhece famílias: campo ausente conserva o que já existia;
+  // lista vazia é que retira. Lista vazia não fica gravada, para não criar
+  // atribuição nova no histórico quando nada mudou.
+  const aplicarFamilias = (lib:any, anterior:any) => {
+    if(!Object.hasOwn(lib,'familias')&&Array.isArray(anterior?.familias))lib.familias=copy(anterior.familias);
+    const fams=familiasLiberacao(lib.familias,anterior?.familias);
+    if(fams.length)lib.familias=fams;else delete lib.familias;
+  };
+  const textoOpcional = (v:any,max:number,msg:string) => { if(v==null||v==='')return ''; if(typeof v!=='string'||v.trim().length>max)fail(msg); return v.trim(); };
+  // Catálogo do curso. Pré-requisito entre cursos é só recomendação ao aluno:
+  // não bloqueia nada, mas precisa apontar para curso que existe e sem círculo.
+  const catalogoFormacao = async (c:any, ant:any, fid:string) => {
+    if(c==null)return null;
+    if(!objeto(c))fail('Catálogo da formação inválido.');
+    const out:any={},a=objeto(ant)?ant:{},cat=catalogoCfg(cfg);
+    if(c.trilha!=null&&c.trilha!==''){
+      if(!kebab(c.trilha))fail('Trilha do catálogo inválida.');
+      if(c.trilha!==a.trilha&&!Object.hasOwn(cat.trilhas,c.trilha))fail('Trilha não cadastrada no catálogo: '+c.trilha+'.',409);
+      out.trilha=c.trilha;
+    }
+    const area=textoOpcional(c.area,120,'Área do catálogo inválida.');if(area)out.area=area;
+    if(c.nivel!=null&&c.nivel!==''){if(!niveis.includes(c.nivel))fail('Nível do curso inválido.');out.nivel=c.nivel;}
+    if(c.cargaMinutos!=null){if(!inteiro(c.cargaMinutos,1,100000))fail('Carga horária do curso inválida.');out.cargaMinutos=c.cargaMinutos;}
+    if(c.ordem!=null){if(!inteiro(c.ordem,0,10000))fail('Ordem do curso inválida.');out.ordem=c.ordem;}
+    const codigo=textoOpcional(c.codigo,40,'Código do curso inválido.');if(codigo)out.codigo=codigo;
+    if(c.familias!=null){
+      if(!Array.isArray(c.familias)||c.familias.length>20||c.familias.some((x:any)=>!kebab(x))||new Set(c.familias).size!==c.familias.length)fail('Famílias do catálogo inválidas.');
+      const antes=Array.isArray(a.familias)?a.familias:[],fora=c.familias.filter((x:string)=>!antes.includes(x)&&!Object.hasOwn(cat.familias,x));
+      if(fora.length)fail('Família não cadastrada no catálogo: '+fora.join(', ')+'.',409);
+      if(c.familias.length)out.familias=[...c.familias];
+    }
+    if(c.preRequisitos!=null){
+      const pre=c.preRequisitos;
+      if(!Array.isArray(pre)||pre.length>20||pre.some((x:any)=>!idFormato(x))||new Set(pre).size!==pre.length||pre.includes(fid))fail('Cursos recomendados inválidos.');
+      const antes=Array.isArray(a.preRequisitos)?a.preRequisitos:[];
+      if(pre.some((x:string)=>!antes.includes(x))){
+        const mapa=new Map((await todos('formacoes')).map((x:any)=>[x.id,x]));
+        const faltam=pre.filter((x:string)=>!antes.includes(x)&&!mapa.has(x));
+        if(faltam.length)fail('Curso recomendado não encontrado: '+faltam.join(', ')+'.',409);
+        // A antes de B antes de A não orienta ninguém.
+        const chega=(origem:string)=>{const pilha=[origem],vistos=new Set<string>();while(pilha.length){const x=pilha.pop()!;if(x===fid)return true;if(vistos.has(x))continue;vistos.add(x);const prox=mapa.get(x)?.catalogo?.preRequisitos;if(Array.isArray(prox))pilha.push(...prox);}return false;};
+        if(pre.some(chega))fail('Os cursos recomendados formariam um círculo. Revise a ordem da trilha.',409);
+      }
+      if(pre.length)out.preRequisitos=[...pre];
+    }
+    return Object.keys(out).length?out:null;
+  };
   const op=String(body.operacao || 'painel');
-  if(op.startsWith('academia.'))return academia(body,{sb,usuario,admin,gestor,setores,pessoa,cfg,gerencia,registro,todos,pessoasRH,idApr,gravar,fail,id});
+  if(op.startsWith('academia.'))return academia(body,{sb,usuario,admin,gestor,setores,pessoa,cfg,gerencia,registro,todos,pessoasRH,idApr,gravar,fail,id,aplicarFamilias});
+  if(op==='configurarCatalogo') {
+    if(!admin)fail('Somente a administração organiza o catálogo da escola.',403);
+    const c=body.catalogo;
+    if(!objeto(c)||(c.familias!=null&&!objeto(c.familias))||(c.trilhas!=null&&!objeto(c.trilhas)))fail('Catálogo inválido.');
+    const fams=c.familias||{},trs=c.trilhas||{};
+    if(Object.keys(fams).length>50||Object.keys(trs).length>50)fail('Cadastre até 50 famílias e até 50 trilhas.');
+    const antes=catalogoCfg(cfg),limpo:any={familias:{},trilhas:{}};
+    for(const [fid,v] of Object.entries(fams) as [string,any][]) {
+      const cargos=v?.cargos??[];
+      if(!kebab(fid)||!objeto(v)||!texto(v.nome,120)||!Array.isArray(cargos)||cargos.length>200||cargos.some((x:any)=>!idFormato(x))||new Set(cargos).size!==cargos.length)fail('Família '+(kebab(fid)?fid:'sem identificador válido')+': informe identificador, nome e cargos do RH.');
+      limpo.familias[fid]={nome:texto(v.nome,120),descricao:textoOpcional(v.descricao,2000,'Descrição da família '+fid+' muito longa.'),cargos:[...cargos]};
+    }
+    for(const [tid,v] of Object.entries(trs) as [string,any][]) {
+      if(!kebab(tid)||!objeto(v)||!texto(v.nome,120)||(v.ordem!=null&&!inteiro(v.ordem,0,10000)))fail('Trilha '+(kebab(tid)?tid:'sem identificador válido')+': informe identificador, nome e ordem entre 0 e 10000.');
+      limpo.trilhas[tid]={nome:texto(v.nome,120),descricao:textoOpcional(v.descricao,2000,'Descrição da trilha '+tid+' muito longa.'),ordem:v.ordem??0};
+    }
+    // Cargo novo precisa existir no RH: identificador digitado errado não alcança
+    // ninguém e não avisaria. Lê o RH na hora, sem o cache da instância.
+    cacheRH.delete('cargos');
+    const existentes=new Set((await lerRH(sb,conferir,'cargos')).map((x:any)=>x.id));
+    const faltam=Object.entries(limpo.familias).flatMap(([fid,v]:[string,any])=>v.cargos.filter((x:string)=>!(antes.familias[fid]?.cargos||[]).includes(x)&&!existentes.has(x)));
+    if(faltam.length)fail('Cargo não encontrado no RH: '+[...new Set(faltam)].join(', ')+'.',409);
+    // Família ou trilha excluída não pode deixar curso ou material apontando para o vazio.
+    const semF=Object.keys(antes.familias).filter(k=>!Object.hasOwn(limpo.familias,k)),semT=Object.keys(antes.trilhas).filter(k=>!Object.hasOwn(limpo.trilhas,k));
+    if(semF.length||semT.length){
+      const [fs,ms,ins]=await Promise.all([todos('formacoes'),todos('materiais'),todos('instrumentos')]),uso=new Set<string>();
+      for(const x of [...fs,...ms,...ins])for(const k of Array.isArray(x.liberacao?.familias)?x.liberacao.familias:[])uso.add('f:'+k);
+      for(const x of fs){for(const k of Array.isArray(x.catalogo?.familias)?x.catalogo.familias:[])uso.add('f:'+k);if(x.catalogo?.trilha)uso.add('t:'+x.catalogo.trilha);}
+      const presas=[...semF.filter(k=>uso.has('f:'+k)).map(k=>'família '+k),...semT.filter(k=>uso.has('t:'+k)).map(k=>'trilha '+k)];
+      if(presas.length)fail('Ainda há cursos ou materiais usando: '+presas.join(', ')+'. Retire o vínculo antes de excluir.',409);
+    }
+    // Patch só em educacao, levando instrutores e o que mais houver; o banco
+    // confere que educacao não mudou desde a leitura (p_anterior).
+    const educacao={...(cfg.educacao||{}),catalogo:limpo};
+    const res=await sb.rpc('pops_configurar',{p_patch:{educacao},p_anterior:Object.hasOwn(cfg,'educacao')?{educacao:cfg.educacao}:{}});
+    if(res.error?.code==='40001')fail('A configuração mudou. Atualize antes de salvar.',409);
+    conferir(res);cacheRH.clear();return {ok:true,catalogo:limpo};
+  }
   if(op==='configurarInstrutores') {
     if(!admin)fail('Somente a administração configura instrutores.',403);
     const mapa=body.instrutores;
@@ -151,24 +320,42 @@ export async function escola(body: any, ctx: any) {
     const educacao={...(cfg.educacao||{}),instrutores:copy(mapa)};
     const res=await sb.rpc('pops_configurar',{p_patch:{educacao},p_anterior:Object.hasOwn(cfg,'educacao')?{educacao:cfg.educacao}:{}});
     if(res.error?.code==='40001')fail('A configuração mudou. Atualize antes de salvar.',409);
-    conferir(res);return {ok:true,instrutores:mapa};
+    conferir(res);cacheRH.clear();return {ok:true,instrutores:mapa};
   }
   if(op==='painel') {
-    const [fs,rs,ps]=await Promise.all([todos('formacoes'),todos('aprendizagem'),pessoasRH()]);
+    // Quem gerencia monta a grade com todos os cargos e vagas do RH; aluno não paga essa leitura.
+    const gere=admin||gestor;
+    const [fs,rs,ps,cargos,vagas]=await Promise.all([todos('formacoes'),todos('aprendizagem'),pessoasRH(),gere?cargosRH():null,gere?vagasRH():null]);
     const pessoais=rs.filter(r=>pessoa && r.colaboradorId===pessoa.colaboradorId);
     const visiveis=fs.filter(f=>gerencia(f)||liberada(f,pessoa,cfg)||pessoais.some(r=>r.formacaoId===f.id)||(pessoa&&(cfg.educacao?.instrutores?.[usuario]||[]).map(norm).includes(norm(f.setor))&&f.etapas?.some((e:any)=>(e.validadores||[]).map(norm).includes(usuario))));
-    const formacoes=[];
-    for(const f of visiveis) {
+    const formacoes:any[]=await Promise.all(visiveis.map(async(f:any)=>{
       const pessoal=pessoais.find(r=>r.formacaoId===f.id);
       const instrutor=!!pessoa&&(cfg.educacao?.instrutores?.[usuario]||[]).map(norm).includes(norm(f.setor))&&f.etapas.some((e:any)=>(e.validadores||[]).map(norm).includes(usuario));
       if(!gerencia(f)&&!liberada(f,pessoa,cfg)&&!instrutor) {
         const antiga=f.versoesAnteriores?.find((v:any)=>v.versao===pessoal?.formacaoVersao);
-        formacoes.push({id:f.id,titulo:antiga?.titulo||f.titulo,versao:pessoal?.formacaoVersao||f.versao,setor:f.setor,ativa:f.ativa,publicada:false,liberada:false,liberadaParaMim:false,somenteHistorico:true,historica:true,etapas:(antiga?.etapas||f.etapas).map((e:any)=>({id:e.id,titulo:e.titulo,tipo:e.tipo,obrigatoria:e.obrigatoria,status:pessoal?.etapas?.[e.id]?.status||'nao_iniciada',statusFonte:'restrito',motivoBloqueio:'Esta jornada não está mais liberada para sua função. Seu histórico permanece preservado.'})),progresso:{concluidas:Object.values(pessoal?.etapas||{}).filter((e:any)=>e.status==='concluida').length,total:f.etapas.length,percentual:0,etapaAtual:null}});
-      } else formacoes.push(await decorar(f,pessoal,gerencia(f),ps));
+        return {id:f.id,titulo:antiga?.titulo||f.titulo,versao:pessoal?.formacaoVersao||f.versao,setor:f.setor,ativa:f.ativa,publicada:false,liberada:false,liberadaParaMim:false,somenteHistorico:true,historica:true,etapas:(antiga?.etapas||f.etapas).map((e:any)=>({id:e.id,titulo:e.titulo,tipo:e.tipo,obrigatoria:e.obrigatoria,status:pessoal?.etapas?.[e.id]?.status||'nao_iniciada',statusFonte:'restrito',motivoBloqueio:'Esta jornada não está mais liberada para sua função. Seu histórico permanece preservado.'})),progresso:{concluidas:Object.values(pessoal?.etapas||{}).filter((e:any)=>e.status==='concluida').length,total:f.etapas.length,percentual:0,etapaAtual:null}};
+      }
+      return decorar(f,pessoal,gerencia(f),ps);
+    }));
+    // Pré-requisito entre cursos é recomendação: o aluno vê o título, se já
+    // concluiu a versão atual e se o curso está liberado para ele. Rascunho de
+    // outro curso só aparece para quem o gerencia.
+    const porId=new Map(fs.map((f:any)=>[f.id,f]));
+    for(const f of formacoes) {
+      if(f.somenteHistorico||!Array.isArray(f.catalogo?.preRequisitos))continue;
+      const lista=f.catalogo.preRequisitos.flatMap((rid:string)=>{
+        const pre:any=porId.get(rid);if(!pre)return [];
+        const libera=liberada(pre,pessoa,cfg);
+        if(!libera&&!gerencia(pre)&&(pre.publicada!==true||pre.ativa===false))return [];
+        const meu=pessoais.find(r=>r.formacaoId===rid);
+        return [{id:rid,titulo:pre.titulo,concluida:!!meu?.concluidaEm&&meu.formacaoVersao===pre.versao,liberada:libera}];
+      });
+      if(lista.length)f.recomendadas=lista;
     }
+    const catalogo=copy(catalogoCfg(cfg));
     const gestaoReg=rs.filter(r=>{const f=fs.find(f=>f.id===r.formacaoId),p=ps.find(p=>p.colaboradorId===r.colaboradorId);return f&&p&&(admin ||(gerencia(f)&&corresponde(p,setores))||f.etapas.some((e:any)=>validar(f,e,p)));});
     const ids=new Set(gestaoReg.map(r=>r.colaboradorId));
-    return {ok:true,pessoa,motivoVinculo:identidade.motivo||null,formacoes,aprendizagem:pessoais,gestao:{instrutores:admin?(cfg.educacao?.instrutores||{}):undefined,podeGerir:admin||gestor,podeValidar:!!pessoa&&(admin||gestor||fs.some(f=>f.etapas.some((e:any)=>(e.validadores||[]).map(norm).includes(usuario)))),pessoas:ps.filter(p=>admin||(gestor&&corresponde(p,setores))||ids.has(p.colaboradorId)),registros:gestaoReg.map(r=>registroGestao(r,fs.find(f=>f.id===r.formacaoId),ps.find(p=>p.colaboradorId===r.colaboradorId)))},atualizadoEm:new Date().toISOString()};
+    return {ok:true,pessoa,motivoVinculo:identidade.motivo||null,formacoes,aprendizagem:pessoais,catalogo,gestao:{instrutores:admin?(cfg.educacao?.instrutores||{}):undefined,...(gere?{cargosRH:cargos,vagasRH:vagas,catalogo}:{}),podeGerir:admin||gestor,podeValidar:!!pessoa&&(admin||gestor||fs.some(f=>f.etapas.some((e:any)=>(e.validadores||[]).map(norm).includes(usuario)))),pessoas:ps.filter(p=>admin||(gestor&&corresponde(p,setores))||ids.has(p.colaboradorId)),registros:gestaoReg.map(r=>registroGestao(r,fs.find(f=>f.id===r.formacaoId),ps.find(p=>p.colaboradorId===r.colaboradorId)))},atualizadoEm:new Date().toISOString()};
   }
   if(op==='aprovarAvaliacao') {
     const f=await getF(body.formacaoId);if(!gerencia(f))fail('Somente a gestão responsável aprova avaliações.',403);
@@ -192,9 +379,14 @@ export async function escola(body: any, ctx: any) {
     if(!texto(f.titulo,200)||!texto(f.versao,40)||!texto(f.setor,200))fail('Informe título, versão e setor.');
     if(!Array.isArray(f.etapas)||!f.etapas.length||f.etapas.length>50)fail('Cadastre entre 1 e 50 etapas.');
     if(typeof f.publicada!=='boolean'||typeof f.ativa!=='boolean')fail('Informe a disponibilidade da formação.');
-    f.liberacao=f.liberacao||{};delete f.liberacao.cargosSetoresEfetivos;delete f.pessoasLiberadas;
+    f.liberacao=f.liberacao||{};if(!objeto(f.liberacao))fail('Público da formação inválido.');delete f.liberacao.cargosSetoresEfetivos;delete f.pessoasLiberadas;
     for(const k of ['pessoas','cargos','setores'])if(!Array.isArray(f.liberacao[k]||[])||(f.liberacao[k]||[]).length>2000||(f.liberacao[k]||[]).some((s:any)=>!texto(s,160)))fail('Público da formação inválido.');
     if(f.liberacao.todos && !admin)fail('Somente a administração libera para toda a empresa.',403);
+    aplicarFamilias(f.liberacao,anterior?.registro.liberacao);
+    // Catálogo ausente no envio (tela antiga) conserva o anterior; null apaga.
+    if(!Object.hasOwn(f,'catalogo')&&anterior?.registro.catalogo)f.catalogo=copy(anterior.registro.catalogo);
+    const catalogo=await catalogoFormacao(f.catalogo,anterior?.registro.catalogo,f.id);
+    if(catalogo)f.catalogo=catalogo;else delete f.catalogo;
     if(!admin) {
       if((f.liberacao.cargos||[]).length){
         // O navegador não escolhe o alcance do gestor; o limite acompanha o RH
@@ -256,7 +448,7 @@ export async function escola(body: any, ctx: any) {
       f.versoesAnteriores.push({versao:anterior.registro.versao,titulo:anterior.registro.titulo,etapas:copy(anterior.registro.etapas),arquivadaEm:new Date().toISOString(),por:usuario});
     }
     if(anterior && body.expectedRevision!==anterior.revision)fail('A formação mudou. Atualize antes de salvar.',409);
-    delete f._serverRevision;delete f.progresso;delete f.revisaoNecessaria;delete f.liberada;delete f.liberadaParaMim;delete f.somenteHistorico;delete f.historica;
+    delete f._serverRevision;delete f.progresso;delete f.revisaoNecessaria;delete f.liberada;delete f.liberadaParaMim;delete f.somenteHistorico;delete f.historica;delete f.recomendadas;
     if(f.prazo&&(!/^\d{4}-\d{2}-\d{2}$/.test(f.prazo)||isNaN(Date.parse(f.prazo))))fail('Prazo da formação inválido.');
     f.atribuicoesAnteriores=copy(anterior?.registro.atribuicoesAnteriores||[]);f.atribuicao=copy(anterior?.registro.atribuicao||null);
     if(!anterior||!iguais(f.liberacao,anterior.registro.liberacao)||f.prazo!==anterior.registro.prazo){if(f.atribuicao)f.atribuicoesAnteriores.push(f.atribuicao);f.atribuicao={por:usuario,em:new Date().toISOString(),prazo:f.prazo||null,liberacao:copy(f.liberacao)};}
@@ -353,16 +545,19 @@ export async function escola(body: any, ctx: any) {
 
 // Biblioteca e registros pessoais separados das evidências de domínio da função.
 async function academia(body:any,c:any) {
-  const {sb,usuario,admin,gestor,setores,pessoa,cfg,gerencia,registro,todos,pessoasRH,idApr,gravar,fail,id}=c;
+  const {sb,usuario,admin,gestor,setores,pessoa,cfg,gerencia,registro,todos,pessoasRH,idApr,gravar,fail,id,aplicarFamilias}=c;
   const op=body.operacao.slice(9),agora=new Date().toISOString();
-  const obter=async(col:string,key:any)=>{const r=await registro(col,id(key));if(!r||r.apagado)fail('Registro não disponível.',404);return {...r.registro,_serverRevision:r.revision};};
+  // Cópia integral: o registro lido fica no cache da requisição.
+  const obter=async(col:string,key:any)=>{const r=await registro(col,id(key));if(!r||r.apagado)fail('Registro não disponível.',404);return {...copy(r.registro),_serverRevision:r.revision};};
   const escopoInstrutor=cfg.educacao?.instrutores?.[usuario]||[];
   const instrutorNR=(m:any)=>m.tipo==='nr'&&norm(m.nr?.responsavel)===usuario&&escopoInstrutor.map(norm).includes(norm(m.setor));
   const acessoMaterial=async(m:any)=>gerencia(m)||instrutorNR(m)||liberada(m,pessoa,cfg)||m.publicada===true&&m.ativa!==false&&(await todos('formacoes')).some((f:any)=>liberada(f,pessoa,cfg)&&f.etapas.some((e:any)=>(e.materiais||[]).some((ref:any)=>ref.id===m.id&&ref.versao===m.versao)));
   const seguro=(m:any,integral=false)=>{const r=copy(m);if(!gerencia(m)){delete r.liberacao;delete r.versoesAnteriores;}if(!integral)delete r.paginas;r.temPDF=!!m.arquivoPath;delete r.arquivoPath;if(m.youtubeId)r.embed='https://www.youtube-nocookie.com/embed/'+m.youtubeId;return r;};
-  const audiencia=async(r:any)=>{
-    r.liberacao=r.liberacao||{};
+  const audiencia=async(r:any,anterior:any)=>{
+    r.liberacao=r.liberacao||{};if(!objeto(r.liberacao))fail('Público inválido.');
     for(const k of ['pessoas','cargos','setores'])if(!Array.isArray(r.liberacao[k]||[])||(r.liberacao[k]||[]).length>2000||(r.liberacao[k]||[]).some((x:any)=>!texto(x,160)))fail('Público inválido.');
+    // A regra de liberação é a mesma das formações: família só pela administração.
+    aplicarFamilias(r.liberacao,anterior);
     if(!admin){
       if(r.liberacao.todos)fail('Somente a administração libera para todos.',403);
       if((r.liberacao.setores||[]).some((s:any)=>!setores.map(norm).includes(norm(s))))fail('Setor fora do seu escopo.',403);
@@ -384,7 +579,7 @@ async function academia(body:any,c:any) {
     if(!['video','texto','documento','nr'].includes(m.tipo))fail('Tipo de material inválido.');
     if(typeof m.publicada!=='boolean'||typeof m.ativa!=='boolean')fail('Informe disponibilidade.');
     if(m.duracaoMinutos!=null&&(!Number.isInteger(m.duracaoMinutos)||m.duracaoMinutos<1||m.duracaoMinutos>10000))fail('Tempo estimado inválido.');
-    await audiencia(m);
+    await audiencia(m,anterior?.registro.liberacao);
     delete m.embed;delete m.youtubeId;
     if(m.tipo==='video') {
       let u;try{u=new URL(m.url);}catch{fail('Cole um link válido do YouTube.');}
@@ -491,7 +686,7 @@ async function academia(body:any,c:any) {
     const r=copy(body.instrumento||{});id(r.id);const anterior=await registro('instrumentos',r.id),mutation=id(body.mutationId);
     if(anterior?.mutation_id===mutation&&anterior.registro.atualizadoPor===usuario)return {ok:true,registro:anterior.registro,revision:anterior.revision};
     for(const k of ['titulo','objetivo','instrucoes','versao','setor','metodologia','autorizacao'])if(!texto(r[k],k==='titulo'?200:4000))fail('Complete objetivo, instruções, metodologia, autorização, setor e versão.');
-    await audiencia(r);
+    await audiencia(r,anterior?.registro.liberacao);
     if(!Array.isArray(r.visibilidade)||r.visibilidade.length>30)fail('Defina quem poderá consultar os resultados.');
     const ps=await pessoasRH();if(r.visibilidade.some((pid:any)=>!ps.some((p:any)=>p.colaboradorId===pid)))fail('Selecione responsáveis ativos do RH.');
     if(!Array.isArray(r.escala)||r.escala.length<2||r.escala.length>7||r.escala.some((o:any)=>!texto(o,500)))fail('Defina entre duas e sete alternativas ordenadas.');

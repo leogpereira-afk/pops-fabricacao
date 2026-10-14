@@ -213,7 +213,7 @@ function abrirEnviarWhats(item, tipo) {
 
   const m = abrirModal(
     '<h3>Enviar por WhatsApp</h3>' +
-    '<p class="dica">Escolha o que mandar. O link para abrir no app vai junto — assim quem recebe lê a versão sempre atualizada.</p>' +
+    '<p class="dica">Escolha o que mandar. O link para abrir no app vai junto, assim quem recebe lê a versão sempre atualizada.</p>' +
     '<div class="campo"><label>Recado (opcional)</label>' +
     '<input type="text" id="wa-nota" placeholder="Ex.: Marcos, confere isso antes de sair"></div>' +
     '<div class="campo"><label>O que enviar</label><div id="wa-ops">' +
@@ -395,24 +395,80 @@ STORE.on('sync', st => {
   const chip = $('#chip-sync');
   if (chip) { chip.textContent = rotuloSync(st); chip.classList.toggle('pendente', st.status !== 'ok'); }
 });
-STORE.on('pull', () => { if(STORE.getConhecimento().versao===window.CONHECIMENTO_VERSAO) _avisoConhecimento=''; if (!document.querySelector('dialog[open], textarea:focus, input:focus, select:focus') && !['editor','formacao-editor','formacao','material-editor','material','perfil-editor','perfil-teste'].includes(ROTA.nome)) renderApp(); });
+// Telas em que a pessoa preenche ou lê com estado na tela: atualização vinda de
+// fora não redesenha por cima.
+const ROTAS_DE_EDICAO = ['editor','formacao-editor','formacao','material-editor','material','perfil-editor','perfil-teste','importar','matriz'];
+STORE.on('pull', () => { if(STORE.getConhecimento().versao===window.CONHECIMENTO_VERSAO) _avisoConhecimento=''; if (!document.querySelector('dialog[open], .nav-escola[open], textarea:focus, input:focus, select:focus') && !ROTAS_DE_EDICAO.includes(ROTA.nome)) renderApp(); });
 STORE.on('escopoGestor', () => {if(SESSAO?.papel==='gestor' && ['pessoas','mapa','meus'].includes(ROTA.nome))renderApp();});
 STORE.on('pullErro', msg => { _ultimoSync = { status: 'erro' }; const chip = $('#chip-sync'); if (chip) { chip.textContent = 'Atualização pendente'; chip.title = msg; } });
-STORE.on('sessao', msg => { AUTH.esquecer(); STORE.setUser(null); SESSAO = null; _ultimoSync = null; renderApp(); toast(msg, 'erro'); });
+// Cache da escola no aparelho sai junto com a sessão, mesmo com envio pendente:
+// o próximo crachá do aparelho não lê o pacote de quem saiu.
+function limparEscolaDoAparelho() { try { window.EDUCACAO?.limparCacheAparelho?.(); } catch { /* sem cache */ } }
+STORE.on('sessao', msg => { limparEscolaDoAparelho(); AUTH.esquecer(); STORE.setUser(null); SESSAO = null; _ultimoSync = null; renderApp(); toast(msg, 'erro'); });
 STORE.on('quota', () => { _ultimoSync=STORE.resumoSync(); const chip=$('#chip-sync'); if(chip){chip.textContent=rotuloSync(_ultimoSync);chip.classList.add('pendente');} toast('Não foi possível gravar neste aparelho. Abra o estado de sincronização para tentar novamente ou baixar uma cópia.', 'erro'); });
 
+// Navegação enxuta (auditoria de 14/10/2026, P1): o aluno tem quatro destinos e
+// quem gerencia ganha o menu "Escola". O destino aceso sai da ROTA atual, não do
+// parâmetro de quem desenha a tela: antes Alunos, NRs e Vídeos acendiam
+// "Biblioteca e vídeos", porque a academia passava sempre 'conhecimento'.
+const GRUPO_DA_ROTA = { inicio:'inicio', '':'inicio', formacao:'inicio', conquistas:'inicio', avaliacoes:'inicio', perfil:'inicio', 'perfil-teste':'inicio', meus:'inicio',
+  catalogo:'catalogo', pops:'pops', pop:'pops', fab:'pops', jornada:'pops', etapa:'pops',
+  conhecimento:'conhecimento', treinamento:'conhecimento', biblioteca:'conhecimento', videos:'conhecimento', material:'conhecimento', nrs:'conhecimento',
+  escola:'escola', 'formacao-editor':'escola', alunos:'escola', aluno:'escola', matriz:'escola', importar:'escola', 'material-editor':'escola', 'perfil-editor':'escola', pessoas:'escola', mapa:'escola',
+  menu:'conta', senha:'conta' };
+function grupoDaRota(r) {
+  r = r || (typeof ROTA !== 'undefined' ? ROTA : { nome: 'inicio' });
+  if (r.nome === 'editor') return r.tipoEditor === 'treinamento' ? 'conhecimento' : 'pops';
+  return GRUPO_DA_ROTA[r.nome] || 'inicio';
+}
+// Itens do menu Escola conforme a permissão: gestão completa para admin e gestor,
+// só as práticas para quem é instrutor; importar pacote é da administração.
+function itensEscola() {
+  const g = (typeof window !== 'undefined' && window.EDUCACAO?.estadoGestao?.()) || {};
+  const gere = souAdmin() || meusSetores().length > 0 || !!g.podeGerir;
+  if (!gere && !g.podeValidar) return [];
+  const itens = [['escola', gere ? 'Gestão de cursos' : 'Práticas para validar', '#/escola']];
+  if (gere) itens.push(['alunos','Acompanhamento','#/alunos'],['biblioteca','Biblioteca','#/biblioteca'],['videos','Vídeos','#/videos'],['nrs','NRs','#/nrs'],['avaliacoes','Avaliações','#/avaliacoes'],['matriz','Matriz de cargos','#/matriz']);
+  if (souAdmin()) itens.push(['importar','Importar pacote','#/importar']);
+  return itens;
+}
+// Subnavegação do grupo: os destinos que dividem uma aba do topo. Fica numa linha
+// curta logo abaixo do topo e quebra em vez de rolar para o lado.
+const SUBNAV = {
+  pops: [['pops','POPs','#/pops',['pops','pop']],['fab','Jornadas de fabricação','#/fab',['fab','jornada','etapa']]],
+  conhecimento: [['biblioteca','Biblioteca','#/biblioteca',['biblioteca','material']],['videos','Vídeos','#/videos',['videos']],['nrs','NRs','#/nrs',['nrs']],['conhecimento','Treinamentos','#/conhecimento',['conhecimento','treinamento']],['referencias','Referências','#/conhecimento/referencias',[]]],
+  inicio: [['inicio','Meus cursos','#/',['inicio','','formacao']],['avaliacoes','Avaliações','#/avaliacoes',['avaliacoes']],['conquistas','Histórico','#/conquistas',['conquistas']],['perfil','Perfil','#/perfil',['perfil','perfil-teste']],['meus','Atribuições anteriores','#/meus',['meus']]],
+};
+function htmlSubnav(grupo) {
+  const r = typeof ROTA !== 'undefined' ? ROTA : { nome: 'inicio', arg: '' };
+  // Início, curso e aula mostram os atalhos e o "voltar" no próprio conteúdo: o
+  // título sobe na tela do celular. As listas pessoais (avaliações, histórico...) usam a fileira.
+  if (!SUBNAV[grupo] || (grupo === 'inicio' && ['inicio','','formacao'].includes(r.nome))) return '';
+  const atual = grupo === 'conhecimento' && r.nome === 'conhecimento' && r.arg ? 'referencias' : null;
+  return '<nav class="subnav" aria-label="Nesta área"><div class="subnav-itens">' + SUBNAV[grupo].map(([id, nome, url, rotas]) => {
+    const ativo = atual ? id === atual : rotas.includes(r.nome) && !(id === 'conhecimento' && r.nome === 'conhecimento' && r.arg);
+    return '<a href="' + url + '"' + (ativo ? ' class="ativa" aria-current="page"' : '') + '>' + nome + '</a>';
+  }).join('') + '</div></nav>';
+}
 function htmlTopo(aba) {
-  const links=[['inicio','Minha formação','#/'],['pops','POPs','#/pops'],['fab','Fabricação','#/fab'],['meus','Meu aprendizado','#/meus'],['conhecimento','Biblioteca e vídeos','#/biblioteca']];
-  if (souAdmin() || meusSetores().length) links.push(['pessoas','Equipe','#/pessoas'],['mapa','Acompanhamento','#/mapa']);
-  if(souAdmin() || meusSetores().length || window.EDUCACAO?.podeAcompanhar())links.push(['escola','Gestão da escola','#/escola'],['alunos','Alunos','#/alunos']);
-  links.push(['menu','Minha conta','#/menu']);
+  const grupo = grupoDaRota(), pend = minhasPendencias().length, escola = itensEscola();
+  const destinos = [['inicio','Início','#/','⌂'],['catalogo','Catálogo','#/catalogo','▦'],['pops','POPs e Fabricação','#/pops','▤'],['conhecimento','Conhecimento','#/conhecimento','◈']];
+  const r = typeof ROTA !== 'undefined' ? ROTA : { nome: 'inicio' };
+  const link = ([id, nome, url, ic]) => '<a href="' + url + '"' + (grupo === id ? ' class="ativa" aria-current="page"' : '') + '><span class="nav-ic" aria-hidden="true">' + ic + '</span><span class="nav-rotulo">' + nome + '</span>' +
+    (id === 'inicio' && pend ? '<b class="nav-badge" aria-label="' + pend + (pend === 1 ? ' atribuição anterior pendente' : ' atribuições anteriores pendentes') + '">' + pend + '</b>' : '') + '</a>';
+  const menuEscola = escola.length ? '<details class="nav-escola' + (grupo === 'escola' ? ' ativa' : '') + '"><summary' + (grupo === 'escola' ? ' aria-current="page"' : '') + '><span class="nav-ic" aria-hidden="true">▣</span><span class="nav-rotulo">Escola</span></summary><div class="nav-escola-lista">' +
+    escola.map(([id, nome, url]) => '<a href="' + url + '"' + (r.nome === id || (id === 'escola' && r.nome === 'formacao-editor') || (id === 'alunos' && r.nome === 'aluno') ? ' aria-current="page"' : '') + '>' + nome + '</a>').join('') + '</div></details>' : '';
   return '<a class="pular" href="#conteudo">Ir para o conteúdo</a><header class="app-cab"><div class="topo">' +
-    '<a href="#/" aria-label="Início"><img src="./logo-impresilk.png" alt="Impresilk"></a>' +
-    '<div class="tit"><b>Painel de Educação</b><span>Impresilk · '+esc(SESSAO.nome)+'</span></div>'+
-    '<button class="chip-sync" id="chip-sync" title="Conferir sincronização">'+rotuloSync(_ultimoSync)+'</button></div>'+
-    '<nav class="abas" aria-label="Navegação principal">'+links.map(([id,nome,url])=>'<a href="'+url+'" '+(aba===id?'class="ativa" aria-current="page"':'')+'>'+nome+(id==='meus' && minhasPendencias().length?' <b>('+minhasPendencias().length+')</b>':'')+'</a>').join('')+'</nav></header>'+(_avisoConhecimento?'<div class="aviso amarelo aviso-app" role="status">'+esc(_avisoConhecimento)+'</div>':'')+(_avisoCache?'<div class="aviso amarelo aviso-app" role="status">'+esc(_avisoCache)+'</div>':'');
+    '<a href="#/" class="topo-logo" aria-label="Início"><img src="./logo-impresilk.png" alt="Impresilk"></a>' +
+    '<a class="tit" href="#/menu"' + (grupo === 'conta' ? ' aria-current="page"' : '') + '><b>Escola Impresilk</b><span>' + esc(SESSAO.nome) + ' · Minha conta</span></a>' +
+    '<button class="chip-sync" id="chip-sync" title="Conferir sincronização">' + rotuloSync(_ultimoSync) + '</button></div>' +
+    '<nav class="nav-principal' + (escola.length ? ' com-escola' : '') + '" aria-label="Navegação principal">' + destinos.map(link).join('') + menuEscola + '</nav></header>' +
+    htmlSubnav(grupo) +
+    (_avisoConhecimento ? '<div class="aviso amarelo aviso-app" role="status">' + esc(_avisoConhecimento) + '</div>' : '') + (_avisoCache ? '<div class="aviso amarelo aviso-app" role="status">' + esc(_avisoCache) + '</div>' : '');
 }
 
+// Clique fora do menu Escola aberto fecha o menu (o <details> sozinho não fecha).
+if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') document.addEventListener('click', e => { const m = document.querySelector('.nav-escola[open]'); if (m && !m.contains(e.target)) m.open = false; });
 function ligarTopo() {
   if (!podeRegistrarAprendizado()) $$('#bt-li, #bt-ok, #bt-concluir').forEach(bt => {
     bt.disabled=true;
@@ -421,6 +477,9 @@ function ligarTopo() {
   const chip = $('#chip-sync');
   if (chip) chip.onclick = () => { const escola=window.EDUCACAO?.estadoEnvio();if(escola?.pendente || escola?.erro){window.EDUCACAO.conferirEstado();return;} if (STORE.resumoSync().pendentes || ['erro','revisar'].includes(STORE.resumoSync().status)) abrirPendencias(); else { sincronizarAgora(); toast('Conferindo atualizações…'); } };
   associarRotulos($('#app'));
+  // Menu Escola fecha ao escolher, ao clicar fora e com Esc (o <details> sozinho não fecha).
+  const menu = $('.nav-escola');
+  if (menu) { $$('a', menu).forEach(a => a.onclick = () => { menu.open = false; }); menu.onkeydown = e => { if (e.key === 'Escape') { menu.open = false; $('summary', menu)?.focus(); } }; }
   const conteudo=$('.miolo'); if(conteudo){conteudo.id='conteudo';conteudo.tabIndex=-1;}
   const pular=$('.pular'); if(pular) pular.onclick=e=>{e.preventDefault();conteudo?.focus();};
   $$('[data-etapa], [data-pessoa]').forEach(el => { el.setAttribute('role','button'); el.tabIndex=0; el.onkeydown=e => { if (e.key==='Enter' || e.key===' ') { e.preventDefault(); el.click(); } }; });
@@ -579,7 +638,7 @@ function renderFab(app) {
   app.innerHTML = htmlTopo('fab') +
     '<div class="miolo">' +
     '<div class="card"><div class="sub">Como a peça é feita</div>' +
-    '<p class="bloco-par">A Impresilk tem <b>' + ls.length + ' linhas de produção</b>. Cada etapa abaixo tem uma jornada que ensina aquele processo do começo ao fim — na ordem em que a peça anda pela fábrica.</p></div>' +
+    '<p class="bloco-par">A Impresilk tem <b>' + ls.length + ' linhas de produção</b>. Cada etapa abaixo tem uma jornada que ensina aquele processo do começo ao fim, na ordem em que a peça anda pela fábrica.</p></div>' +
     ls.map(l => {
       const fluxo = l.fluxo || [];
       const comJornada = fluxo.filter(f => jornadaDe(f.setor)).length;
@@ -627,7 +686,7 @@ function renderJornada(app) {
     '<span>' + etapas.length + ' etapas</span><span>v' + esc(j.versao || '1.0') + '</span></div>' +
     (j.descricao ? '<p class="bloco-par">' + esc(j.descricao) + '</p>' : '') +
     '<div class="prog-barra"><i style="width:' + pct + '%"></i></div>' +
-    (pct >= 100 ? '<div class="aviso verde">🎓 Jornada concluída em ' + fmtDataHora(pr.concluidaEm) + ' — você domina este processo.</div>' : '') +
+    (pct >= 100 ? '<div class="aviso verde">🎓 Jornada concluída em ' + fmtDataHora(pr.concluidaEm) + '. Você domina este processo.</div>' : '') +
     '</div>' +
     '<div class="card">' +
     etapas.map((e, i) => {
@@ -671,7 +730,7 @@ function renderEtapa(app) {
     '<a href="#/jornada/' + j.id + '" style="color:var(--azul); font-weight:600; text-decoration:none">← ' + esc(j.titulo) + '</a>' +
     '<div class="card pop-cab" style="margin-top:10px"><h1>Etapa ' + (n + 1) + ' · ' + esc(e.titulo) + '</h1></div>' +
     '<div class="card">' + blocosParaHtml(e.blocos) + '</div>' +
-    (!liberada ? '<div class="aviso amarelo">Conclua a etapa anterior primeiro — a ordem faz parte do aprendizado.</div>' : '') +
+    (!liberada ? '<div class="aviso amarelo">Conclua a etapa anterior primeiro: a ordem faz parte do aprendizado.</div>' : '') +
     '<div class="acoes">' +
     (feita ? '<div class="aviso verde" style="flex:1">✓ Etapa concluída em ' + fmtDataHora(pr.etapas[e.id]) + '</div>'
       : (liberada ? '<button class="botao verde largo" id="bt-concluir">✔ Concluí esta etapa</button>' : '')) +
@@ -754,8 +813,8 @@ function renderMeus(app) {
       '<h3>' + esc(item.titulo) + '</h3>' +
       '<div class="meta">' +
       (ok ? '<span class="selo lido">✓ feito</span>'
-          : c && c.vencido ? '<span class="selo pendente">venceu — refazer</span>'
-          : c && c.desatualizado ? '<span class="selo pendente">mudou — releia</span>'
+          : c && c.vencido ? '<span class="selo pendente">venceu: refazer</span>'
+          : c && c.desatualizado ? '<span class="selo pendente">mudou: releia</span>'
           : '<span class="selo pendente">pendente</span>') +
       (item.setor ? '<span class="selo setor">' + esc(item.setor) + '</span>' : '') +
       '</div></a>';
@@ -1328,6 +1387,7 @@ function renderMenu(app) {
     '<div class="card"><div class="sub">Sua conta</div>' +
     '<p class="bloco-par"><b>' + esc(SESSAO.nome) + '</b> · ' + esc(SESSAO.papel) + '</p>' +
     '<p class="dica">Última sincronização: ' + (STORE.lastSync() ? fmtDataHora(STORE.lastSync()) : 'ainda não sincronizou') + '</p>' +
+    '<p class="dica">Versão da tela: ' + esc(window.ESCOLA_TELA_VERSAO || 'não informada') + '</p>' +
     '<div class="acoes">'+(SESSAO.origemLogin==='rh'?'<a class="botao suave" href="https://leogpereira-afk.github.io/painel-impresilk/">Gerenciar minha conta na Entrada Única</a>':'<a class="botao suave" href="#/senha">Trocar a minha senha dos POPs</a>') +
     '<button class="botao fantasma" id="bt-sair">Sair</button></div></div>' +
     '<div class="card"><h2>Sincronização e recuperação</h2><p class="dica">Revise envios pendentes e recupere rascunhos deste aparelho.</p><div class="acoes"><button class="botao suave" id="bt-pendencias">Ver pendências</button><button class="botao fantasma" id="bt-rascunhos">Baixar rascunhos</button>' + (souAdmin() ? '<button class="botao fantasma" id="bt-arquivados">Itens arquivados</button>' : '') + '</div></div>' +
@@ -1345,7 +1405,7 @@ function renderMenu(app) {
   $('#bt-rascunhos').onclick = baixarRascunhos;
   if ($('#bt-arquivados')) $('#bt-arquivados').onclick = abrirArquivados;
   $('#bt-sair').onclick = () => {
-    AUTH.esquecer(); STORE.setUser(null); SESSAO = null; location.hash = '#/'; renderApp();
+    limparEscolaDoAparelho(); AUTH.esquecer(); STORE.setUser(null); SESSAO = null; location.hash = '#/'; renderApp();
   };
   const sc = $('#bt-salvar-cfg');
   if (sc) sc.onclick = async () => {
@@ -1374,7 +1434,7 @@ function renderApp() {
   const app = $('#app');
   if (!SESSAO) { renderLogin(app); return; }
   lerRota();
-  document.title = 'Educação Impresilk · ' + (({biblioteca:'Biblioteca',videos:'Vídeos',material:'Material de estudo','material-editor':'Preparar material',nrs:'Normas Regulamentadoras',perfil:'Perfil e Desenvolvimento','perfil-editor':'Preparar instrumento','perfil-teste':'Autoconhecimento',alunos:'Alunos',aluno:'Formação do aluno',avaliacoes:'Minhas avaliações',escola:'Gestão da escola',formacao:'Minha jornada','formacao-editor':'Preparar jornada',conquistas:'Meu histórico',conhecimento:'Conhecimento',inicio:'Início',pops:'POPs',fab:'Fabricação',pessoas:'Pessoas',mapa:'Mapa de treinamento',meus:'Meus treinamentos',menu:'Minha conta'})[ROTA.nome] || 'Fabricação');
+  document.title = 'Escola Impresilk · ' + (({biblioteca:'Biblioteca',videos:'Vídeos',material:'Material de estudo','material-editor':'Preparar material',nrs:'Normas Regulamentadoras',perfil:'Perfil e Desenvolvimento','perfil-editor':'Preparar instrumento','perfil-teste':'Autoconhecimento',alunos:'Acompanhamento',aluno:'Cursos do aluno',avaliacoes:'Avaliações',escola:'Gestão de cursos',formacao:'Curso','formacao-editor':'Preparar curso',conquistas:'Meu histórico',conhecimento:'Conhecimento',catalogo:'Catálogo',matriz:'Matriz de cargos',importar:'Importar pacote',inicio:'Início',pops:'POPs',pop:'POP',fab:'Fabricação',jornada:'Jornada de fabricação',etapa:'Etapa de fabricação',treinamento:'Treinamento',editor:'Editor',senha:'Trocar senha',pessoas:'Equipe',mapa:'Histórico anterior',meus:'Atribuições anteriores',menu:'Minha conta'})[ROTA.nome] || 'Início');
   // Enquanto a senha for a temporária, o app inteiro fica atrás desta tela.
   if (SESSAO.trocarSenha && ROTA.nome !== 'senha') { location.hash = '#/senha'; return; }
   const R = {
@@ -1384,6 +1444,7 @@ function renderApp() {
     'escola': a => window.EDUCACAO.render(a),
     'conquistas': a => window.EDUCACAO.render(a),
     'conhecimento': renderConhecimento,
+    ...Object.fromEntries(['catalogo','matriz','importar'].map(r=>[r,a=>ESCOLA_CATALOGO.render(a)])),
     'biblioteca': a => ACADEMIA.render(a),
     ...Object.fromEntries(['nrs','perfil','perfil-editor','perfil-teste','alunos','aluno','avaliacoes'].map(r=>[r,a=>ESCOLA_GESTAO.render(a)])),
     'videos': a => ACADEMIA.render(a),
@@ -1402,6 +1463,7 @@ function renderApp() {
     'senha': renderTrocarSenha,
     'editor': (a) => {
       const [tipo] = (ROTA.arg || '').split('~');
+      ROTA.tipoEditor = tipo;
       ROTA.arg = (ROTA.arg || '').split('~').slice(1).join('~');
       if (tipo === 'pop') renderEditorPop(a); else if (tipo === 'treinamento') renderEditorTreinamento(a); else if (tipo === 'jornada') renderEditorJornada(a); else location.hash='#/conhecimento';
     },
@@ -1421,17 +1483,17 @@ window.addEventListener('hashchange', renderApp);
     const usuario = SESSAO?.usuario, cracha = AUTH.cracha();
     AUTH.eu().then(async r => {
       if (AUTH.cracha() !== cracha || SESSAO?.usuario !== usuario) return;
-      if (r === false) { AUTH.esquecer(); STORE.setUser(null); SESSAO = null; renderApp(); return; }
+      if (r === false) { try { if (typeof window !== 'undefined') window.EDUCACAO?.limparCacheAparelho?.(); } catch { /* sem cache */ } AUTH.esquecer(); STORE.setUser(null); SESSAO = null; renderApp(); return; }
       if (r && r.usuario && r.papel) {
         const trocarSenha = r.trocarSenha === undefined
           ? (SESSAO?.usuario === r.usuario && !!SESSAO.trocarSenha) : !!r.trocarSenha;
         if (!STORE.setUser({ ...SESSAO, usuario: r.usuario, nome: r.nome, papel: r.papel, trocarSenha })) return;
         SESSAO = STORE.getUser();
-        if (!['editor','formacao-editor','formacao','material-editor','material','perfil-editor','perfil-teste'].includes(ROTA.nome)) renderApp();
+        if (!['editor','formacao-editor','formacao','material-editor','material','perfil-editor','perfil-teste','importar','matriz'].includes(ROTA.nome)) renderApp();
       }
       if (!SESSAO) return;
       await atualizarIdentidadeRH();
-      STORE.trySync(); STORE.pull().then(() => { if (!['editor','formacao-editor','formacao','material-editor','material','perfil-editor','perfil-teste'].includes(ROTA.nome)) renderApp(); });
+      STORE.trySync(); STORE.pull().then(() => { if (!['editor','formacao-editor','formacao','material-editor','material','perfil-editor','perfil-teste','importar','matriz'].includes(ROTA.nome)) renderApp(); });
     });
   }
   setInterval(() => { if (SESSAO && document.visibilityState === 'visible') { sincronizarAgora(); } }, 90000);

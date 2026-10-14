@@ -52,3 +52,15 @@ Retorno adicional: `vinculados`, `semConta`, `conflitos`. Mantidos: `ativos`, `d
 4. Publicar a interface compatível.
 5. Rodar sincronização administrativa explícita, conferir contagens e pendências sem criar acessos para os demais colaboradores.
 6. Verificar entrada, contexto pessoal, leituras e revisão em ambiente publicado. Nunca declarar que teste local prova publicação.
+
+## Catálogo, famílias de cargo e vagas na escola (14/10/2026)
+
+Código local do ramo `claude/escola-mubisys-20261014`; vale depois de publicar `pops-sync` (servidor antes da tela).
+
+- **Tipo de etapa `aula`.** Conteúdo próprio da escola, inclusive aula de sistema. Conclui pela leitura e, se houver avaliação aprovada, pela compreensão. Não exige POP, treinamento nem material; documentos HTTPS e materiais são opcionais e, quando existem, seguem as mesmas conferências das outras etapas. Mudar a aula exige versão nova.
+- **`formacao.catalogo` (opcional, não pedagógico).** `{trilha, area, nivel, cargaMinutos, ordem, familias[], preRequisitos[], codigo}`. Mudar o catálogo não pede versão nova nem derruba avaliação aprovada. Trilha e famílias novas precisam existir no catálogo da escola; pré-requisito entre cursos só recomenda, não bloqueia, e não pode formar círculo. Envio sem o campo conserva o catálogo anterior; `null` retira.
+- **Catálogo da escola.** `config.educacao.catalogo = {familias:{id:{nome,descricao,cargos[]}}, trilhas:{id:{nome,descricao,ordem}}}`, gravado só pela operação de administração `configurarCatalogo` (mesmo `pops_configurar`, preservando instrutores e o resto da configuração). Cargo novo de uma família precisa existir no RH. Família ou trilha em uso não pode ser excluída.
+- **Liberação por família.** `liberacao.familias[]`, só pela administração (como "todos"). Recebe quem tem, no RH, um `cargoId` listado na família. O gestor pode salvar o curso mantendo as famílias que já estavam. Envio sem o campo conserva as famílias anteriores; lista vazia retira. Vale também para materiais e instrumentos.
+- **Grade do RH para quem gerencia.** O painel da escola devolve a admin e gestor `gestao.cargosRH` (todos os cargos do RH, inclusive vazios: `id, nome, areaId, area, trilha, familias`) e `gestao.vagasRH` (vagas prevista, aberta ou em triagem: `id, titulo, cargoId, areaId, area, status, nivelId`). A consulta ao banco projeta só esses campos: nunca faixas, salário praticado, descrição de vaga ou candidatos.
+- **Desempenho.** Cada chamada lê uma vez cada registro, coleção e cadastro do RH. Fichas, cargos, áreas e vagas do RH ficam até 60 s na instância da função (sem dado de quem chama) e são relidos ao gravar a configuração da escola; contas e papéis da Central são lidos a cada chamada.
+- **Backup do Hub.** Com o x-token de serviço, `list` sem coleção inclui também `formacoes, aprendizagem, materiais, estudos, instrumentos, perfis, capacitacoes` (mesmo formato `_col`, mesma paginação `after`/`nextAfter`), e `getCfg` devolve a configuração completa, com `conhecimentoBase` e `educacao`. Pelo crachá, inclusive de admin, a listagem e a configuração continuam como antes.

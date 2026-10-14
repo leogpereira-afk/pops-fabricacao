@@ -7,6 +7,9 @@ const TOKEN = Deno.env.get("POPS_TOKEN") ?? "";
 const JWT_SECRET = Deno.env.get("EQUIPE_JWT_SECRET") ?? "";
 const T_REG = "pops_registros", T_CFG = "pops_config_global", T_META = "pops_meta", BUCKET = "pops-arquivos";
 const COLS = new Set(["pops", "jornadas", "treinamentos", "pessoas", "atribuicoes", "leituras", "progresso"]);
+// Coleções da escola: só a ação "escola" lê e grava. Entram na listagem completa
+// apenas para o backup do Hub (x-token de serviço), nunca para a tela.
+const COLS_ESCOLA = ["formacoes", "aprendizagem", "materiais", "estudos", "instrumentos", "perfis", "capacitacoes"];
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-token", "Access-Control-Allow-Methods": "POST, OPTIONS" };
 const resp = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { ...CORS, "Content-Type": "application/json" } });
 const norm = (s: unknown) => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
@@ -319,7 +322,11 @@ Deno.serve(async (req: Request) => {
           if (!admin) negar();
           const de = Number(body.after ?? 0);
           if (!Number.isSafeInteger(de) || de < 0) throw new Falha("Página inválida.");
-          const data = conferir(await sb.from(T_REG).select("colecao, id, registro, apagado").in("colecao", [...COLS]).order("colecao").order("id").range(de, de + 499));
+          // O backup diário do Hub chama sem crachá, com o x-token de serviço, e
+          // precisa da escola inteira para restaurar. O admin pela tela continua
+          // vendo só as coleções antigas: a escola tem leitura própria e filtrada.
+          const colecoes = maquina ? [...COLS, ...COLS_ESCOLA] : [...COLS];
+          const data = conferir(await sb.from(T_REG).select("colecao, id, registro, apagado").in("colecao", colecoes).order("colecao").order("id").range(de, de + 499));
           return resp({ registros: data.filter((l: any) => !l.apagado).map((l: any) => ({ ...l.registro, _col: l.colecao })), nextAfter: data.length === 500 ? de + 500 : null });
         }
         const col = colValida(body.colecao), limite = Number(body.limite ?? 200);
@@ -390,7 +397,14 @@ Deno.serve(async (req: Request) => {
         if (result.error?.code === "23505") throw new Falha("Essa conta já está vinculada a outra pessoa.", 409);
         return resp(conferir(result));
       }
-      case "getCfg": { const { conhecimentoBase: _basePrivada, ...cfg } = await config(); return resp({ config: cfg, cfg }); }
+      case "getCfg": {
+        // Configuração completa (base de conhecimento e escola inclusive) só vai
+        // para o backup do Hub; a tela segue sem a base privada, como antes.
+        const completa = await config();
+        if (maquina) return resp({ config: completa, cfg: completa });
+        const { conhecimentoBase: _basePrivada, ...cfg } = completa;
+        return resp({ config: cfg, cfg });
+      }
       case "setCfg": {
         if (!body.config || Array.isArray(body.config) || typeof body.config !== "object") throw new Falha("Configuração inválida.");
         // Somente campos enviados são modificados; omissão não apaga os demais.

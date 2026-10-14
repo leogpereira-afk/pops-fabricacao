@@ -554,6 +554,11 @@ summary { cursor: pointer; font-weight: 700; min-height: 44px; padding: 6px 0 12
 .nav-escola-lista { position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; min-width: 240px; display: grid; gap: 2px; padding: 8px; background: #fff; border: 1px solid var(--borda); border-radius: 14px; box-shadow: 0 14px 40px rgba(11,23,48,.14); }
 .nav-escola-lista a { display: flex; align-items: center; min-height: 44px; padding: 10px 12px; border-radius: 9px; color: var(--azul-escuro); text-decoration: none; font-weight: 600; }
 .nav-escola-lista a:hover, .nav-escola-lista a[aria-current] { background: var(--azul-claro); }
+.nav-escola-grupo { margin: 8px 12px 2px; padding-top: 8px; border-top: 1px solid var(--borda); color: var(--cinza); font-size: .78rem; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; }
+/* Conta no topo: no computador "Nome · Minha conta"; no celular o nome é cortado
+   com reticências, então "Minha conta" fica numa linha própria e nunca some. */
+.topo .tit .tit-sep { font-size: inherit; }
+.topo .tit .tit-conta { font-style: normal; }
 .subnav { max-width: 1200px; margin: auto; padding: 14px 28px 0; }
 .subnav-itens { display: flex; flex-wrap: wrap; gap: 6px; }
 .subnav a { display: inline-flex; align-items: center; min-height: 44px; padding: 9px 14px; border-radius: 999px; border: 1px solid var(--borda); background: #fff; color: var(--azul-escuro); font-size: .9rem; font-weight: 600; text-decoration: none; }
@@ -575,6 +580,8 @@ summary { cursor: pointer; font-weight: 700; min-height: 44px; padding: 6px 0 12
   .nav-escola > summary { width: 100%; }
   .nav-escola > summary::after { display: none; }
   .nav-escola-lista { position: fixed; left: 8px; right: 8px; top: auto; bottom: calc(68px + env(safe-area-inset-bottom)); max-height: 62vh; overflow-y: auto; min-width: 0; }
+  .topo .tit .tit-sep { display: none; }
+  .topo .tit .tit-conta { display: block; font-weight: 650; color: var(--azul); text-decoration: underline; text-underline-offset: 2px; }
   .subnav { padding: 12px 16px 0; }
   .subnav a { font-size: 13px; padding: 8px 12px; }
   .miolo, .escola { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
@@ -598,6 +605,9 @@ summary { cursor: pointer; font-weight: 700; min-height: 44px; padding: 6px 0 12
 .lista-marcar-itens{display:grid;gap:2px;max-height:280px;overflow-y:auto;overscroll-behavior:contain}
 .lista-marcar .edu-check{min-height:44px;align-items:center;padding:6px 4px}.lista-marcar .edu-check[hidden]{display:none}
 .lista-marcar .edu-check small{display:block;color:var(--cinza-4);font-size:.78rem;line-height:1.4}
+/* Público do material e do instrumento usa a mesma lista de marcar do curso. */
+.academia .lista-marcar{margin:0 0 14px;padding:12px 14px;border-radius:12px}
+.edu-status.arquivado{background:#eceef2;color:#4a5263}
 .tab-matriz thead th{min-width:130px;max-width:190px;white-space:normal;vertical-align:bottom;text-align:left;line-height:1.35}
 .tab-matriz th small{display:block;margin-top:3px;font-size:11.5px;font-weight:400;color:var(--cinza-4)}
 .tab-matriz tbody th{text-align:left;font-weight:400;line-height:1.4}.tab-matriz tbody th b{display:block;color:var(--azul-escuro)}

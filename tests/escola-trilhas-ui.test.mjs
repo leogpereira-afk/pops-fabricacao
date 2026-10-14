@@ -59,7 +59,12 @@ test('catálogo agrupa por trilha e mostra o estado de cada curso para quem estu
  const recomenda=card('Curso c-sistema').querySelector('.cat-recomenda').textContent;assert.match(recomenda,/Recomendado antes:/);assert.match(recomenda,/Curso c-integracao \(concluído\) · Curso só para designer \(não liberado\)/);
  assert.equal(card('Curso só para designer'),undefined,'Curso fora do público não vira cartão para a pessoa');
  assert.equal(card('Curso c-rascunho'),undefined,'Rascunho não aparece para quem estuda');
- assert.equal(card('Curso antigo fictício').dataset.estado,'nao_liberado');assert.match(card('Curso antigo fictício').textContent,/Peça ao seu gestor/);
+ // Curso que a pessoa já fez e perdeu: fica na trilha dele e aponta para o histórico.
+ const antigoCard=card('Curso antigo fictício');assert.equal(antigoCard.dataset.estado,'nao_liberado');
+ assert.match(antigoCard.textContent,/Não está mais liberado para você\. Seu histórico continua em/);assert.equal(antigoCard.querySelector('a').textContent,'Meu histórico');assert.doesNotMatch(antigoCard.textContent,/ainda não foi liberado|Peça ao seu gestor/);
+ assert.equal(antigoCard.querySelector('a').attributes.href,'#/conquistas');
+ const trilhaDe=titulo=>t.app.querySelectorAll('.cat-trilha').find(sec=>sec.querySelectorAll('.cat-curso').some(c=>c.querySelector('h3').textContent===titulo))?.querySelector('h2').textContent;
+ assert.equal(trilhaDe('Curso antigo fictício'),'Integração fictícia');
  assert.equal(card('Curso sem trilha fictício').dataset.estado,'disponivel');
  t.node('#cat-estado').value='nao_liberado';t.node('#cat-estado').onchange();
  assert.deepEqual(t.app.querySelectorAll('.cat-curso').filter(c=>!c.hidden).map(c=>c.querySelector('h3').textContent),['Curso antigo fictício']);
@@ -288,8 +293,9 @@ test('avaliações mostram à gestão as provas que esperam aprovação, sem apr
 
 test('material e instrumento listam todos os cargos do RH e famílias para a administração',async()=>{
  const s=servidor();const t=tela(s,admin);await t.route('material-editor','novo');
- const cargos=t.node('#ac-cargos').children.map(o=>o.textContent);assert.ok(cargos.includes('Cargo vago fictício · Gestão fictícia'));
- const fam=t.node('#ac-familias');assert.ok(fam,'Família só para a administração');fam.children.find(o=>o.attributes.value==='operacao-ficticia').selected=true;
+ assert.equal(t.node('#ac-cargos').tag,'fieldset','Lista de marcar, como no editor do curso');
+ const cargo=t.node('#ac-cargos').querySelectorAll('label').find(l=>l.textContent.includes('Cargo vago fictício'));assert.match(cargo.textContent,/Gestão fictícia/);
+ assert.ok(t.node('#ac-familias'),'Família só para a administração');t.marcar('ac-familias','operacao-ficticia');
  t.node('#ac-titulo').value='Material fictício';t.node('#ac-setor').value='Produção';t.node('#ac-objetivo').value='Objetivo fictício';
  await t.submit('#ac-editor');const enviado=t.calls.find(c=>c.operacao==='academia.salvarMaterial');assert.deepEqual(enviado.material.liberacao.familias,['operacao-ficticia']);
  assert.deepEqual(s.rows.find(r=>r.colecao==='materiais').registro.liberacao.familias,['operacao-ficticia']);
@@ -302,4 +308,121 @@ test('prévia avisa quando o pacote troca o público de item que já existe',asy
  assert.match(t.node('#imp-area').textContent,/O público \(liberação\) do pacote substitui o público atual deste item/);assert.equal(t.node('#imp-confirmar').disabled,false);
  await escolher(t,{versao:'1',materiais:[],cursos:[{id:'k-publico',titulo:'Curso com público fictício',versao:'2',setor:'Produção',etapas:[aula('p1')]}]});
  assert.doesNotMatch(t.node('#imp-area').textContent,/substitui o público/,'Sem liberação no pacote, o público atual fica');
+});
+
+// ───── Correções da revisão de 14/10 (tela) ─────
+test('matriz deixa o curso arquivado fora e só conta como coberto o cargo com curso liberado',async()=>{
+ const s=servidor([
+  row('formacoes',curso('c-ativo',{titulo:'Curso ativo fictício',liberacao:{pessoas:[],cargos:['designer-ficticio'],setores:[],todos:false}})),
+  row('formacoes',curso('c-arquivado',{titulo:'Curso arquivado fictício',ativa:false,liberacao:{pessoas:[],cargos:['operador-ficticio'],setores:[],todos:false}})),
+  row('formacoes',curso('c-rascunho',{titulo:'Curso rascunho fictício',publicada:false,liberacao:{pessoas:[],cargos:['cargo-vago-ficticio'],setores:[],todos:false}}))]);
+ const t=tela(s,admin);await t.route('matriz');
+ const colunas=t.node('thead').querySelectorAll('th').slice(1).map(th=>th.querySelector('span').textContent);
+ assert.deepEqual(colunas.sort(),['Curso ativo fictício','Curso rascunho fictício']);
+ const linha=nome=>t.node('tbody').querySelectorAll('tr').find(l=>l.querySelector('th').textContent.includes(nome));
+ assert.match(linha('Operador fictício').textContent,/Nenhum curso liberado para este cargo/,'Curso arquivado não cobre o cargo');
+ assert.match(linha('Cargo vago fictício').textContent,/Só curso em rascunho para este cargo/);
+ assert.equal(linha('Designer fictício').querySelector('.mat-alerta'),null);
+ assert.equal(t.node('#mat-sem-curso').textContent,'2');assert.match(t.text(),/1 curso arquivado fica fora da matriz/);
+});
+
+test('catálogo: arquivado tem estado próprio e trilha vazia fala com cada papel sem prometer o que não aparece',async()=>{
+ const s=servidor([row('formacoes',curso('c-arq',{titulo:'Curso arquivado fictício',ativa:false,liberacao:{pessoas:['rh1'],cargos:[],setores:[],todos:false},catalogo:{trilha:'integracao-ficticia'}}))]);
+ const t=tela(s,admin);await t.route('catalogo');
+ const card=t.app.querySelectorAll('.cat-curso').find(c=>c.querySelector('h3').textContent==='Curso arquivado fictício');
+ assert.equal(card.dataset.estado,'arquivado');assert.equal(card.querySelector('.edu-status').textContent,'Arquivado');assert.match(card.textContent,/Curso arquivado: não alcança ninguém/);
+ assert.ok(t.node('#cat-estado').children.some(o=>o.attributes.value==='arquivado'));
+ const vazio=t.app.querySelectorAll('.cat-trilha').find(x=>x.querySelector('h2').textContent==='Sistema fictício').querySelector('.cat-vazio').textContent;
+ assert.match(vazio,/Nenhum curso nesta trilha ainda/);assert.doesNotMatch(vazio,/gestor/);
+ const g=tela(s,gestor);await g.route('catalogo');
+ assert.match(g.app.querySelectorAll('.cat-vazio')[0].textContent,/Nenhum curso desta trilha é do seu setor ou está liberado para você/);
+ // A aluna não recebe o curso arquivado: nenhum cartão, nenhuma opção "Arquivado".
+ const a=tela(s);await a.route('catalogo');
+ assert.equal(a.app.querySelectorAll('.cat-curso').length,0);assert.equal(a.node('#cat-estado').children.some(o=>o.attributes.value==='arquivado'),false);
+ assert.match(a.text(),/Trilhas e cursos liberados para você/);assert.match(a.app.querySelectorAll('.cat-vazio')[0].textContent,/Nenhum curso desta trilha está liberado para você ainda/);
+ await a.route('inicio');assert.match(a.text(),/No catálogo você vê as trilhas e os cursos liberados para você/);assert.doesNotMatch(a.text(),/o que existe em cada trilha/);
+});
+
+test('matriz manda o catálogo que leu; se outra administração gravou depois, mostra o motivo e não apaga nada',async()=>{
+ const s=servidor();const t=tela(s,admin);await t.route('matriz');
+ // Outra administração grava uma família nova enquanto esta Matriz está aberta.
+ const lido=structuredClone(s.config.educacao.catalogo);
+ await s.chamar({operacao:'configurarCatalogo',catalogo:{familias:{...lido.familias,'design-ficticio':{nome:'Design fictício',cargos:['designer-ficticio']}},trilhas:lido.trilhas},catalogoAnterior:lido},'escola',{sub:'admin2',papel:'admin'});
+ const novaTrilha=async()=>{await t.click('#cat-add-trilha');const box=t.node('[data-trilha-ed="2"]'),nome=box.querySelector('[data-tri-nome]');nome.value='Trilha nova fictícia';nome.oninput();await t.submit('#cat-form');};
+ await novaTrilha();
+ const pedido=t.calls.find(c=>c.operacao==='configurarCatalogo');
+ assert.deepEqual(Object.keys(pedido.catalogoAnterior.familias),['operacao-ficticia'],'Vai junto o catálogo que a tela leu');
+ assert.match(t.node('#cat-erro').textContent,/O catálogo mudou desde que você abriu esta tela/);assert.ok(t.node('#cat-recarregar'));
+ assert.ok(s.config.educacao.catalogo.familias['design-ficticio'],'A família da outra pessoa continua');assert.equal(s.config.educacao.catalogo.trilhas['trilha-nova-ficticia'],undefined);
+ // Recarregar e refazer: grava as duas mudanças juntas.
+ await t.click('#cat-recarregar');await esperar(80);
+ await novaTrilha();
+ assert.ok(s.config.educacao.catalogo.familias['design-ficticio']);assert.equal(s.config.educacao.catalogo.trilhas['trilha-nova-ficticia'].nome,'Trilha nova fictícia');
+});
+
+test('prévia acusa conteúdo novo na mesma versão, de curso e de material, e não grava nada pela metade',async()=>{
+ const s=servidor();const t=tela(s,admin);await t.route('importar');
+ const base={versao:'1',materiais:[{id:'m-sis',tipo:'texto',titulo:'Material de sistema fictício',versao:'1.0',setor:'Produção',objetivo:'Objetivo fictício',paginas:['Página um']}],cursos:[{id:'k-sis',titulo:'Curso de sistema fictício',versao:'1.0',setor:'Produção',etapas:[aula('ks1',{materiais:[{id:'m-sis'}]})]}]};
+ await escolher(t,base);await t.click('#imp-confirmar');await esperar(80);assert.match(t.node('#imp-resultado').textContent,/2 de 2 itens conferidos/);
+ // O pacote volta com a trilha renomeada, o título de uma aula e uma página mudados, na mesma versão.
+ const mudado=structuredClone(base);mudado.catalogo={familias:{},trilhas:{'sistema-ficticio':{nome:'Sistema fictício renomeado',ordem:1}}};mudado.cursos[0].etapas[0].titulo='Aula com título novo';mudado.materiais[0].paginas=['Página um revista'];
+ const antes=t.calls.length;await escolher(t,mudado);
+ const texto=t.node('#imp-area').textContent;
+ assert.match(texto,/O título ou as aulas mudaram e a versão continua 1\.0/);assert.match(texto,/O conteúdo mudou e a versão continua 1\.0\. Suba a versão do material/);
+ assert.equal(t.app.querySelectorAll('.imp-erro').length,2);assert.equal(t.node('#imp-confirmar').disabled,true);
+ assert.ok(t.calls.slice(antes).some(c=>c.operacao==='academia.abrirMaterial'&&c.materialId==='m-sis'),'O material existente é aberto inteiro, com as páginas');
+ await t.click('#imp-confirmar');assert.equal(t.calls.slice(antes).some(c=>['configurarCatalogo','academia.salvarMaterial','salvarFormacao'].includes(c.operacao)),false,'Nada é gravado, nem o catálogo');
+ // Sem mudança de conteúdo, a mesma versão passa, com o aviso de repetição.
+ await escolher(t,{...base,catalogo:mudado.catalogo});
+ assert.match(t.node('#imp-area').textContent,/Já existe nesta versão, com o mesmo conteúdo/);assert.equal(t.app.querySelectorAll('.imp-erro').length,0);assert.equal(t.node('#imp-confirmar').disabled,false);
+});
+
+test('importação conserva assunto e tempo do material, manda o catálogo lido e limpa o campo do arquivo',async()=>{
+ const s=servidor([row('materiais',{id:'m-cad',tipo:'texto',titulo:'Caderno fictício',versao:'1.0',setor:'Produção',objetivo:'Objetivo fictício',categoria:'Cadernos fictícios',duracaoMinutos:40,paginas:['Página antiga'],publicada:false,ativa:true,liberacao:{pessoas:[],cargos:[],setores:[],todos:false}})]);
+ const t=tela(s,admin);await t.route('importar');
+ const pacote={versao:'2',catalogo:{familias:{},trilhas:{'trilha-nova':{nome:'Trilha nova fictícia'}}},materiais:[{id:'m-cad',tipo:'texto',titulo:'Caderno fictício',versao:'2.0',setor:'Produção',objetivo:'Objetivo fictício',paginas:['Página nova']}],cursos:[]};
+ const input=t.node('#imp-arquivo');input.value='C:\\fakepath\\pacote.json';input.files=[{name:'pacote.json',size:1000,text:async()=>JSON.stringify(pacote)}];await input.onchange();await esperar(60);
+ assert.equal(input.value,'','Campo limpo: escolher de novo o mesmo arquivo, corrigido, lê outra vez');assert.match(t.node('#imp-area').textContent,/Arquivo lido: pacote\.json/);
+ await t.click('#imp-confirmar');await esperar(80);
+ const cat=t.calls.find(c=>c.operacao==='configurarCatalogo');assert.deepEqual(Object.keys(cat.catalogoAnterior.trilhas).sort(),['integracao-ficticia','sistema-ficticio']);
+ const mat=t.calls.find(c=>c.operacao==='academia.salvarMaterial').material;assert.equal(mat.categoria,'Cadernos fictícios');assert.equal(mat.duracaoMinutos,40);
+ const gravado=s.rows.find(r=>r.id==='m-cad').registro;assert.equal(gravado.versao,'2.0');assert.equal(gravado.categoria,'Cadernos fictícios');assert.equal(gravado.duracaoMinutos,40);
+ // Assunto que vem no pacote vale sobre o atual.
+ const plano=await t.cat.planejar({versao:'3',materiais:[{...pacote.materiais[0],versao:'3.0',categoria:'Assunto novo fictício'}],cursos:[]},{materiais:[{...gravado,_serverRevision:2}],formacoes:[],catalogo:s.config.educacao.catalogo});
+ assert.equal(plano.materiais[0].payload.categoria,'Assunto novo fictício');assert.equal(plano.materiais[0].payload.duracaoMinutos,40);
+});
+
+test('biblioteca: a consulta em andamento de quem saiu não chega a quem entra no mesmo aparelho',async()=>{
+ const pendenteA=adiado(),chamadas=[];
+ const bibDe=(titulo,podeGerir)=>({ok:true,materiais:[{id:'m-'+chamadas.length,tipo:'video',titulo,versao:'1',objetivo:'Objetivo fictício',publicada:!podeGerir,ativa:true}],estudos:[],pessoa:{colaboradorId:podeGerir?'rh4':'rh2'},podeGerir,pessoas:[],atualizadoEm:'2026-10-14T12:00:00Z'});
+ const t=telaEscola({sessao:{usuario:'admin-a',papel:'admin',pessoaRH:null},api:async p=>{chamadas.push(t.ctx.SESSAO.usuario+':'+p.operacao);if(p.operacao==='academia.biblioteca')return t.ctx.SESSAO.usuario==='admin-a'?pendenteA.p:bibDe('Vídeo da Bia fictício',false);return painel('Qualquer');}});
+ const indoA=t.route('videos');await esperar(40);
+ // A administração sai pela Minha conta e a Bia entra, sem recarregar a página.
+ await t.edu.limparCacheAparelho();t.ctx.SESSAO={usuario:'bia',nome:'Bia Fictícia',papel:'equipe',pessoaRH:{colaboradorId:'rh2'}};
+ const indoB=t.route('videos');await esperar(40);
+ pendenteA.resolver(bibDe('Vídeo da administração fictício',true));await indoA;await indoB;await esperar(40);
+ assert.deepEqual(chamadas.filter(x=>x.endsWith('academia.biblioteca')),['admin-a:academia.biblioteca','bia:academia.biblioteca'],'A Bia consulta com o próprio crachá');
+ assert.match(t.text(),/Vídeo da Bia fictício/);assert.doesNotMatch(t.text(),/Vídeo da administração fictício|Cadastrar vídeo/);
+});
+
+test('gestor salva pela tela o curso e o material que a administração liberou para todos',async()=>{
+ const s=servidor([row('formacoes',curso('c-todos',{titulo:'Curso para todos fictício',liberacao:{pessoas:[],cargos:[],setores:[],todos:true}})),row('materiais',{id:'m-todos',tipo:'texto',titulo:'Material para todos fictício',versao:'1',setor:'Produção',objetivo:'Objetivo fictício',paginas:['Página fictícia'],publicada:true,ativa:true,liberacao:{pessoas:[],cargos:[],setores:[],todos:true}})]);
+ const t=tela(s,gestor);await t.route('formacao-editor','c-todos');
+ assert.equal(t.node('#edu-todos').disabled,true);assert.equal(t.node('#edu-todos').checked,true);
+ t.node('#edu-titulo').value='Curso para todos fictício revisto';t.node('#edu-versao').value='2';await t.submit('#edu-editor');
+ assert.equal(t.node('#edu-editor-erro')?.hidden??true,true);
+ const gravado=s.rows.find(r=>r.id==='c-todos');assert.equal(gravado.revision,2);assert.equal(gravado.registro.liberacao.todos,true);assert.equal(gravado.registro.titulo,'Curso para todos fictício revisto');
+ await t.route('material-editor','m-todos');assert.equal(t.node('#ac-todos'),null);assert.match(t.text(),/Também liberado para todas as pessoas vinculadas ao RH/);
+ assert.equal(t.node('#ac-pessoas').tag,'fieldset');
+ t.node('#ac-categoria').value='Assunto fictício';await t.submit('#ac-editor');
+ const mat=s.rows.find(r=>r.id==='m-todos');assert.equal(mat.revision,2);assert.equal(mat.registro.liberacao.todos,true);assert.equal(mat.registro.categoria,'Assunto fictício');
+});
+
+test('provas para aprovar abrem no recorte da gestão, sem a lista pessoal do aluno',async()=>{
+ const q=[{id:'q1',pergunta:'Pergunta fictícia?',opcoes:['Certa','Errada'],correta:0,explicacao:'Explicação fictícia'}];
+ const s=servidor([row('formacoes',curso('c-prova',{titulo:'Curso com prova fictícia',liberacao:{pessoas:['rh4'],cargos:[],setores:[],todos:false},etapas:[aula('p1',{tipo:'avaliacao',quiz:q})]}))]);
+ const t=tela(s,gestor);await t.route('avaliacoes','equipe');
+ assert.match(t.app.querySelector('h1').textContent,/Provas para aprovar/);assert.ok(t.node('#eg-provas-aprovar'));assert.match(t.node('#eg-provas-aprovar').textContent,/Curso com prova fictícia/);
+ assert.equal(t.app.querySelectorAll('.edu-grid').length,0,'Sem a grade pessoal de avaliações');
+ const a=tela(s);await a.route('avaliacoes','equipe');assert.equal(a.node('#eg-provas-aprovar'),null);assert.match(a.text(),/Somente quem gerencia cursos aprova provas/);
 });

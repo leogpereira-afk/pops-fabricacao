@@ -28,9 +28,9 @@ test('quem estuda vê quatro destinos e a conta no topo, sem o menu da escola',(
 });
 
 test('menu Escola conforme a permissão: administração, gestão e instrutor',()=>{
- assert.deepEqual(menu(topo({papel:'admin'})('escola')),[['Gestão de cursos','#/escola'],['Acompanhamento','#/alunos'],['Biblioteca','#/biblioteca'],['Vídeos','#/videos'],['NRs','#/nrs'],['Avaliações','#/avaliacoes'],['Matriz de cargos','#/matriz'],['Importar pacote','#/importar']]);
+ assert.deepEqual(menu(topo({papel:'admin'})('escola')),[['Gestão de cursos','#/escola'],['Acompanhamento','#/alunos'],['Provas para aprovar','#/avaliacoes/equipe'],['Matriz de cargos','#/matriz'],['Equipe e vínculos','#/pessoas'],['Histórico anterior','#/mapa'],['Importar pacote','#/importar'],['Biblioteca','#/biblioteca'],['Vídeos','#/videos'],['NRs','#/nrs']]);
  const gestor=menu(topo({papel:'gestor',gestores:{ana:['Produção']}})('escola'));
- assert.equal(gestor.length,7);assert.equal(gestor.some(([,h])=>h==='#/importar'),false);
+ assert.equal(gestor.length,9);assert.equal(gestor.some(([,h])=>h==='#/importar'),false);assert.ok(gestor.some(([,h])=>h==='#/pessoas'));
  assert.deepEqual(menu(topo({gestao:{podeValidar:true}})('inicio')),[['Práticas para validar','#/escola']]);
 });
 
@@ -70,4 +70,50 @@ test('arquivos da tela: index, cache do aparelho, publicação e prévia andam j
  assert.doesNotMatch(sw,/pops-shell-v16-escola/,'Publicar a tela nova exige trocar o nome do cache');assert.match(sw,/const CACHE = 'pops-shell-v\d+-[a-z-]+';/);
  const cfg=ler('config.js');assert.match(cfg,/window\.ESCOLA_TELA_VERSAO = '[^']+';/);assert.match(cfg,/window\.CONHECIMENTO_VERSAO = '2026\.10\.05';/,'A versão da base acompanha o servidor, não a tela');
  assert.match(ler('index.html'),/<title>Escola Impresilk<\/title>/);
+});
+
+// ───── Correções da revisão de 14/10 (navegação, conta, nome e pull) ─────
+test('menu Escola leva a Equipe e vínculos, ao Histórico anterior e às provas para aprovar sem sair da Escola',()=>{
+ const t=topo({papel:'admin'});
+ const atual=el=>el.querySelector('.nav-escola').querySelectorAll('a').filter(a=>Object.hasOwn(a.attributes,'aria-current')).map(a=>a.textContent);
+ for(const [rota,arg,item] of [['pessoas','','Equipe e vínculos'],['mapa','','Histórico anterior'],['avaliacoes','equipe','Provas para aprovar']]){
+  const el=t(rota,arg);assert.deepEqual(ativo(el),[],rota);assert.ok(Object.hasOwn(el.querySelector('.nav-escola').querySelector('summary').attributes,'aria-current'),rota);assert.deepEqual(atual(el),[item],rota);
+ }
+ // As avaliações pessoais continuam no Início.
+ assert.deepEqual(ativo(t('avaliacoes')),['Início']);assert.deepEqual(atual(t('avaliacoes')),[]);
+ // Biblioteca, Vídeos e NRs abrem em Conhecimento, e o menu avisa antes.
+ const lista=t('escola').querySelector('.nav-escola-lista');
+ const grupo=lista.querySelectorAll('.nav-escola-grupo');assert.equal(grupo.length,1);assert.equal(grupo[0].textContent,'Abrem em Conhecimento');
+ const ordem=lista.children.map(n=>n.tag==='p'?'#grupo':n.attributes.href);assert.deepEqual(ordem.slice(ordem.indexOf('#grupo')),['#grupo','#/biblioteca','#/videos','#/nrs']);
+ // Quem não gerencia não vê Equipe nem Histórico anterior.
+ assert.deepEqual(menu(topo({gestao:{podeValidar:true}})('inicio')),[['Práticas para validar','#/escola']]);
+});
+
+test('no celular "Minha conta" tem linha própria no topo e não é cortada com o nome',()=>{
+ const tit=topo()('inicio').querySelector('.tit');
+ assert.equal(tit.querySelector('.tit-conta').textContent,'Minha conta');assert.equal(tit.querySelector('.tit-sep').textContent,' · ');
+ const css=fs.readFileSync(new URL('../styles.css',import.meta.url),'utf8');
+ const celular=[...css.matchAll(/@media \(max-width: 600px\) \{([\s\S]*?)\n\}/g)].map(m=>m[1]).join('\n');
+ assert.match(celular,/\.topo \.tit \.tit-conta \{ display: block;/);assert.match(celular,/\.topo \.tit \.tit-sep \{ display: none; \}/);
+});
+
+test('entrada e aplicativo instalado chamam o sistema de Escola Impresilk; textos sem travessão',()=>{
+ const ler=f=>fs.readFileSync(new URL('../'+f,import.meta.url),'utf8');
+ const app=ler('app.js'),manifesto=JSON.parse(ler('manifest.webmanifest'));
+ assert.match(app,/document\.title="Escola Impresilk · Entrada";/);assert.doesNotMatch(app,/POPs · Entrada/);
+ assert.equal(manifesto.name,'Escola Impresilk');assert.equal(manifesto.short_name,'Escola');
+ assert.match(ler('sw.js'),/'\.\/manifest\.webmanifest'/,'O manifesto vai no shell do sw, cujo nome já é novo neste ramo');
+ assert.match(app,/quem já leu verá "mudou: releia"/);
+ for(const velho of ['mudou — releia','_(trecho —','concluíram —'])assert.equal(app.includes(velho),false,velho);
+});
+
+test('atualização dos POPs a cada 90 s não redesenha o catálogo por baixo da busca',()=>{
+ const ouvintes={},sessao={usuario:'ana',nome:'Ana Fictícia',papel:'equipe'};
+ const ctx=vm.createContext({STORE:{getUser:()=>sessao,resumoSync:()=>({status:'ok',pendentes:0}),on:(ev,fn)=>{(ouvintes[ev]||=[]).push(fn);},col:()=>[],um:()=>null,getCFG:()=>({gestores:{},setores:[]}),lastSync:()=>null,getConhecimento:()=>({})},
+  location:{href:'https://exemplo.test/pops/',origin:'https://exemplo.test',pathname:'/pops/'},URL,Date,window:{EDUCACAO:{estadoGestao:()=>({}),estadoEnvio:()=>null},addEventListener(){}},document:{querySelector:()=>null}});
+ vm.runInContext(fs.readFileSync(new URL('../app.js',import.meta.url),'utf8').split("window.addEventListener('hashchange'")[0],ctx);
+ vm.runInContext('var __renders=0;renderApp=()=>{__renders++;};',ctx);
+ const pull=nome=>{ctx.__rota={nome,arg:''};vm.runInContext('ROTA=__rota',ctx);const antes=ctx.__renders;for(const fn of ouvintes.pull)fn();return ctx.__renders-antes;};
+ assert.equal(pull('catalogo'),0,'Catálogo não se redesenha: a busca, o filtro e a rolagem ficam');
+ assert.equal(pull('matriz'),0);assert.equal(pull('pops'),1,'A lista de POPs continua se atualizando');
 });

@@ -230,7 +230,7 @@ function abrirEnviarWhats(item, tipo) {
     if (corpo.length > LIMITE_WHATS) { corpo = corpo.slice(0, LIMITE_WHATS).replace(/\s+\S*$/, ''); cortado = true; }
     const txt = [
       nota, cab, corpo,
-      cortado ? '_(trecho — o conteúdo completo está no app)_' : '',
+      cortado ? '_(trecho: o conteúdo completo está no app)_' : '',
       'Abrir no app: ' + link,
     ].filter(Boolean).join('\n\n');
     // wa.me SEM número: o próprio WhatsApp pergunta para quem — nenhum telefone
@@ -396,8 +396,10 @@ STORE.on('sync', st => {
   if (chip) { chip.textContent = rotuloSync(st); chip.classList.toggle('pendente', st.status !== 'ok'); }
 });
 // Telas em que a pessoa preenche ou lê com estado na tela: atualização vinda de
-// fora não redesenha por cima.
-const ROTAS_DE_EDICAO = ['editor','formacao-editor','formacao','material-editor','material','perfil-editor','perfil-teste','importar','matriz'];
+// fora não redesenha por cima. O catálogo entra aqui: ele não usa nada do pull
+// (vem do painel da escola, que se confere sozinho), e redesenhar a cada 90 s
+// apagava a busca e o filtro e voltava a página para o topo.
+const ROTAS_DE_EDICAO = ['editor','formacao-editor','formacao','material-editor','material','perfil-editor','perfil-teste','importar','matriz','catalogo'];
 STORE.on('pull', () => { if(STORE.getConhecimento().versao===window.CONHECIMENTO_VERSAO) _avisoConhecimento=''; if (!document.querySelector('dialog[open], .nav-escola[open], textarea:focus, input:focus, select:focus') && !ROTAS_DE_EDICAO.includes(ROTA.nome)) renderApp(); });
 STORE.on('escopoGestor', () => {if(SESSAO?.papel==='gestor' && ['pessoas','mapa','meus'].includes(ROTA.nome))renderApp();});
 STORE.on('pullErro', msg => { _ultimoSync = { status: 'erro' }; const chip = $('#chip-sync'); if (chip) { chip.textContent = 'Atualização pendente'; chip.title = msg; } });
@@ -419,18 +421,31 @@ const GRUPO_DA_ROTA = { inicio:'inicio', '':'inicio', formacao:'inicio', conquis
 function grupoDaRota(r) {
   r = r || (typeof ROTA !== 'undefined' ? ROTA : { nome: 'inicio' });
   if (r.nome === 'editor') return r.tipoEditor === 'treinamento' ? 'conhecimento' : 'pops';
+  // Provas para aprovar (gestão) é a mesma tela de avaliações com outro recorte:
+  // vinda do menu Escola, fica na Escola em vez de acender o Início do aluno.
+  if (r.nome === 'avaliacoes' && r.arg === 'equipe') return 'escola';
   return GRUPO_DA_ROTA[r.nome] || 'inicio';
 }
 // Itens do menu Escola conforme a permissão: gestão completa para admin e gestor,
 // só as práticas para quem é instrutor; importar pacote é da administração.
+// Equipe e vínculos e o histórico anterior têm a mesma guarda das telas deles.
+// Biblioteca, Vídeos e NRs são as telas de Conhecimento (com os botões de quem
+// gerencia): o menu diz isso, para ninguém sair da Escola sem perceber.
 function itensEscola() {
   const g = (typeof window !== 'undefined' && window.EDUCACAO?.estadoGestao?.()) || {};
   const gere = souAdmin() || meusSetores().length > 0 || !!g.podeGerir;
   if (!gere && !g.podeValidar) return [];
   const itens = [['escola', gere ? 'Gestão de cursos' : 'Práticas para validar', '#/escola']];
-  if (gere) itens.push(['alunos','Acompanhamento','#/alunos'],['biblioteca','Biblioteca','#/biblioteca'],['videos','Vídeos','#/videos'],['nrs','NRs','#/nrs'],['avaliacoes','Avaliações','#/avaliacoes'],['matriz','Matriz de cargos','#/matriz']);
+  if (gere) itens.push(['alunos','Acompanhamento','#/alunos'],['avaliacoes-equipe','Provas para aprovar','#/avaliacoes/equipe'],['matriz','Matriz de cargos','#/matriz']);
+  if (souAdmin() || meusSetores().length > 0) itens.push(['pessoas','Equipe e vínculos','#/pessoas'],['mapa','Histórico anterior','#/mapa']);
   if (souAdmin()) itens.push(['importar','Importar pacote','#/importar']);
+  if (gere) itens.push(['biblioteca','Biblioteca','#/biblioteca','Abrem em Conhecimento'],['videos','Vídeos','#/videos','Abrem em Conhecimento'],['nrs','NRs','#/nrs','Abrem em Conhecimento']);
   return itens;
+}
+// Item do menu Escola que corresponde à rota atual.
+function itemEscolaAtual(id, r) {
+  if (id === 'avaliacoes-equipe') return r.nome === 'avaliacoes' && r.arg === 'equipe';
+  return r.nome === id || (id === 'escola' && r.nome === 'formacao-editor') || (id === 'alunos' && r.nome === 'aluno');
 }
 // Subnavegação do grupo: os destinos que dividem uma aba do topo. Fica numa linha
 // curta logo abaixo do topo e quebra em vez de rolar para o lado.
@@ -457,10 +472,12 @@ function htmlTopo(aba) {
   const link = ([id, nome, url, ic]) => '<a href="' + url + '"' + (grupo === id ? ' class="ativa" aria-current="page"' : '') + '><span class="nav-ic" aria-hidden="true">' + ic + '</span><span class="nav-rotulo">' + nome + '</span>' +
     (id === 'inicio' && pend ? '<b class="nav-badge" aria-label="' + pend + (pend === 1 ? ' atribuição anterior pendente' : ' atribuições anteriores pendentes') + '">' + pend + '</b>' : '') + '</a>';
   const menuEscola = escola.length ? '<details class="nav-escola' + (grupo === 'escola' ? ' ativa' : '') + '"><summary' + (grupo === 'escola' ? ' aria-current="page"' : '') + '><span class="nav-ic" aria-hidden="true">▣</span><span class="nav-rotulo">Escola</span></summary><div class="nav-escola-lista">' +
-    escola.map(([id, nome, url]) => '<a href="' + url + '"' + (r.nome === id || (id === 'escola' && r.nome === 'formacao-editor') || (id === 'alunos' && r.nome === 'aluno') ? ' aria-current="page"' : '') + '>' + nome + '</a>').join('') + '</div></details>' : '';
+    escola.map(([id, nome, url, grupoItem], i) => (grupoItem && grupoItem !== escola[i - 1]?.[3] ? '<p class="nav-escola-grupo">' + grupoItem + '</p>' : '') + '<a href="' + url + '"' + (itemEscolaAtual(id, r) ? ' aria-current="page"' : '') + '>' + nome + '</a>').join('') + '</div></details>' : '';
   return '<a class="pular" href="#conteudo">Ir para o conteúdo</a><header class="app-cab"><div class="topo">' +
     '<a href="#/" class="topo-logo" aria-label="Início"><img src="./logo-impresilk.png" alt="Impresilk"></a>' +
-    '<a class="tit" href="#/menu"' + (grupo === 'conta' ? ' aria-current="page"' : '') + '><b>Escola Impresilk</b><span>' + esc(SESSAO.nome) + ' · Minha conta</span></a>' +
+    // No celular o nome é cortado com reticências: "Minha conta" ganha linha
+    // própria (styles.css) e nunca some, mesmo com nome longo.
+    '<a class="tit" href="#/menu"' + (grupo === 'conta' ? ' aria-current="page"' : '') + '><b>Escola Impresilk</b><span>' + esc(SESSAO.nome) + '<small class="tit-sep"> · </small><em class="tit-conta">Minha conta</em></span></a>' +
     '<button class="chip-sync" id="chip-sync" title="Conferir sincronização">' + rotuloSync(_ultimoSync) + '</button></div>' +
     '<nav class="nav-principal' + (escola.length ? ' com-escola' : '') + '" aria-label="Navegação principal">' + destinos.map(link).join('') + menuEscola + '</nav></header>' +
     htmlSubnav(grupo) +
@@ -487,7 +504,7 @@ function ligarTopo() {
 
 /* ══════════ telas ══════════ */
 function renderLogin(app) {
-  document.title="📋 POPs · Entrada";
+  document.title="Escola Impresilk · Entrada";
   app.innerHTML='<div class="tela-login"><div class="login-layout"><section class="login-apresentacao"><div class="eyebrow">IMPRESILK · CONHECIMENTO EM PRÁTICA</div><h1>O jeito certo de fazer.<br>Ao alcance da equipe.</h1><p>Procedimentos, jornadas de fabricação e aprendizado reunidos em um só lugar.</p><div class="login-beneficios"><p><b>01</b> Encontre o procedimento da sua tarefa.</p><p><b>02</b> Siga cada etapa com clareza.</p><p><b>03</b> Acompanhe o que precisa aprender.</p></div></section><div class="cartao-login"><img src="./logo-impresilk.png" alt="Impresilk"><h2>Entre com sua conta da equipe</h2><p class="sub2">O mesmo usuário e senha da Entrada Única. Sua ficha do RH acompanha você.</p><form id="lg-form"><div class="campo"><label for="lg-u">Usuário da equipe</label><input id="lg-u" type="text" autocomplete="username" autocapitalize="none" required></div><div class="campo"><label for="lg-s">Senha</label><input id="lg-s" type="password" autocomplete="current-password" required></div><div id="lg-erro" role="alert"></div><button class="botao largo" id="lg-entrar" type="submit">Entrar</button><details class="login-alternativo"><summary>Outras formas de acesso</summary><div class="campo"><label for="lg-tipo">Tipo de conta</label><select id="lg-tipo"><option value="rh">Conta da equipe / RH</option><option value="legado">Senha própria antiga dos POPs</option></select></div><a href="https://leogpereira-afk.github.io/painel-impresilk/">Abrir a Entrada Única</a></details></form><p class="dica">O primeiro acesso precisa de internet. Depois de sincronizar, consulte os conteúdos disponíveis mesmo sem sinal.</p></div></div></div>';
   $('#lg-form').onsubmit=async e=>{
     e.preventDefault(); const u=$('#lg-u').value.trim(), senha=$('#lg-s').value;
@@ -999,7 +1016,7 @@ function abrirLote(conteudos) {
       conclusaoDe({ tipo, refId }, p.usuario));
     const podem = tem.filter(x => !feitos.includes(x));
     if (!podem.length) {
-      toast('Todos já concluíram — não dá pra tirar sem esconder a prova.', 'erro');
+      toast('Todos já concluíram. Não dá para tirar sem esconder a prova.', 'erro');
       return;
     }
     if (!confirm('Tirar “' + (item ? item.titulo : '') + '” de ' + podem.length + ' pessoa(s)?' +
@@ -1198,7 +1215,7 @@ function renderEditorPop(app) {
     '<div class="campo"><label>Objetivo (uma frase: o que este procedimento garante)</label><input type="text" id="e-objetivo" value="' + esc(p.objetivo) + '"></div>' +
     '<div class="campo"><label>Quem executa</label><input type="text" id="e-resp" value="' + esc(p.responsavel || '') + '" placeholder="Ex: Líder de Instalações"></div>' +
     '<div class="campo"><label>EPIs (separados por vírgula)</label><input type="text" id="e-epis" value="' + esc((p.epis || []).join(', ')) + '" placeholder="Luva, Óculos de proteção"></div>' +
-    '<div class="campo"><label>Versão</label><input type="text" id="e-versao" value="' + esc(p.versao || '1.0') + '"><div class="dica">Suba a versão quando o conteúdo mudar de verdade — quem já leu vai ver "mudou — releia".</div></div>' +
+    '<div class="campo"><label>Versão</label><input type="text" id="e-versao" value="' + esc(p.versao || '1.0') + '"><div class="dica">Suba a versão quando o conteúdo mudar de verdade: quem já leu verá "mudou: releia".</div></div>' +
     '<div class="campo"><label>Conteúdo</label><textarea id="e-conteudo">' + esc(blocosParaTexto(p.blocos)) + '</textarea>' +
     '<div class="dica">## Subtítulo &nbsp;·&nbsp; 1. passo numerado &nbsp;·&nbsp; - item de lista &nbsp;·&nbsp; ! destaque &nbsp;·&nbsp; !! alerta &nbsp;·&nbsp; [ ] item de checklist &nbsp;·&nbsp; linha solta = parágrafo</div></div>' +
     '<div class="campo"><label for="e-fontes">Fontes e documentos usados (um por linha)</label><textarea id="e-fontes" style="min-height:90px">'+esc((p.fontes || []).join('\n'))+'</textarea></div>'+
@@ -1489,11 +1506,11 @@ window.addEventListener('hashchange', renderApp);
           ? (SESSAO?.usuario === r.usuario && !!SESSAO.trocarSenha) : !!r.trocarSenha;
         if (!STORE.setUser({ ...SESSAO, usuario: r.usuario, nome: r.nome, papel: r.papel, trocarSenha })) return;
         SESSAO = STORE.getUser();
-        if (!['editor','formacao-editor','formacao','material-editor','material','perfil-editor','perfil-teste','importar','matriz'].includes(ROTA.nome)) renderApp();
+        if (!ROTAS_DE_EDICAO.includes(ROTA.nome)) renderApp();
       }
       if (!SESSAO) return;
       await atualizarIdentidadeRH();
-      STORE.trySync(); STORE.pull().then(() => { if (!['editor','formacao-editor','formacao','material-editor','material','perfil-editor','perfil-teste','importar','matriz'].includes(ROTA.nome)) renderApp(); });
+      STORE.trySync(); STORE.pull().then(() => { if (!ROTAS_DE_EDICAO.includes(ROTA.nome)) renderApp(); });
     });
   }
   setInterval(() => { if (SESSAO && document.visibilityState === 'visible') { sincronizarAgora(); } }, 90000);

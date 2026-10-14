@@ -21,10 +21,12 @@ window.ESCOLA_CATALOGO=(()=>{
  // ───────────── Catálogo (aluno e gestão) ─────────────
  // Estado do curso para quem está vendo. Não liberado vem do servidor (liberada
  // false, histórico preservado ou curso recomendado fora do público da pessoa).
- const ESTADOS={concluido:'Concluído',em_andamento:'Em andamento',disponivel:'Disponível',nao_liberado:'Não liberado',em_preparacao:'Em preparação'};
+ // Arquivado (ativa false) não alcança ninguém: tem estado próprio, não é rascunho.
+ const ESTADOS={concluido:'Concluído',em_andamento:'Em andamento',disponivel:'Disponível',nao_liberado:'Não liberado',em_preparacao:'Em preparação',arquivado:'Arquivado'};
  function estadoParaMim(f,aprendizagem=[]){
+  if(f.ativa===false)return 'arquivado';
   if(f.somenteHistorico||f.historica)return 'nao_liberado';
-  if(f.publicada!==true||f.ativa===false)return 'em_preparacao';
+  if(f.publicada!==true)return 'em_preparacao';
   if(f.liberada===false)return 'nao_liberado';
   const p=aprendizagem.find(r=>r.formacaoId===f.id);
   if((p?.concluidaEm&&p.formacaoVersao===f.versao)||(f.progresso?.total&&f.progresso.percentual===100))return 'concluido';
@@ -41,18 +43,29 @@ window.ESCOLA_CATALOGO=(()=>{
  function cartaoCurso(f,d){
   const st=estadoParaMim(f,d.aprendizagem||[]),c=f.catalogo||{},meta=[c.codigo,c.area,E().niveis[c.nivel],E().cargaTexto(c.cargaMinutos)].filter(Boolean),gere=!!d.gestao?.podeGerir&&!!f.liberacao;
   const recs=(f.recomendadas||[]).map(r=>esc(r.titulo||r.id)+' ('+(r.concluida?'concluído':r.liberada?'disponível':'não liberado')+')');
-  const acao=st==='nao_liberado'?'<p class="cat-aviso">Este curso ainda não foi liberado para você. Peça ao seu gestor.</p>'
+  // Curso que a pessoa já fez e perdeu (troca de cargo, por exemplo) não é "ainda
+  // não liberado": o histórico dela continua guardado e é para lá que ela vai.
+  const historico='Seu histórico continua em <a href="#/conquistas">Meu histórico</a>.';
+  const acao=st==='arquivado'?'<p class="dica">'+(f.somenteHistorico?'Curso arquivado. '+historico:'Curso arquivado: não alcança ninguém. Reative no editor do curso para voltar a liberar.')+'</p>'
+   :st==='nao_liberado'?(f.somenteHistorico?'<p class="cat-aviso">Não está mais liberado para você. '+historico+'</p>'
+    :gere?'<p class="dica">Você gerencia este curso, mas ele não está liberado para você como aluno.</p>'
+    :'<p class="cat-aviso">Este curso ainda não foi liberado para você. Peça ao seu gestor.</p>')
    :st==='em_preparacao'?'<p class="dica">Rascunho: aparece só para quem gerencia.</p>'
    :'<a class="botao mini'+(st==='concluido'?' suave':'')+'" href="'+E().rota(f.id)+'">'+(st==='concluido'?'Rever curso':st==='em_andamento'?'Continuar':'Começar curso')+'</a>';
   return '<article class="cat-curso" data-estado="'+st+'" data-busca="'+esc(norm([f.titulo,f.catalogo?.codigo,f.catalogo?.area,...(f.recomendadas||[]).map(r=>r.titulo)].join(' ')))+'"><div class="cat-curso-topo">'+(meta.length?'<span class="ac-kicker">'+esc(meta.join(' · '))+'</span>':'<span></span>')+'<span class="edu-status '+st+'">'+ESTADOS[st]+'</span></div><h3>'+esc(f.titulo)+'</h3><p class="dica">'+plural((f.etapas||[]).length,'aula','aulas')+(f.prazo?' · prazo '+esc(fmtData(f.prazo)):'')+'</p>'+(recs.length?'<p class="cat-recomenda"><b>Recomendado antes:</b> '+recs.join(' · ')+'</p>':'')+'<div class="acoes">'+acao+(gere?'<a class="botao mini fantasma" href="#/formacao-editor/'+encodeURIComponent(f.id)+'">Gerenciar curso</a>':'')+'</div></article>';
  }
  function catalogo(app,d){
-  const gs=gruposCatalogo(d),total=(d.formacoes||[]).length;
-  const el=A().layout(app,'Catálogo de cursos','Trilhas e cursos da Escola Impresilk, com o seu andamento em cada um.',d.gestao?.podeGerir?'<a class="botao mini suave" href="#/matriz">Matriz de cargos</a>':'');
-  el.innerHTML=E().htmlAtualizacaoPainel()+'<section class="card ac-filtros"><div class="campo"><label for="cat-busca">Buscar curso</label><input id="cat-busca" type="search" placeholder="Nome, código ou área"></div><div class="campo"><label for="cat-estado">Mostrar</label><select id="cat-estado"><option value="">Todos os cursos</option>'+Object.entries(ESTADOS).filter(([k])=>k!=='em_preparacao'||d.gestao?.podeGerir).map(([k,v])=>'<option value="'+k+'">'+v+'</option>').join('')+'</select></div></section>'+
+  const gs=gruposCatalogo(d),total=(d.formacoes||[]).length,gere=!!d.gestao?.podeGerir,arquivados=(d.formacoes||[]).some(f=>f.ativa===false);
+  // O servidor manda ao aluno só os cursos liberados para ele (e os que ele já
+  // fez). A tela não promete mostrar o que ele não recebe.
+  const vazio=souAdmin()?'Nenhum curso nesta trilha ainda. A trilha do curso é escolhida no editor do curso.'
+   :gere?'Nenhum curso desta trilha é do seu setor ou está liberado para você.'
+   :'Nenhum curso desta trilha está liberado para você ainda. Se precisar de um, fale com seu gestor.';
+  const el=A().layout(app,'Catálogo de cursos',gere?'Trilhas e cursos da Escola Impresilk, com o seu andamento em cada um.':'Trilhas e cursos liberados para você, com o seu andamento em cada um.',gere?'<a class="botao mini suave" href="#/matriz">Matriz de cargos</a>':'');
+  el.innerHTML=E().htmlAtualizacaoPainel()+'<section class="card ac-filtros"><div class="campo"><label for="cat-busca">Buscar curso</label><input id="cat-busca" type="search" placeholder="Nome, código ou área"></div><div class="campo"><label for="cat-estado">Mostrar</label><select id="cat-estado"><option value="">Todos os cursos</option>'+Object.entries(ESTADOS).filter(([k])=>(k!=='em_preparacao'||gere)&&(k!=='arquivado'||arquivados)).map(([k,v])=>'<option value="'+k+'">'+v+'</option>').join('')+'</select></div></section>'+
    '<p class="dica" id="cat-contagem" aria-live="polite"></p>'+
-   (gs.length?gs.map(g=>{const feitos=g.cursos.filter(f=>estadoParaMim(f,d.aprendizagem||[])==='concluido').length,libs=g.cursos.filter(f=>!['nao_liberado','em_preparacao'].includes(estadoParaMim(f,d.aprendizagem||[]))).length;
-    return '<section class="cat-trilha" data-trilha="'+esc(g.id)+'"><div class="secao-titulo"><div><span class="ac-kicker">'+(g.id?'Trilha':'Sem trilha')+'</span><h2>'+esc(g.nome)+'</h2>'+(g.descricao?'<p class="dica">'+esc(g.descricao)+'</p>':'')+'</div><span class="dica">'+(libs?'Concluídos: '+feitos+' de '+libs:'')+'</span></div><div class="cat-grade">'+(g.cursos.length?g.cursos.map(f=>cartaoCurso(f,d)).join(''):'<p class="dica cat-vazio">Nenhum curso desta trilha está liberado para você ainda. Peça ao seu gestor.</p>')+'</div></section>';}).join('')
+   (gs.length?gs.map(g=>{const feitos=g.cursos.filter(f=>estadoParaMim(f,d.aprendizagem||[])==='concluido').length,libs=g.cursos.filter(f=>!['nao_liberado','em_preparacao','arquivado'].includes(estadoParaMim(f,d.aprendizagem||[]))).length;
+    return '<section class="cat-trilha" data-trilha="'+esc(g.id)+'"><div class="secao-titulo"><div><span class="ac-kicker">'+(g.id?'Trilha':'Sem trilha')+'</span><h2>'+esc(g.nome)+'</h2>'+(g.descricao?'<p class="dica">'+esc(g.descricao)+'</p>':'')+'</div><span class="dica">'+(libs?'Concluídos: '+feitos+' de '+libs:'')+'</span></div><div class="cat-grade">'+(g.cursos.length?g.cursos.map(f=>cartaoCurso(f,d)).join(''):'<p class="dica cat-vazio">'+vazio+'</p>')+'</div></section>';}).join('')
    :'<section class="card"><h2>O catálogo está em preparação</h2><p>'+(total?'':'Ainda não há cursos liberados para você. ')+'As trilhas e os cursos aparecem aqui quando a gestão os organiza.</p></section>')+
    '<p class="dica">Cursos recomendados antes de outro são uma sugestão de ordem e não bloqueiam ninguém. Curso não liberado: peça ao seu gestor, que libera pelo cargo, pela família de cargos, pelo setor ou por pessoa.</p>';
   const pintar=()=>{const q=norm($('#cat-busca').value),st=$('#cat-estado').value;let n=0;$$('.cat-curso').forEach(c=>{const ok=(!q||c.dataset.busca.includes(q))&&(!st||c.dataset.estado===st);c.hidden=!ok;if(ok)n++;});$('#cat-contagem').textContent=plural(n,'curso','cursos')+' neste filtro.';};
@@ -74,25 +87,30 @@ window.ESCOLA_CATALOGO=(()=>{
   const g=d.gestao||{};
   if(!g.podeGerir){A().layout(app,'Matriz restrita','A matriz de cargos é da gestão da escola.');return;}
   const cat=E().catalogoCfg(d),cargos=Array.isArray(g.cargosRH)?g.cargosRH:[],vagas=g.vagasRH||[],admin=souAdmin();
-  const cursos=(d.formacoes||[]).filter(f=>f.liberacao&&!f.somenteHistorico).sort((a,b)=>String(a.catalogo?.trilha||'~').localeCompare(String(b.catalogo?.trilha||'~'))||ordemCurso(a,b));
+  // Curso arquivado não alcança ninguém (liberada() devolve false): fica fora das
+  // colunas. Cobertura do cargo conta só curso liberado e ativo; o cargo coberto só
+  // por rascunho aparece à parte.
+  const geridos=(d.formacoes||[]).filter(f=>f.liberacao&&!f.somenteHistorico),vigente=f=>f.publicada===true&&f.ativa!==false;
+  const cursos=geridos.filter(f=>f.ativa!==false).sort((a,b)=>String(a.catalogo?.trilha||'~').localeCompare(String(b.catalogo?.trilha||'~'))||ordemCurso(a,b)),arquivados=geridos.length-cursos.length;
+  const cobertura=c=>cursos.some(f=>vigente(f)&&recebe(f,c.id,cat))?'liberado':cursos.some(f=>recebe(f,c.id,cat))?'rascunho':'';
   const fora=(d.formacoes||[]).filter(f=>!f.liberacao&&!f.somenteHistorico).length;
   const vagasPorCargo=new Map();for(const v of vagas)if(v.cargoId)vagasPorCargo.set(v.cargoId,[...(vagasPorCargo.get(v.cargoId)||[]),v]);
   const semCargo=vagas.filter(v=>!v.cargoId),trilhas=Object.entries(cat.trilhas).sort(ordemTrilha);
   const el=A().layout(app,'Matriz de cargos','Quais cursos cada cargo do RH recebe, inclusive os cargos sem ninguém hoje e os das vagas abertas.','<a class="botao mini suave" href="#/catalogo">Ver o catálogo</a>');
   el.innerHTML=E().htmlAtualizacaoPainel()+(!Array.isArray(g.cargosRH)?'<div class="aviso amarelo" role="status">O servidor ainda não enviou o cadastro de cargos do RH. Atualize a função da escola antes de usar a matriz.</div>':'')+
    (semCargo.length?'<div class="aviso amarelo" role="status"><b>'+plural(semCargo.length,'vaga sem cargo no RH','vagas sem cargo no RH')+':</b> '+esc(semCargo.map(v=>v.titulo+' ('+v.status+')').join(', '))+'. Sem cargo, a vaga não recebe cursos pela matriz. Peça ao RH para ligar a vaga a um cargo.</div>':'')+
-   '<div class="edu-resumo"><span><strong>'+cargos.length+'</strong> cargos do RH</span><span><strong>'+vagasPorCargo.size+'</strong> com vaga aberta</span><span><strong id="mat-sem-curso">0</strong> sem nenhum curso</span><span><strong>'+cursos.length+'</strong> cursos na matriz</span></div>'+
+   '<div class="edu-resumo"><span><strong>'+cargos.length+'</strong> cargos do RH</span><span><strong>'+vagasPorCargo.size+'</strong> com vaga aberta</span><span><strong id="mat-sem-curso">0</strong> sem curso liberado</span><span><strong>'+cursos.length+'</strong> cursos na matriz</span></div>'+
    '<section class="card ac-filtros"><div class="campo"><label for="mat-busca">Buscar cargo</label><input id="mat-busca" type="search" placeholder="Nome do cargo ou área"></div><div class="campo"><label for="mat-trilha">Cursos da trilha</label><select id="mat-trilha"><option value="">Todas as trilhas</option>'+trilhas.map(([k,t])=>'<option value="'+esc(k)+'">'+esc(t.nome||k)+'</option>').join('')+'<option value="__sem">Sem trilha</option></select></div><label class="edu-check"><input type="checkbox" id="mat-vagas"> Somente cargos com vaga aberta</label></section>'+
-   '<div id="mat-tabela"></div><p class="dica">Liberações por pessoa ou por setor não aparecem aqui. Curso em rascunho só alcança alguém depois de liberado.'+(fora?' '+plural(fora,'curso de outro setor não aparece','cursos de outros setores não aparecem')+' porque a liberação é de outra gestão.':'')+'</p>'+
+   '<div id="mat-tabela"></div><p class="dica">Liberações por pessoa ou por setor não aparecem aqui. Curso em rascunho só alcança alguém depois de liberado.'+(arquivados?' '+plural(arquivados,'curso arquivado fica fora da matriz','cursos arquivados ficam fora da matriz')+'.':'')+(fora?' '+plural(fora,'curso de outro setor não aparece','cursos de outros setores não aparecem')+' porque a liberação é de outra gestão.':'')+'</p>'+
    (admin?'<section class="card" id="cat-editor"><h2>Famílias de cargos e trilhas</h2><p>Família reúne cargos do RH: quem tem um desses cargos recebe os cursos liberados para a família. Trilha organiza os cursos no catálogo.</p><form id="cat-form"><h3>Famílias de cargos</h3><div id="cat-familias"></div><button type="button" class="botao mini suave" id="cat-add-familia">+ Família</button><h3>Trilhas</h3><div id="cat-trilhas"></div><button type="button" class="botao mini suave" id="cat-add-trilha">+ Trilha</button><div id="cat-erro" class="aviso amarelo" role="alert" hidden></div><div class="acoes"><button class="botao" type="submit" id="cat-salvar">Salvar famílias e trilhas</button><span class="dica">Família ou trilha em uso por curso ou material não pode ser excluída.</span></div></form></section>':'<p class="dica">Somente a administração organiza famílias de cargos e trilhas.</p>');
   const tabela=()=>{
    const q=norm($('#mat-busca').value),tr=$('#mat-trilha').value,soVaga=$('#mat-vagas').checked;
    const cols=cursos.filter(f=>!tr||(tr==='__sem'?!f.catalogo?.trilha||!Object.hasOwn(cat.trilhas,f.catalogo.trilha):f.catalogo?.trilha===tr));
    const linhas=cargos.filter(c=>(!q||norm(c.nome+' '+c.area).includes(q))&&(!soVaga||vagasPorCargo.has(c.id)));
-   let semCurso=0;for(const c of cargos)if(!cursos.some(f=>recebe(f,c.id,cat)))semCurso++;$('#mat-sem-curso').textContent=semCurso;
+   let semCurso=0;for(const c of cargos)if(cobertura(c)!=='liberado')semCurso++;$('#mat-sem-curso').textContent=semCurso;
    $('#mat-tabela').innerHTML=!linhas.length?'<section class="card"><p>Nenhum cargo neste filtro.</p></section>':!cols.length?'<section class="card"><p>Nenhum curso nesta trilha.</p></section>':
     '<div class="rolagem-x" role="region" aria-label="Matriz de cargos e cursos" tabindex="0"><table class="tab-mapa tab-matriz"><thead><tr><th scope="col">Cargo</th>'+cols.map(f=>'<th scope="col"><span>'+esc(f.titulo)+'</span><small>'+esc([cat.trilhas[f.catalogo?.trilha]?.nome,f.publicada?'':'rascunho'].filter(Boolean).join(' · '))+'</small></th>').join('')+'</tr></thead><tbody>'+
-    linhas.map(c=>{const vs=vagasPorCargo.get(c.id)||[],nenhum=!cursos.some(f=>recebe(f,c.id,cat));return '<tr'+(nenhum?' class="sem-curso"':'')+'><th scope="row"><b>'+esc(c.nome||c.id)+'</b><small>'+esc(c.area||'Área não informada')+'</small>'+(vs.length?'<span class="mat-vaga">'+plural(vs.length,'vaga aberta','vagas abertas')+'</span>':'')+((c.familias||[]).length?'<small>Famílias: '+esc(c.familias.map(k=>cat.familias[k]?.nome||k).join(', '))+'</small>':'')+(nenhum?'<small class="mat-alerta">Nenhum curso para este cargo</small>':'')+'</th>'+
+    linhas.map(c=>{const vs=vagasPorCargo.get(c.id)||[],cob=cobertura(c),nenhum=cob!=='liberado';return '<tr'+(nenhum?' class="sem-curso"':'')+'><th scope="row"><b>'+esc(c.nome||c.id)+'</b><small>'+esc(c.area||'Área não informada')+'</small>'+(vs.length?'<span class="mat-vaga">'+plural(vs.length,'vaga aberta','vagas abertas')+'</span>':'')+((c.familias||[]).length?'<small>Famílias: '+esc(c.familias.map(k=>cat.familias[k]?.nome||k).join(', '))+'</small>':'')+(nenhum?'<small class="mat-alerta">'+(cob==='rascunho'?'Só curso em rascunho para este cargo':'Nenhum curso liberado para este cargo')+'</small>':'')+'</th>'+
      cols.map(f=>{const r=recebe(f,c.id,cat);return r?'<td class="m-'+r.tipo+(f.publicada?'':' m-rascunho')+'"><span aria-hidden="true">✓ </span>'+esc(r.texto)+'</td>':'<td class="m-nao"><span class="visualmente-oculto">não recebe</span></td>';}).join('')+'</tr>';}).join('')+'</tbody></table></div>';
   };
   $('#mat-busca').oninput=tabela;$('#mat-trilha').onchange=tabela;$('#mat-vagas').onchange=tabela;tabela();
@@ -121,7 +139,9 @@ window.ESCOLA_CATALOGO=(()=>{
   $('#cat-add-trilha').onclick=()=>{ler();trilhas.push({id:'',novo:true,nome:'',descricao:'',ordem:(trilhas.length+1)*10});pintar();};
   $('#cat-form').onsubmit=async ev=>{
    ev.preventDefault();ler();const erroEl=$('#cat-erro');erroEl.hidden=true;
-   const falha=m=>{erroEl.textContent=m;erroEl.hidden=false;erroEl.focus?.();};
+   // Erro do servidor (409 do catálogo mudado, por exemplo) oferece recarregar a
+   // matriz: ela não se redesenha sozinha enquanto está aberta.
+   const falha=(m,recarregar=false)=>{erroEl.innerHTML=esc(m)+(recarregar?' <button type="button" class="botao mini suave" id="cat-recarregar">Recarregar a matriz</button>':'');const bt=$('#cat-recarregar');if(bt)bt.onclick=()=>{E().invalidar?.();render(app);};erroEl.hidden=false;erroEl.focus?.();};
    const montar=(lista,tipo)=>{const out={};for(const x of lista){if(!kebab(x.id))throw new Error(tipo+' "'+(x.nome||x.id||'sem nome')+'": identificador inválido. Use letras minúsculas, números e hífen.');if(Object.hasOwn(out,x.id))throw new Error(tipo+' "'+x.id+'" aparece mais de uma vez.');if(!textoOk(x.nome,120))throw new Error(tipo+' "'+x.id+'": informe o nome, com até 120 caracteres.');if(!opcionalOk(x.descricao,2000))throw new Error(tipo+' "'+x.id+'": descrição com mais de 2000 caracteres.');
      out[x.id]=tipo==='Família'?{nome:x.nome,descricao:x.descricao,cargos:x.cargos}:{nome:x.nome,descricao:x.descricao,ordem:x.ordem};
      if(tipo==='Família'&&x.cargos.length>200)throw new Error('Família "'+x.id+'": no máximo 200 cargos.');
@@ -129,8 +149,10 @@ window.ESCOLA_CATALOGO=(()=>{
     if(lista.length>50)throw new Error('Cadastre no máximo 50 '+(tipo==='Família'?'famílias':'trilhas')+'.');return out;};
    let catalogo;try{catalogo={familias:montar(familias,'Família'),trilhas:montar(trilhas,'Trilha')};}catch(e){falha(e.message);return;}
    const bt=$('#cat-salvar');bt.disabled=true;
-   const r=await E().executar({operacao:'configurarCatalogo',catalogo},async()=>{toast('Famílias e trilhas salvas no servidor.');await render(app);});
-   if(!r){bt.disabled=false;falha(E().estadoEnvio().erro||'Não foi possível salvar. Confira e tente novamente.');}
+   // Vai junto o catálogo que esta tela leu: se outra pessoa gravou depois, o
+   // servidor recusa (409) em vez de apagar a mudança dela.
+   const r=await E().executar({operacao:'configurarCatalogo',catalogo,catalogoAnterior:copia({familias:cat.familias,trilhas:cat.trilhas})},async()=>{toast('Famílias e trilhas salvas no servidor.');await render(app);});
+   if(!r){bt.disabled=false;falha(E().estadoEnvio().erro||'Não foi possível salvar. Confira e tente novamente.',true);}
   };
   pintar();
  }
@@ -218,11 +240,23 @@ window.ESCOLA_CATALOGO=(()=>{
   for(const [id,v] of Object.entries(objeto(pacote?.trilhas)?pacote.trilhas:{})){const antes=out.trilhas[id],depois={nome:typeof v?.nome==='string'?v.nome.trim():'',descricao:typeof v?.descricao==='string'?v.descricao.trim():(antes?.descricao||''),ordem:v?.ordem??antes?.ordem??0};out.trilhas[id]=depois;itens.push({tipo:'trilha',id,nome:depois.nome||id,acao:!antes?'nova':estavel(antes)===estavel(depois)?'sem mudança':'atualizada',bruto:v});}
   return {mesclado:out,itens,muda:estavel(out)!==estavel({familias:atual.familias||{},trilhas:atual.trilhas||{}})};
  }
+ // Mesma conta do servidor (camposPedagogicos do curso e pedag do material): na
+ // mesma versão, conteúdo diferente é recusado lá. A prévia acusa antes, para o
+ // plano ficar bloqueado e a importação não gravar o catálogo e parar pela metade.
+ const semConferencia=l=>Array.isArray(l)?l.map(x=>{const r=copia(x);if(objeto(r)){delete r.conferidoPor;delete r.conferidoEm;}return r;}):l;
+ const aulaPedagogica=e=>{const r=copia(e);if(!objeto(r))return r;for(const k of ['aprovacao','avaliacaoPendente','status','statusFonte','motivoBloqueio'])delete r[k];r.minimoAcerto=r.minimoAcerto??70;r.maxTentativas=r.maxTentativas??3;r.fontes=semConferencia(r.fontes);r.documentos=semConferencia(r.documentos);return r;};
+ const pedagogiaCurso=f=>estavel(copia({titulo:f?.titulo,etapas:(Array.isArray(f?.etapas)?f.etapas:[]).map(aulaPedagogica)}));
+ // O servidor guarda o link do vídeo num formato só; compara depois de normalizar.
+ const linkVideo=u=>{try{const x=new URL(u);const vid=x.hostname==='youtu.be'?x.pathname.slice(1):['youtube.com','www.youtube.com','m.youtube.com','www.youtube-nocookie.com'].includes(x.hostname)?(x.pathname==='/watch'?x.searchParams.get('v')||'':/^\/(?:embed|shorts|live)\/([A-Za-z0-9_-]{11})\/?$/.exec(x.pathname)?.[1]||''):'';return /^[A-Za-z0-9_-]{11}$/.test(vid)?'https://www.youtube.com/watch?v='+vid:u;}catch{return u;}};
+ const pedagogiaMaterial=m=>{const x=copia(m)||{};if(x.tipo==='video'){x.url=linkVideo(x.url);delete x.paginas;}return estavel(copia({tipo:x.tipo,titulo:x.titulo,objetivo:x.objetivo,url:x.url,paginas:x.paginas,nr:x.nr}));};
  // Monta a prévia: confere formato, referências e situação de cada item contra o
  // que existe hoje (painel e biblioteca da administração). Nada é gravado aqui.
+ // ctx.materiaisIntegrais (opcional): material existente com as páginas, para
+ // conferir o conteúdo na mesma versão (a lista da biblioteca vem sem páginas).
  async function planejar(pacote,ctx){
-  const plano={erros:[],catalogo:{presente:false,muda:false,itens:[],mesclado:{familias:{},trilhas:{}}},materiais:[],cursos:[],bloqueado:false};
-  const atual={familias:ctx.catalogo?.familias||{},trilhas:ctx.catalogo?.trilhas||{}};plano.catalogo.mesclado=copia(atual);
+  const atual={familias:ctx.catalogo?.familias||{},trilhas:ctx.catalogo?.trilhas||{}};
+  // anterior: o catálogo lido, que vai junto na gravação (409 se outra pessoa gravou depois).
+  const plano={erros:[],catalogo:{presente:false,muda:false,itens:[],mesclado:copia(atual),anterior:copia(atual)},materiais:[],cursos:[],bloqueado:false};
   if(!objeto(pacote)){plano.erros.push('O arquivo precisa ser um objeto JSON com versao, materiais e cursos.');plano.bloqueado=true;return plano;}
   if(!textoOk(pacote.versao,40))plano.erros.push('Informe a versão do pacote (campo "versao", até 40 caracteres).');
   if(!Array.isArray(pacote.materiais))plano.erros.push('O campo "materiais" precisa ser uma lista (pode ser vazia).');
@@ -231,7 +265,7 @@ window.ESCOLA_CATALOGO=(()=>{
   if(plano.erros.length){plano.bloqueado=true;return plano;}
   if(!pacote.materiais.length&&!pacote.cursos.length&&!pacote.catalogo)plano.erros.push('O pacote não tem catálogo, materiais nem cursos.');
   // Catálogo
-  if(pacote.catalogo){const m=mesclarCatalogo(atual,pacote.catalogo);plano.catalogo={presente:true,muda:m.muda,itens:m.itens,mesclado:m.mesclado};
+  if(pacote.catalogo){const m=mesclarCatalogo(atual,pacote.catalogo);plano.catalogo={presente:true,muda:m.muda,itens:m.itens,mesclado:m.mesclado,anterior:copia(atual)};
    for(const it of m.itens){it.erros=[];const v=it.bruto;
     if(!kebab(it.id))it.erros.push('Identificador inválido: use letras minúsculas, números e hífen (até 80).');
     if(!objeto(v)||!textoOk(v.nome,120))it.erros.push('Informe o nome, com até 120 caracteres.');
@@ -250,11 +284,12 @@ window.ESCOLA_CATALOGO=(()=>{
   for(const c of pacote.cursos)if(objeto(c)&&typeof c.id==='string')ctxV.cursosFinais.add(c.id);
   // Situação comum: novo, versão nova ou mesma versão; item liberado não é sobrescrito.
   // Público do pacote para item que já existe substitui o atual: a prévia avisa.
-  const publicoMuda=(item,existente,avisos)=>{if(!existente||!objeto(item.liberacao))return;const lista=l=>estavel(['pessoas','cargos','setores','familias'].map(k=>[...(Array.isArray(l?.[k])?l[k]:[])].sort()).concat([l?.todos===true]));const novo={...existente.liberacao,...item.liberacao};if(lista(novo)!==lista(existente.liberacao))avisos.push('O público (liberação) do pacote substitui o público atual deste item.');};
+  // Famílias null valem como ausentes no servidor (conserva as atuais).
+  const publicoMuda=(item,existente,avisos)=>{if(!existente||!objeto(item.liberacao))return;const lista=l=>estavel(['pessoas','cargos','setores','familias'].map(k=>[...(Array.isArray(l?.[k])?l[k]:[])].sort()).concat([l?.todos===true]));const novo={...existente.liberacao,...item.liberacao};if(item.liberacao.familias===null)novo.familias=existente.liberacao?.familias;if(lista(novo)!==lista(existente.liberacao))avisos.push('O público (liberação) do pacote substitui o público atual deste item.');};
   const situacao=(item,existente,erros,avisos)=>{
    if(!existente)return 'novo';
    if(existente.publicada===true)erros.push('Já está liberado para os alunos. A importação não grava por cima de item liberado: retire a liberação na tela antes, se quiser substituir.');
-   if(existente.versao===item.versao){avisos.push('Já existe nesta versão. Repetir a importação não duplica; conteúdo diferente na mesma versão é recusado pelo servidor (suba a versão no pacote).');return 'mesma_versao';}
+   if(existente.versao===item.versao)return 'mesma_versao';
    if((existente.versoesAnteriores||[]).some(v=>v.versao===item.versao))erros.push('A versão '+item.versao+' já foi usada neste item. Escolha uma versão nova.');
    return 'versao_nova';
   };
@@ -268,6 +303,13 @@ window.ESCOLA_CATALOGO=(()=>{
    // Sem "ativa" no pacote, vale a do servidor: importar não reativa item arquivado.
    const payload={...m,publicada:false,ativa:typeof m.ativa==='boolean'?m.ativa:existente?.ativa!==false,liberacao:m.liberacao?{pessoas:[],cargos:[],setores:[],todos:false,...m.liberacao}:copia(existente?.liberacao)||{pessoas:[],cargos:[],setores:[],todos:false}};
    delete payload.liberacao.cargosGestor;delete payload.liberacao.cargosSetores;
+   // O servidor grava o material como chega: campo que o pacote não traz sumiria.
+   // Assunto (filtro da Biblioteca) e tempo estimado não mudam o que se aprende:
+   // sem eles no pacote, ficam os atuais, como o prazo do curso.
+   if(existente)for(const k of ['categoria','duracaoMinutos'])if(!Object.hasOwn(m,k)&&existente[k]!=null&&existente[k]!=='')payload[k]=existente[k];
+   if(sit==='mesma_versao'){const base=ctx.materiaisIntegrais?.get(m.id)||existente;
+    if(pedagogiaMaterial(payload)!==pedagogiaMaterial(base))erros.push('O conteúdo mudou e a versão continua '+m.versao+'. Suba a versão do material no pacote: o servidor recusa conteúdo novo na mesma versão.');
+    else avisos.push('Já existe nesta versão, com o mesmo conteúdo. Repetir a importação não duplica.');}
    const tamanho=JSON.stringify(payload).length;if(tamanho>500000)erros.push('O material passa de 500 mil caracteres, limite do servidor.');else if(sit==='versao_nova'&&tamanho>200000)avisos.push('Versão nova guarda a anterior inteira no histórico; o servidor recusa se o total passar de 500 mil caracteres.');
    plano.materiais.push({id:m.id||'',titulo:m.titulo||m.id||'',versao:m.versao||'',tipo:'material',situacao:sit,erros,avisos,payload,expectedRevision:existente?._serverRevision||0,mutationId:await idDeEnvio('m',m),tamanho});
   }
@@ -300,6 +342,9 @@ window.ESCOLA_CATALOGO=(()=>{
    for(const k of ['cargosGestor','cargosSetores','cargosSetoresEfetivos'])delete payload.liberacao[k];
    if(!c.prazo&&existente?.prazo)payload.prazo=existente.prazo;
    if(!payload.prazo)delete payload.prazo;
+   if(sit==='mesma_versao'){
+    if(pedagogiaCurso(payload)!==pedagogiaCurso(existente))erros.push('O título ou as aulas mudaram e a versão continua '+c.versao+'. Suba a versão do curso no pacote: o servidor recusa conteúdo novo na mesma versão.');
+    else avisos.push('Já existe nesta versão, com o mesmo conteúdo. Repetir a importação não duplica.');}
    if(JSON.stringify(payload).length>500000)erros.push('O curso passa de 500 mil caracteres, limite do servidor.');
    plano.cursos.push({id:c.id||'',titulo:c.titulo||c.id||'',versao:c.versao||'',tipo:'curso',situacao:sit,erros,avisos,payload,expectedRevision:existente?._serverRevision||0,mutationId:await idDeEnvio('c',c),pre:Array.isArray(c.catalogo?.preRequisitos)?c.catalogo.preRequisitos:[]});
   }
@@ -325,7 +370,7 @@ window.ESCOLA_CATALOGO=(()=>{
   if(plano.bloqueado)throw new Error('Corrija os erros do pacote antes de importar.');
   if(plano.catalogo.presente){const it={tipo:'catalogo',id:'catalogo',titulo:'Famílias e trilhas'};
    if(!plano.catalogo.muda)marcar(it,'sem_mudanca','O catálogo já tinha estas famílias e trilhas.');
-   else try{await api('escola',{operacao:'configurarCatalogo',catalogo:plano.catalogo.mesclado});marcar(it,'gravado','Catálogo atualizado.');}catch(e){parar=semResposta(e)?'Sem resposta do servidor ao gravar o catálogo.':'O catálogo não foi gravado: '+(e.message||'erro')+'.';marcar(it,'erro',e.message||'Falha ao gravar o catálogo.');}}
+   else try{await api('escola',{operacao:'configurarCatalogo',catalogo:plano.catalogo.mesclado,catalogoAnterior:plano.catalogo.anterior});marcar(it,'gravado','Catálogo atualizado.');}catch(e){parar=semResposta(e)?'Sem resposta do servidor ao gravar o catálogo.':'O catálogo não foi gravado: '+(e.message||'erro')+'.';marcar(it,'erro',e.message||'Falha ao gravar o catálogo.');}}
   const falhou=new Set();
   for(const m of plano.materiais){
    if(parar){marcar(m,'nao_enviado',parar);continue;}
@@ -345,9 +390,9 @@ window.ESCOLA_CATALOGO=(()=>{
  const SITUACOES={novo:'Novo',versao_nova:'Versão nova',mesma_versao:'Mesma versão',erro:'Com erro'};
  const ESTADO_ENVIO={gravado:'Gravado',repetido:'Já estava gravado',sem_mudanca:'Sem mudança',erro:'Erro',nao_enviado:'Não enviado'};
  function itemPrevia(i){return '<li class="imp-item'+(i.erros.length?' imp-erro':'')+'"><div><b>'+esc(i.titulo||i.id||'Sem identificador')+'</b><small>'+esc([i.id,i.versao?'versão '+i.versao:''].filter(Boolean).join(' · '))+'</small></div><span class="imp-situacao">'+esc(i.erros.length?'Com erro':SITUACOES[i.situacao]||i.acao||'')+'</span>'+(i.erros.length?'<ul class="imp-msgs">'+i.erros.map(m=>'<li>'+esc(m)+'</li>').join('')+'</ul>':'')+((i.avisos||[]).length?'<ul class="imp-msgs imp-avisos">'+i.avisos.map(m=>'<li>'+esc(m)+'</li>').join('')+'</ul>':'')+'</li>';}
- function previaHtml(p){
+ function previaHtml(p,arquivo=''){
   const contar=(l,s)=>l.filter(i=>!i.erros.length&&i.situacao===s).length,erros=p.erros.length+p.catalogo.itens.filter(i=>i.erros.length).length+p.materiais.filter(i=>i.erros.length).length+p.cursos.filter(i=>i.erros.length).length;
-  return '<section class="card" id="imp-previa"><h2>Prévia da importação</h2><div class="edu-resumo"><span><strong>'+p.materiais.length+'</strong> '+(p.materiais.length===1?'material':'materiais')+' ('+plural(contar(p.materiais,'novo'),'novo','novos')+', '+plural(contar(p.materiais,'versao_nova'),'versão nova','versões novas')+')</span><span><strong>'+p.cursos.length+'</strong> '+(p.cursos.length===1?'curso':'cursos')+' ('+plural(contar(p.cursos,'novo'),'novo','novos')+', '+plural(contar(p.cursos,'versao_nova'),'versão nova','versões novas')+')</span><span><strong>'+erros+'</strong> '+(erros===1?'item com erro':'itens com erro')+'</span></div>'+
+  return '<section class="card" id="imp-previa"><h2>Prévia da importação</h2>'+(arquivo?'<p class="dica">Arquivo lido: '+esc(arquivo)+'</p>':'')+'<div class="edu-resumo"><span><strong>'+p.materiais.length+'</strong> '+(p.materiais.length===1?'material':'materiais')+' ('+plural(contar(p.materiais,'novo'),'novo','novos')+', '+plural(contar(p.materiais,'versao_nova'),'versão nova','versões novas')+')</span><span><strong>'+p.cursos.length+'</strong> '+(p.cursos.length===1?'curso':'cursos')+' ('+plural(contar(p.cursos,'novo'),'novo','novos')+', '+plural(contar(p.cursos,'versao_nova'),'versão nova','versões novas')+')</span><span><strong>'+erros+'</strong> '+(erros===1?'item com erro':'itens com erro')+'</span></div>'+
    (p.erros.length?'<div class="aviso amarelo" role="alert"><ul>'+p.erros.map(m=>'<li>'+esc(m)+'</li>').join('')+'</ul></div>':'')+
    (p.catalogo.presente?'<h3>Famílias e trilhas</h3><p class="dica">'+(p.catalogo.muda?'O catálogo será atualizado. Nada do que existe é excluído; cargos são somados às famílias.':'O catálogo já tem estas famílias e trilhas.')+'</p><ul class="imp-lista">'+p.catalogo.itens.map(i=>itemPrevia({...i,titulo:(i.tipo==='familia'?'Família: ':'Trilha: ')+i.nome,situacao:'',acao:i.acao==='nova'?'Nova':i.acao==='atualizada'?'Atualizada':'Sem mudança'})).join('')+'</ul>':'')+
    '<h3>Materiais</h3>'+(p.materiais.length?'<ul class="imp-lista">'+p.materiais.map(itemPrevia).join('')+'</ul>':'<p class="dica">Nenhum material no pacote.</p>')+
@@ -358,18 +403,26 @@ window.ESCOLA_CATALOGO=(()=>{
  function importar(app){
   if(!souAdmin()){A().layout(app,'Importação restrita','Somente a administração importa pacotes de cursos e materiais.');return;}
   const el=A().layout(app,'Importar pacote','Traga cursos e materiais preparados fora do sistema. Tudo entra como rascunho para revisão.','<a class="botao mini suave" href="#/escola">← Gestão de cursos</a>');
-  let plano=null,pacote=null,rodando=false;
+  let plano=null,pacote=null,rodando=false,nomeArquivo='';
   el.innerHTML='<section class="card"><h2>1. Escolha o arquivo do pacote</h2><div class="campo"><label for="imp-arquivo">Arquivo .json do seu computador</label><input id="imp-arquivo" type="file" accept=".json,application/json"></div><p class="dica">O arquivo é lido somente neste navegador e enviado item a item, pelas mesmas regras da tela. Não guarde pacotes com conteúdo da empresa em pastas públicas.</p>'+
    '<details><summary>Formato do pacote</summary><p>Um objeto JSON com <b>versao</b> (do pacote), <b>materiais</b> (lista), <b>cursos</b> (lista) e, se quiser, <b>catalogo</b> com <b>familias</b> e <b>trilhas</b>. Os campos de cada material e curso são os mesmos das telas de edição: o curso tem <b>etapas</b> (as aulas) e pode ter <b>catalogo</b> (trilha, área, nível, carga em minutos, ordem, famílias, cursos recomendados e código).</p><pre class="imp-exemplo">'+esc(JSON.stringify({versao:'2026.10.14',catalogo:{familias:{'familia-exemplo':{nome:'Família de exemplo',cargos:['cargo-exemplo']}},trilhas:{'trilha-exemplo':{nome:'Trilha de exemplo',ordem:1}}},materiais:[{id:'material-exemplo',tipo:'texto',titulo:'Material de exemplo',versao:'1.0',setor:'Setor de exemplo',objetivo:'Objetivo de exemplo',paginas:['Texto fictício']}],cursos:[{id:'curso-exemplo',titulo:'Curso de exemplo',versao:'1.0',setor:'Setor de exemplo',catalogo:{trilha:'trilha-exemplo',nivel:'essencial',cargaMinutos:30},etapas:[{id:'aula-1',titulo:'Aula de exemplo',tipo:'aula',conteudo:{aprender:'…',importancia:'…',comoFazer:'…',erros:'…',evidencia:'…'},materiais:[{id:'material-exemplo'}]}]}]},null,2))+'</pre></details></section><div id="imp-area"></div><section id="imp-resultado" aria-live="polite"></section>';
   const area=$('#imp-area'),resultado=$('#imp-resultado'),input=$('#imp-arquivo');
-  const contexto=async()=>{const [p,b]=await Promise.all([E().obterPainel({forcar:true}),A().obterBiblioteca({forcar:true})]);return {formacoes:p.formacoes||[],materiais:b.materiais||[],catalogo:E().catalogoCfg(p),cargosRH:Array.isArray(p.gestao?.cargosRH)?p.gestao.cargosRH:null};};
-  const mostrar=()=>{area.innerHTML=previaHtml(plano);$('#imp-outro').onclick=()=>{input.value='';plano=null;pacote=null;area.innerHTML='';resultado.innerHTML='';input.focus?.();};$('#imp-confirmar').onclick=confirmar;};
+  // A lista da biblioteca vem sem as páginas. Para o material do pacote que já
+  // existe na mesma versão, abre o material inteiro e confere o conteúdo.
+  const contexto=async pac=>{const [p,b]=await Promise.all([E().obterPainel({forcar:true}),A().obterBiblioteca({forcar:true})]);
+   const materiais=b.materiais||[],integrais=new Map();
+   const mesmos=(Array.isArray(pac?.materiais)?pac.materiais:[]).filter(m=>objeto(m)&&typeof m.id==='string'&&materiais.some(x=>x.id===m.id&&x.versao===m.versao));
+   for(const m of mesmos){const r=await A().api('abrirMaterial',{materialId:m.id});if(r?.material)integrais.set(m.id,r.material);}
+   return {formacoes:p.formacoes||[],materiais,materiaisIntegrais:integrais,catalogo:E().catalogoCfg(p),cargosRH:Array.isArray(p.gestao?.cargosRH)?p.gestao.cargosRH:null};};
+  const mostrar=()=>{area.innerHTML=previaHtml(plano,nomeArquivo);$('#imp-outro').onclick=()=>{input.value='';plano=null;pacote=null;area.innerHTML='';resultado.innerHTML='';input.focus?.();};$('#imp-confirmar').onclick=confirmar;};
   input.onchange=async()=>{
    const file=input.files?.[0];resultado.innerHTML='';plano=null;if(!file)return;
    if(file.size>20*1024*1024){area.innerHTML='<div class="aviso amarelo" role="alert">O arquivo passa de 20 MB. Divida o pacote em partes menores.</div>';return;}
    area.innerHTML='<p class="dica" role="status">Conferindo o pacote com o que já existe na escola…</p>';
-   try{const texto=await file.text();try{pacote=JSON.parse(texto);}catch{throw new Error('O arquivo não é um JSON válido. Confira vírgulas, aspas e chaves.');}
-    plano=await planejar(pacote,await contexto());mostrar();
+   // O campo é limpo depois de ler: escolher de novo o mesmo arquivo, já
+   // corrigido, dispara a leitura outra vez (sem isso o navegador não avisa).
+   try{const texto=await file.text();input.value='';nomeArquivo=file.name||'';try{pacote=JSON.parse(texto);}catch{throw new Error('O arquivo não é um JSON válido. Confira vírgulas, aspas e chaves.');}
+    plano=await planejar(pacote,await contexto(pacote));mostrar();
    }catch(e){area.innerHTML='<div class="aviso amarelo" role="alert">'+esc(e.message||'Não foi possível ler o pacote.')+'</div>';}
   };
   async function confirmar(){
@@ -378,7 +431,7 @@ window.ESCOLA_CATALOGO=(()=>{
    try{
     // Confere de novo antes de gravar: se a escola mudou desde a prévia, mostra a nova.
     resultado.innerHTML='<p class="dica">Conferindo a escola antes de gravar…</p>';
-    const novo=await planejar(pacote,await contexto());
+    const novo=await planejar(pacote,await contexto(pacote));
     if(assinaturaPlano(novo)!==assinaturaPlano(plano)){plano=novo;mostrar();resultado.innerHTML='<div class="aviso amarelo" role="alert">A escola mudou desde a prévia. Confira a prévia atualizada e confirme de novo.</div>';return;}
     plano=novo;const total=(plano.catalogo.presente?1:0)+plano.materiais.length+plano.cursos.length;
     const pintar=(res,final)=>{const ok=res.filter(r=>['gravado','repetido','sem_mudanca'].includes(r.estado)).length;

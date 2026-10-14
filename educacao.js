@@ -126,7 +126,9 @@ window.EDUCACAO = (() => {
     if(precisaConferir())revalidar(opcoes.aoMudar);
     return snapshot;
   }
-  function limparCacheAparelho(){snapshot=null;snapshotEm=0;snapshotDoAparelho=false;return aparelho.limpar();}
+  // A biblioteca guarda na memória a última consulta e a que está em andamento:
+  // sai junto, para o próximo crachá do aparelho não receber a de quem saiu.
+  function limparCacheAparelho(){snapshot=null;snapshotEm=0;snapshotDoAparelho=false;try{window.ACADEMIA?.zerar?.();}catch{/* biblioteca ainda não carregada */}return aparelho.limpar();}
   // Gravação feita fora do executar (importação de pacote): mesma regra de depois
   // de gravar, a próxima tela espera o servidor.
   function invalidar(){snapshot=null;snapshotDoAparelho=false;exigirFresco=true;mutacoes++;aparelho.apagar('painel');aparelho.apagar('biblioteca');}
@@ -187,7 +189,7 @@ window.EDUCACAO = (() => {
       (!pessoa?'<div class="aviso amarelo"><b>Vínculo com o RH pendente.</b> A gestão precisa conferir sua conta para liberar e registrar seus cursos. A biblioteca continua disponível.</div>':'')+
       '<section class="edu-proximo"><div><div class="eyebrow">SEU PRÓXIMO PASSO</div><h2>'+esc(proximo.titulo)+'</h2><p>'+esc(proximo.texto)+'</p></div><a class="botao" href="'+proximo.href+'">'+proximo.botao+'</a></section>'+
       '<div class="edu-resumo"><span><strong>'+liberadas.length+'</strong> '+(liberadas.length===1?'curso liberado':'cursos liberados')+'</span><span><strong>'+pontos+'</strong> pontos de aprendizagem</span><a href="#/conquistas"><strong>'+conquistas.length+'</strong> conquistas pessoais →</a></div>'+
-      '<section aria-labelledby="edu-minhas"><div class="secao-titulo"><h2 id="edu-minhas">Meus cursos</h2><a href="#/catalogo">Ver o catálogo completo</a></div><div class="edu-grid">'+(liberadas.length?liberadas.map(cartao).join(''):'<div class="card edu-vazio"><h3>Nenhum curso liberado ainda</h3><p>A gestão libera os cursos pelo seu cargo no RH, pela família de cargos, pelo setor ou para você. No catálogo você vê o que existe em cada trilha.</p></div>')+'</div></section>'+
+      '<section aria-labelledby="edu-minhas"><div class="secao-titulo"><h2 id="edu-minhas">Meus cursos</h2><a href="#/catalogo">Ver o catálogo completo</a></div><div class="edu-grid">'+(liberadas.length?liberadas.map(cartao).join(''):'<div class="card edu-vazio"><h3>Nenhum curso liberado ainda</h3><p>A gestão libera os cursos pelo seu cargo no RH, pela família de cargos, pelo setor ou para você. No catálogo você vê as trilhas e os cursos liberados para você.</p></div>')+'</div></section>'+
       '<nav class="edu-atalhos" aria-label="Mais do seu aprendizado"><a href="#/avaliacoes">Minhas avaliações</a><a href="#/conquistas">Meu histórico</a><a href="#/perfil">Perfil e desenvolvimento</a><a href="#/meus">Atribuições anteriores'+(anteriores.length?' ('+anteriores.length+' pendentes)':'')+'</a></nav>'+referencias(liberadas)+'<p class="dica edu-rodape">'+(snapshot.atualizadoEm?'Consultado em '+fmtDataHora(snapshot.atualizadoEm)+'. ':'')+'Pontos reconhecem aprendizagem. A autorização para executar uma atividade depende da validação responsável.</p></div>';
     fim(app);
   }
@@ -312,14 +314,14 @@ window.EDUCACAO = (() => {
     if(novo)f.etapas.forEach((e,i)=>{if(i)e.prerequisitos=[f.etapas[i-1].id];});
     const g=snapshot.gestao,pessoas=g.pessoas || [],lib=f.liberacao || {},cat=f.catalogo || {},catalogo=catalogoCfg(),admin=souAdmin();
     const pid=p=>p.colaboradorId || String(p.id || '').replace(/^p-/,'');
-    // Funções do RH: todos os cargos do cadastro, inclusive os que ainda não têm
+    // Cargos do RH: todos os cargos do cadastro, inclusive os que ainda não têm
     // ninguém (vaga futura), com nome e área. Servidor antigo sem cargosRH: os
     // cargos das pessoas, como antes.
     const porCargo=new Map();for(const p of pessoas)if(p.cargoId)porCargo.set(p.cargoId,(porCargo.get(p.cargoId) || 0)+1);
     const vagas=new Map();for(const v of g.vagasRH || [])if(v.cargoId)vagas.set(v.cargoId,(vagas.get(v.cargoId) || 0)+1);
     const cargos=Array.isArray(g.cargosRH)?g.cargosRH:[...new Map(pessoas.filter(p=>p.cargoId).map(p=>[p.cargoId,{id:p.cargoId,nome:p.funcao || p.cargoId,area:p.area || ''}])).values()];
     const opcoesCargos=cargos.map(c=>({valor:c.id,texto:c.nome || c.id,detalhe:[c.area,porCargo.get(c.id)?porCargo.get(c.id)+(porCargo.get(c.id)===1?' pessoa':' pessoas'):'ninguém no cargo hoje',vagas.get(c.id)?'vaga aberta':''].filter(Boolean).join(' · ')}))
-      .concat((lib.cargos || []).filter(id=>!cargos.some(c=>c.id===id)).map(id=>({valor:id,texto:id,detalhe:'Função anterior, não encontrada no RH (conferir)'})));
+      .concat((lib.cargos || []).filter(id=>!cargos.some(c=>c.id===id)).map(id=>({valor:id,texto:id,detalhe:'Cargo anterior, não encontrado no RH (conferir)'})));
     const opcoesPessoas=pessoas.map(p=>({valor:pid(p),texto:p.nome || pid(p),detalhe:[p.funcao,p.area || p.setor].filter(Boolean).join(' · ')}))
       .concat((lib.pessoas || []).filter(id=>!pessoas.some(p=>pid(p)===id)).map(id=>({valor:id,texto:'Pessoa '+id,detalhe:'Liberação anterior fora da lista atual (desligada ou fora do seu escopo)'})));
     const opcoesFamilias=Object.entries(catalogo.familias).map(([k,v])=>({valor:k,texto:v.nome || k,detalhe:(v.cargos || []).length+((v.cargos || []).length===1?' cargo':' cargos')}));
@@ -335,7 +337,7 @@ window.EDUCACAO = (() => {
         listaMarcar('edu-cat-familias','Famílias de cargos indicadas',opcoesFamilias.concat(familiasFora(cat.familias || [])),cat.familias || [],{dica:'Indicar não libera: para liberar, escolha o público abaixo.'})+
         listaMarcar('edu-cat-pre','Cursos recomendados antes deste',outros.map(x=>({valor:x.id,texto:x.titulo,detalhe:x.publicada?'liberado':'em preparação'})).concat((cat.preRequisitos || []).filter(id=>!outros.some(x=>x.id===id)).map(id=>({valor:id,texto:id,detalhe:'curso fora da sua lista (conferir)'}))),cat.preRequisitos || [],{dica:'Recomendação de ordem: não bloqueia o aluno. Até 20 cursos.'})+'</section>'+
       '<section class="card"><h2>Quem pode aprender neste curso?</h2><p>Libere por cargo do RH, família de cargos, pessoa ou setor. Essa escolha não modifica o cargo no RH.</p>'+(!admin?'<p class="dica">Os cargos serão liberados somente nos setores sob sua gestão.</p>':lib.cargosGestor?'<p class="dica">A liberação por cargo mantém o limite de setores definido na liberação anterior.</p>':'')+
-        '<div class="edu-form-grid">'+listaMarcar('edu-lib-cargos','Funções do RH',opcoesCargos,lib.cargos || [],{dica:'Todos os cargos do RH, inclusive os que ainda não têm ninguém: quem for contratado no cargo recebe o curso.'})+
+        '<div class="edu-form-grid">'+listaMarcar('edu-lib-cargos','Cargos do RH',opcoesCargos,lib.cargos || [],{dica:'Todos os cargos do RH, inclusive os que ainda não têm ninguém: quem for contratado no cargo recebe o curso.'})+
         (admin?listaMarcar('edu-lib-familias','Famílias de cargos',opcoesFamilias.concat(familiasFora(lib.familias || [])),lib.familias || [],{dica:'Quem tem no RH um cargo da família recebe o curso. As famílias são organizadas na Matriz de cargos.'}):'<div class="campo"><p><b>Famílias de cargos</b></p><p class="dica">'+((lib.familias || []).length?'Também liberado para: '+esc((lib.familias || []).map(k=>catalogo.familias[k]?.nome || k).join(', '))+'. ':'')+'Somente a administração libera por família.</p></div>')+
         listaMarcar('edu-lib-pessoas','Pessoas (vínculo RH)',opcoesPessoas,lib.pessoas || [])+
         listaMarcar('edu-lib-setores','Setores',opcoesSetores,lib.setores || [],{dica:'O setor é comparado com o setor e a área da ficha no RH e pode não alcançar ninguém. Prefira cargo ou família.'})+'</div>'+

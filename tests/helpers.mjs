@@ -12,7 +12,18 @@ export function jwt(payload = {}) {
   return `${header}.${data}.${createHmac('sha256', secret).update(`${header}.${data}`).digest('base64url')}`;
 }
 
-export function backend({ rows = [], config = {}, queryError = false, revocationError = false, revoked = false, tables = {}, persistWrites = false, storageFiles = {} } = {}) {
+// Crachá do aluno: assinado com a chave derivada HMAC-SHA256(segredo, "pops-aluno-v1"),
+// nunca com a base. chave:'base' assina com a base, para provar que não passa.
+export const chaveAluno = createHmac('sha256', secret).update('pops-aluno-v1').digest();
+export function jwtAluno(payload = {}, { chave = chaveAluno, cabecalho = { alg: 'HS256', typ: 'JWT' } } = {}) {
+  const agora = Math.floor(Date.now()/1000), colaboradorId = payload.colaboradorId ?? 'rh1';
+  const header = Buffer.from(JSON.stringify(cabecalho)).toString('base64url');
+  const data = Buffer.from(JSON.stringify({ sis: 'pops-aluno', papel: 'aluno', sub: 'aluno:' + colaboradorId, colaboradorId, nome: 'Ana', iat: agora, exp: agora + 7*86400, ...payload })).toString('base64url');
+  return `${header}.${data}.${createHmac('sha256', chave === 'base' ? secret : chave).update(`${header}.${data}`).digest('base64url')}`;
+}
+export const lerPayload = token => JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
+
+export function backend({ rows = [], config = {}, queryError = false, revocationError = false, revoked = false, tables = {}, persistWrites = false, storageFiles = {}, rpcs = {} } = {}) {
   let handler;
   const writes = [];
   const queries = [];
@@ -22,6 +33,8 @@ export function backend({ rows = [], config = {}, queryError = false, revocation
     rpc: async (name, args) => {
       if (name === 'acesso_revogado') return { data: revoked, error: revocationError ? { message: 'banco fora' } : null };
       writes.push({ rpc: name, args });
+      // Rotinas do banco trocadas pelo teste (a real, no PGlite, ou uma falha).
+      if (Object.hasOwn(rpcs, name)) return rpcs[name](args);
       if (persistWrites && name === 'pops_gravar') {
         if(queryError)return {data:null,error:{message:'falha de banco'}};
         const index=rows.findIndex(r=>r.colecao===args.p_colecao&&r.id===args.p_id), old=rows[index];
@@ -75,22 +88,27 @@ export function backend({ rows = [], config = {}, queryError = false, revocation
     }
   };
   const ctx = vm.createContext({ __sb: sb, Deno:{env:{get:k=>k==='EQUIPE_JWT_SECRET'?secret:k==='POPS_TOKEN'?'maquina-ficticia':'http://exemplo.test'},serve:fn=>handler=fn}, crypto:webcrypto, TextEncoder,TextDecoder,Uint8Array,atob,btoa,Request,Response,URL,console:{error(){}} });
-  const escolaSource=fs.readFileSync(new URL('supabase/functions/_shared/escola.ts',root),'utf8').replace('export async function escola','async function escola');
-  const source=fs.readFileSync(new URL('supabase/functions/pops-sync/index.ts',root),'utf8').replace(/^import .*createClient.*;$/m,'const createClient = () => __sb;').replace(/^import .*escola.*;$/m,()=> '{ '+escolaSource+'; globalThis.__escola = escola; } const escola = globalThis.__escola;');
+  // O módulo da escola entra no mesmo script, sem os export; o que o pops-sync
+  // importa dele (escola e entradaAlunoCfg) passa pelo global do contexto.
+  const escolaSource=fs.readFileSync(new URL('supabase/functions/_shared/escola.ts',root),'utf8').replace(/^export /gm,'');
+  const source=fs.readFileSync(new URL('supabase/functions/pops-sync/index.ts',root),'utf8').replace(/^import .*createClient.*;$/m,'const createClient = () => __sb;').replace(/^import .*escola.*;$/m,()=> '{ '+escolaSource+'; globalThis.__escola = escola; globalThis.__entradaAlunoCfg = entradaAlunoCfg; } const escola = globalThis.__escola, entradaAlunoCfg = globalThis.__entradaAlunoCfg;');
   // Relógio do contexto avançável, para testar caches com validade.
   ctx.__deslocamentoMs=0;
   vm.runInContext('{const real=Date.now;Date.now=()=>real()+globalThis.__deslocamentoMs;}',ctx);
   vm.runInContext(stripTypeScriptTypes(source),ctx);
-  // opcoes.xToken simula a automação (backup do Hub); opcoes.semCracha omite o crachá.
+  // opcoes.xToken simula a automação (backup do Hub); opcoes.semCracha omite o crachá;
+  // opcoes.token manda um crachá pronto (o do aluno); opcoes.headers soma cabeçalhos (IP).
   async function call(body,payload={},opcoes={}) {
-    const headers={'content-type':'application/json'};
-    if(!opcoes.semCracha)headers.authorization='Bearer '+jwt(payload);
+    const headers={'content-type':'application/json',...(opcoes.headers||{})};
+    if(opcoes.token)headers.authorization='Bearer '+opcoes.token;
+    else if(!opcoes.semCracha)headers.authorization='Bearer '+jwt(payload);
     if(opcoes.xToken)headers['x-token']=opcoes.xToken;
     const response=await handler(new Request('http://local.test',{method:'POST',headers,body:JSON.stringify(body)}));
     return {status:response.status,body:await response.json()};
   }
   const avancar=ms=>{ctx.__deslocamentoMs+=ms;};
-  return {call,writes,queries,avancar};
+  // contexto: funções do servidor (lerCracha, lerCrachaAluno) para conferir direto.
+  return {call,writes,queries,avancar,contexto:ctx};
 }
 
 export function store({initial={},fetcher=async()=>({ok:true,json:async()=>({ok:true})}),online=false}={}) {

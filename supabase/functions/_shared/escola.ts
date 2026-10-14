@@ -67,6 +67,19 @@ const lerRH = (sb: any, conferir: any, colecao: string): Promise<any[]> => {
   valor.catch(() => { if (cacheRH.get(colecao)?.valor === valor) cacheRH.delete(colecao); });
   return valor;
 };
+// Operações da escola que o crachá do aluno alcança: a visão de aluno do painel,
+// o registro do próprio aprendizado, a biblioteca liberada para ele e as NRs e o
+// perfil dele. Qualquer outra (salvar, aprovar, validar, reciclar, configurar,
+// cadastrar material, instrumento ou capacitação, anexar PDF) é recusada.
+const OPS_ALUNO = new Set(['painel', 'registrar', 'academia.biblioteca', 'academia.abrirMaterial', 'academia.registrarMaterial', 'academia.arquivoPDF', 'academia.capacitacoes', 'academia.perfis', 'academia.responderPerfil']);
+// Entrada do aluno na configuração: ausente vale como LIGADA ("já faz
+// automático"), validade de 1 a 30 dias, 7 por padrão. Uma regra só: o pops-sync
+// usa esta mesma função para conferir o crachá do aluno a cada chamada.
+export const entradaAlunoCfg = (cfg: any) => {
+  const e = cfg?.educacao?.entradaAluno, dias = e?.validadeDias;
+  return { ativa: e?.ativa !== false, validadeDias: Number.isInteger(dias) && dias >= 1 && dias <= 30 ? dias : 7,
+    ...(typeof e?.ligadaEm === 'string' ? { ligadaEm: e.ligadaEm } : {}), ...(typeof e?.atualizadoEm === 'string' ? { atualizadoEm: e.atualizadoEm, atualizadoPor: String(e.atualizadoPor || '') } : {}) };
+};
 export async function escola(body: any, ctx: any) {
   const { sb, cracha, maquina, identidadeRH, config, conferir, Falha } = ctx;
   const fail = (m: string, s = 400): never => { throw new Falha(m, s); };
@@ -81,8 +94,12 @@ export async function escola(body: any, ctx: any) {
   };
   const registro = (col: string, rid: string) => lembrar('r:' + col + ':' + rid, () => ctx.registro(col, rid));
   if (maquina || !cracha) fail('Entre com sua conta pessoal para acessar a escola.', 401);
+  // Aluno (entrada pelo ID do RH e primeiro nome): só o próprio aprendizado, antes
+  // de qualquer leitura. Nunca gestão, configuração, validação ou cadastro.
+  const aluno = cracha.papel === 'aluno';
+  if (aluno && !OPS_ALUNO.has(String(body.operacao || 'painel'))) fail('A entrada de aluno não permite esta operação.', 403);
   const usuario = norm(cracha.sub), admin = cracha.papel === 'admin';
-  const cfg = await config(), setores = cfg.gestores?.[usuario] || [];
+  const cfg = await config(), setores = aluno ? [] : cfg.gestores?.[usuario] || [];
   const gestor = cracha.papel === 'gestor' && Array.isArray(setores) && setores.length > 0;
   const gerencia = (f: any) => admin || (gestor && setores.map(norm).includes(norm(f.setor)));
   const identidade = await identidadeRH(cracha), pessoa = identidade.vinculada ? identidade.pessoa : null;
@@ -274,7 +291,28 @@ export async function escola(body: any, ctx: any) {
     return Object.keys(out).length?out:null;
   };
   const op=String(body.operacao || 'painel');
-  if(op.startsWith('academia.'))return academia(body,{sb,usuario,admin,gestor,setores,pessoa,cfg,gerencia,registro,todos,pessoasRH,idApr,gravar,fail,id,aplicarFamilias});
+  if(op.startsWith('academia.'))return academia(body,{sb,usuario,admin,gestor,aluno,setores,pessoa,cfg,gerencia,registro,todos,pessoasRH,idApr,gravar,fail,id,aplicarFamilias});
+  // Entrada do aluno (ID do RH e primeiro nome): ligada por padrão. Só a
+  // administração liga, desliga e muda a validade do crachá do aluno (1 a 30 dias).
+  // Patch só em educacao, levando o resto (instrutores, catálogo), com o valor
+  // anterior para o banco recusar se outra pessoa gravou no meio (como no catálogo).
+  if(op==='configurarEntradaAluno') {
+    if(!admin)fail('Somente a administração configura a entrada do aluno.',403);
+    if(typeof body.ativa!=='boolean')fail('Informe se a entrada do aluno fica ligada ou desligada.');
+    if(!inteiro(body.validadeDias,1,30))fail('A validade da entrada do aluno vai de 1 a 30 dias.');
+    const antes=entradaAlunoCfg(cfg),lida=body.entradaAnterior;
+    if(antes.ativa===body.ativa&&antes.validadeDias===body.validadeDias)return {ok:true,entradaAluno:antes,repetido:true};
+    // A tela manda o que leu: se mudou desde então, não grava por cima.
+    if(lida!=null&&(!objeto(lida)||lida.ativa!==antes.ativa||lida.validadeDias!==antes.validadeDias))fail('A entrada do aluno mudou desde que você abriu esta tela. Recarregue e refaça a alteração; nada foi gravado.',409);
+    const agora=new Date().toISOString();
+    // Religar marca a hora: crachá emitido antes de desligar não volta a valer.
+    const nova:any={ativa:body.ativa,validadeDias:body.validadeDias,atualizadoEm:agora,atualizadoPor:usuario};
+    if(body.ativa&&!antes.ativa)nova.ligadaEm=agora;else if(antes.ligadaEm)nova.ligadaEm=antes.ligadaEm;
+    const educacao={...(cfg.educacao||{}),entradaAluno:nova};
+    const res=await sb.rpc('pops_configurar',{p_patch:{educacao},p_anterior:Object.hasOwn(cfg,'educacao')?{educacao:cfg.educacao}:{}});
+    if(res.error?.code==='40001')fail('A configuração mudou. Atualize antes de salvar.',409);
+    conferir(res);return {ok:true,entradaAluno:entradaAlunoCfg({educacao})};
+  }
   if(op==='configurarCatalogo') {
     if(!admin)fail('Somente a administração organiza o catálogo da escola.',403);
     const c=body.catalogo;
@@ -341,7 +379,8 @@ export async function escola(body: any, ctx: any) {
   if(op==='painel') {
     // Quem gerencia monta a grade com todos os cargos e vagas do RH; aluno não paga essa leitura.
     const gere=admin||gestor;
-    const [fs,rs,ps,cargos,vagas]=await Promise.all([todos('formacoes'),todos('aprendizagem'),pessoasRH(),gere?cargosRH():null,gere?vagasRH():null]);
+    // O aluno não paga nem recebe a lista de pessoas: a visão dele não a usa.
+    const [fs,rs,ps,cargos,vagas]=await Promise.all([todos('formacoes'),todos('aprendizagem'),aluno?[]:pessoasRH(),gere?cargosRH():null,gere?vagasRH():null]);
     const pessoais=rs.filter(r=>pessoa && r.colaboradorId===pessoa.colaboradorId);
     const visiveis=fs.filter(f=>gerencia(f)||liberada(f,pessoa,cfg)||pessoais.some(r=>r.formacaoId===f.id)||(pessoa&&(cfg.educacao?.instrutores?.[usuario]||[]).map(norm).includes(norm(f.setor))&&f.etapas?.some((e:any)=>(e.validadores||[]).map(norm).includes(usuario))));
     const formacoes:any[]=await Promise.all(visiveis.map(async(f:any)=>{
@@ -379,9 +418,12 @@ export async function escola(body: any, ctx: any) {
       }
     }
     const catalogo=copy(catalogoCfg(cfg));
+    // Aluno: visão de aluno, nunca dados de gestão (nem pessoas, nem registros de
+    // outros, nem cargos e vagas do RH, nem configuração).
+    if(aluno)return {ok:true,pessoa,motivoVinculo:identidade.motivo||null,formacoes,aprendizagem:pessoais,catalogo,gestao:{podeGerir:false,podeValidar:false,pessoas:[],registros:[]},atualizadoEm:new Date().toISOString()};
     const gestaoReg=rs.filter(r=>{const f=fs.find(f=>f.id===r.formacaoId),p=ps.find(p=>p.colaboradorId===r.colaboradorId);return f&&p&&(admin ||(gerencia(f)&&corresponde(p,setores))||f.etapas.some((e:any)=>validar(f,e,p)));});
     const ids=new Set(gestaoReg.map(r=>r.colaboradorId));
-    return {ok:true,pessoa,motivoVinculo:identidade.motivo||null,formacoes,aprendizagem:pessoais,catalogo,gestao:{instrutores:admin?(cfg.educacao?.instrutores||{}):undefined,...(gere?{cargosRH:cargos,vagasRH:vagas,catalogo}:{}),podeGerir:admin||gestor,podeValidar:!!pessoa&&(admin||gestor||fs.some(f=>f.etapas.some((e:any)=>(e.validadores||[]).map(norm).includes(usuario)))),pessoas:ps.filter(p=>admin||(gestor&&corresponde(p,setores))||ids.has(p.colaboradorId)),registros:gestaoReg.map(r=>registroGestao(r,fs.find(f=>f.id===r.formacaoId),ps.find(p=>p.colaboradorId===r.colaboradorId)))},atualizadoEm:new Date().toISOString()};
+    return {ok:true,pessoa,motivoVinculo:identidade.motivo||null,formacoes,aprendizagem:pessoais,catalogo,gestao:{instrutores:admin?(cfg.educacao?.instrutores||{}):undefined,...(admin?{entradaAluno:entradaAlunoCfg(cfg)}:{}),...(gere?{cargosRH:cargos,vagasRH:vagas,catalogo}:{}),podeGerir:admin||gestor,podeValidar:!!pessoa&&(admin||gestor||fs.some(f=>f.etapas.some((e:any)=>(e.validadores||[]).map(norm).includes(usuario)))),pessoas:ps.filter(p=>admin||(gestor&&corresponde(p,setores))||ids.has(p.colaboradorId)),registros:gestaoReg.map(r=>registroGestao(r,fs.find(f=>f.id===r.formacaoId),ps.find(p=>p.colaboradorId===r.colaboradorId)))},atualizadoEm:new Date().toISOString()};
   }
   if(op==='aprovarAvaliacao') {
     const f=await getF(body.formacaoId);if(!gerencia(f))fail('Somente a gestão responsável aprova avaliações.',403);
@@ -574,12 +616,13 @@ export async function escola(body: any, ctx: any) {
 
 // Biblioteca e registros pessoais separados das evidências de domínio da função.
 async function academia(body:any,c:any) {
-  const {sb,usuario,admin,gestor,setores,pessoa,cfg,gerencia,registro,todos,pessoasRH,idApr,gravar,fail,id,aplicarFamilias}=c;
+  const {sb,usuario,admin,gestor,aluno,setores,pessoa,cfg,gerencia,registro,todos,pessoasRH,idApr,gravar,fail,id,aplicarFamilias}=c;
   const op=body.operacao.slice(9),agora=new Date().toISOString();
   // Cópia integral: o registro lido fica no cache da requisição.
   const obter=async(col:string,key:any)=>{const r=await registro(col,id(key));if(!r||r.apagado)fail('Registro não disponível.',404);return {...copy(r.registro),_serverRevision:r.revision};};
-  const escopoInstrutor=cfg.educacao?.instrutores?.[usuario]||[];
-  const instrutorNR=(m:any)=>m.tipo==='nr'&&norm(m.nr?.responsavel)===usuario&&escopoInstrutor.map(norm).includes(norm(m.setor));
+  // O aluno nunca é instrutor nem responsável por NR: só o que é dele.
+  const escopoInstrutor=aluno?[]:cfg.educacao?.instrutores?.[usuario]||[];
+  const instrutorNR=(m:any)=>!aluno&&m.tipo==='nr'&&norm(m.nr?.responsavel)===usuario&&escopoInstrutor.map(norm).includes(norm(m.setor));
   const acessoMaterial=async(m:any)=>gerencia(m)||instrutorNR(m)||liberada(m,pessoa,cfg)||m.publicada===true&&m.ativa!==false&&(await todos('formacoes')).some((f:any)=>liberada(f,pessoa,cfg)&&f.etapas.some((e:any)=>(e.materiais||[]).some((ref:any)=>ref.id===m.id&&ref.versao===m.versao)));
   const seguro=(m:any,integral=false)=>{const r=copy(m);if(!gerencia(m)){delete r.liberacao;delete r.versoesAnteriores;}if(!integral)delete r.paginas;r.temPDF=!!m.arquivoPath;delete r.arquivoPath;if(m.youtubeId)r.embed='https://www.youtube-nocookie.com/embed/'+m.youtubeId;return r;};
   const audiencia=async(r:any,anterior:any)=>{
@@ -596,7 +639,7 @@ async function academia(body:any,c:any) {
     }else{delete r.liberacao.cargosGestor;delete r.liberacao.cargosSetores;}
   };
   if(op==='biblioteca') {
-    const [ms,estudos,ps]=await Promise.all([todos('materiais'),todos('estudos'),pessoasRH()]);const visiveis=[];
+    const [ms,estudos,ps]=await Promise.all([todos('materiais'),todos('estudos'),aluno?[]:pessoasRH()]);const visiveis=[];
     for(const m of ms)if(await acessoMaterial(m))visiveis.push(seguro(m));
     return {ok:true,materiais:visiveis,estudos:estudos.filter((r:any)=>r.colaboradorId===pessoa?.colaboradorId),pessoa,podeGerir:admin||gestor,pessoas:ps.filter((p:any)=>admin||(gestor&&corresponde(p,setores))),atualizadoEm:agora};
   }
@@ -683,8 +726,10 @@ async function academia(body:any,c:any) {
     return gravar('materiais',m,rev,mutation);
   }
   if(op==='capacitacoes') {
-    const [ms,rs,ps]=await Promise.all([todos('materiais'),todos('capacitacoes'),pessoasRH()]);
+    const [ms,rs,ps]=await Promise.all([todos('materiais'),todos('capacitacoes'),aluno?[]:pessoasRH()]);
     const vis=ms.filter((m:any)=>m.tipo==='nr'&&(gerencia(m)||instrutorNR(m)||liberada(m,pessoa,cfg)));
+    // Aluno: só as NRs e o registro dele; nenhuma pessoa, pendência ou registro de outros.
+    if(aluno)return {ok:true,pendencias:vis.flatMap((m:any)=>{const r=rs.find((r:any)=>r.materialId===m.id&&r.colaboradorId===pessoa?.colaboradorId);const situacao=!pessoa?'':!r?'Não iniciado':r.versao!==m.versao?'Revisão de versão necessária':r.vencimento&&r.vencimento<agora.slice(0,10)?'Reciclagem vencida':r.status!=='concluida'?'Etapas pendentes':'';return situacao?[{materialId:m.id,colaboradorId:pessoa.colaboradorId,nome:pessoa.nome,titulo:m.titulo,situacao}]:[];}),normas:vis.map((m:any)=>({...seguro(m),podeRegistrar:false})),pessoas:[],registros:rs.filter((r:any)=>!!pessoa&&r.colaboradorId===pessoa.colaboradorId),podeGerir:false,pessoa};
     const pendencias=vis.flatMap((m:any)=>ps.filter((p:any)=>liberada(m,p,cfg)&&(p.colaboradorId===pessoa?.colaboradorId||admin||gerencia(m)&&corresponde(p,setores)||instrutorNR(m)&&corresponde(p,escopoInstrutor))).flatMap((p:any)=>{const r=rs.find((r:any)=>r.materialId===m.id&&r.colaboradorId===p.colaboradorId);const situacao=!r?'Não iniciado':r.versao!==m.versao?'Revisão de versão necessária':r.vencimento&&r.vencimento<agora.slice(0,10)?'Reciclagem vencida':r.status!=='concluida'?'Etapas pendentes':'';return situacao?[{materialId:m.id,colaboradorId:p.colaboradorId,nome:p.nome,titulo:m.titulo,situacao}]:[];}));
     return {ok:true,pendencias,normas:vis.map((m:any)=>({...seguro(m),podeRegistrar:gerencia(m)||instrutorNR(m)})),pessoas:ps.filter((p:any)=>admin||(gestor&&corresponde(p,setores))||vis.some((m:any)=>instrutorNR(m)&&corresponde(p,escopoInstrutor)&&liberada(m,p,cfg))),registros:rs.filter((r:any)=>r.colaboradorId===pessoa?.colaboradorId||(vis.some((m:any)=>m.id===r.materialId&&(gerencia(m)||instrutorNR(m)))&&(admin||ps.some((p:any)=>p.colaboradorId===r.colaboradorId&&(gestor&&corresponde(p,setores)||vis.some((m:any)=>m.id===r.materialId&&instrutorNR(m)&&corresponde(p,escopoInstrutor))))))),podeGerir:admin||gestor,pessoa};
   }
@@ -744,9 +789,11 @@ async function academia(body:any,c:any) {
     const revision=r._serverRevision;delete r._serverRevision;r.aprovacao={por:usuario,em:agora,parecer:texto(body.parecer,4000),versao:r.versao,mutationId:mutation};return gravar('instrumentos',r,revision,mutation);
   }
   if(op==='perfis') {
+    // Os nomes de quem consulta os resultados ficam para todos (é o que a pessoa
+    // aceita antes de responder); os IDs das fichas deles não vão ao aluno.
     const [ins,rs,ps]=await Promise.all([todos('instrumentos'),todos('perfis'),pessoasRH()]);
     const vis=ins.filter((r:any)=>admin||(liberada(r,pessoa,cfg)&&r.aprovacao?.versao===r.versao));
-    return {ok:true,pessoa,podeGerir:admin,pessoas:admin?ps:[],instrumentos:vis.map((r:any)=>{const x=copy(r);x.liberadaParaMim=liberada(r,pessoa,cfg);x.consultores=(x.visibilidade||[]).map((id:string)=>ps.find((p:any)=>p.colaboradorId===id)?.nome||'Responsável autorizado');if(!admin){delete x.liberacao;delete x.versoesAnteriores;}return x;}),resultados:rs.filter((r:any)=>r.colaboradorId===pessoa?.colaboradorId||!!pessoa&&ins.some((i:any)=>i.id===r.instrumentoId&&(i.visibilidade||[]).includes(pessoa.colaboradorId)))};
+    return {ok:true,pessoa,podeGerir:admin,pessoas:admin?ps:[],instrumentos:vis.map((r:any)=>{const x=copy(r);x.liberadaParaMim=liberada(r,pessoa,cfg);x.consultores=(x.visibilidade||[]).map((id:string)=>ps.find((p:any)=>p.colaboradorId===id)?.nome||'Responsável autorizado');if(!admin){delete x.liberacao;delete x.versoesAnteriores;}if(aluno)delete x.visibilidade;return x;}),resultados:rs.filter((r:any)=>!!pessoa&&(r.colaboradorId===pessoa.colaboradorId||!aluno&&ins.some((i:any)=>i.id===r.instrumentoId&&(i.visibilidade||[]).includes(pessoa.colaboradorId))))};
   }
   if(op==='responderPerfil') {
     if(!pessoa)fail('Vincule sua conta ao RH.',403);

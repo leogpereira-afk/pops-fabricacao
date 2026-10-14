@@ -314,6 +314,9 @@ test('cartão Entrada do aluno: ligada por padrão, explica o alcance, desliga e
  assert.match(t.node('#edu-entrada-aluno').textContent,/Desligada/);assert.match(t.node('#edu-entrada-alternar').textContent,/Ligar/);
  // Validade nova, mantendo desligada.
  t.node('#edu-entrada-validade').value='15';await t.submit('#edu-entrada-aluno-form');
+ // O submit não devolve a gravação (o clique devolve): espera o servidor gravar,
+ // não um número fixo de voltas, que no CI mais lento acabava antes.
+ for(let i=0;i<200&&cfg.educacao.entradaAluno.validadeDias!==15;i++)await esperar();
  assert.equal(cfg.educacao.entradaAluno.validadeDias,15);assert.equal(cfg.educacao.entradaAluno.ativa,false);
 });
 

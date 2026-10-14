@@ -24,4 +24,6 @@ Fica com o dono:
 
 No RH, com a vez do RH: as vagas sem cargo e a área Direção.
 
+Depois do PR 3, no mesmo dia: o Deploy de 30e647b caiu num teste da tela que esperava um número fixo de voltas pela gravação da validade (o submit não devolve a gravação; no CI mais lento ela não tinha chegado). A tela no ar não mudou. O teste passa a esperar a gravação (PR 4, só o teste).
+
 Vez: LIVRE. O Léo decide quem segue.

@@ -49,6 +49,9 @@ function linhas() {
   return (l && l.length ? l.slice().sort((x, y) => (x.ordem || 0) - (y.ordem || 0)) : []);
 }
 function souAdmin() { return SESSAO && SESSAO.papel === 'admin'; }
+// Aluno: entrou pelo ID do RH e primeiro nome. Alcança o próprio aprendizado e a
+// leitura dos POPs, jornadas e treinamentos; nada de gestão (o servidor confere).
+function souAluno() { return !!SESSAO && SESSAO.papel === 'aluno'; }
 function meusSetores() {
   if (souAdmin()) return setores();
   const g = (STORE.getCFG().gestores || {})[norm(SESSAO && SESSAO.usuario)] || [];
@@ -213,7 +216,7 @@ function abrirEnviarWhats(item, tipo) {
 
   const m = abrirModal(
     '<h3>Enviar por WhatsApp</h3>' +
-    '<p class="dica">Escolha o que mandar. O link para abrir no app vai junto — assim quem recebe lê a versão sempre atualizada.</p>' +
+    '<p class="dica">Escolha o que mandar. O link para abrir no app vai junto, assim quem recebe lê a versão sempre atualizada.</p>' +
     '<div class="campo"><label>Recado (opcional)</label>' +
     '<input type="text" id="wa-nota" placeholder="Ex.: Marcos, confere isso antes de sair"></div>' +
     '<div class="campo"><label>O que enviar</label><div id="wa-ops">' +
@@ -230,7 +233,7 @@ function abrirEnviarWhats(item, tipo) {
     if (corpo.length > LIMITE_WHATS) { corpo = corpo.slice(0, LIMITE_WHATS).replace(/\s+\S*$/, ''); cortado = true; }
     const txt = [
       nota, cab, corpo,
-      cortado ? '_(trecho — o conteúdo completo está no app)_' : '',
+      cortado ? '_(trecho: o conteúdo completo está no app)_' : '',
       'Abrir no app: ' + link,
     ].filter(Boolean).join('\n\n');
     // wa.me SEM número: o próprio WhatsApp pergunta para quem — nenhum telefone
@@ -285,11 +288,14 @@ async function atualizarIdentidadeRH() {
   try { await identidadeEmCurso; } finally { identidadeEmCurso = null; }
 }
 async function conferirIdentidadeRH() {
-  const usuario = SESSAO?.usuario, cracha = AUTH.cracha();
+  const usuario = SESSAO?.usuario, cracha = AUTH.crachaDe(SESSAO);
   if (!usuario) return;
   try {
     const r = await STORE.api('identidadeRH');
-    if (SESSAO?.usuario !== usuario || AUTH.cracha() !== cracha) return;
+    if (SESSAO?.usuario !== usuario || AUTH.crachaDe(SESSAO) !== cracha) return;
+    // Aluno: a ficha que volta tem de ser a da sessão. Outra pessoa é sinal de
+    // crachá trocado; a sessão termina em vez de mostrar (e gravar) a ficha alheia.
+    if (souAluno() && r.vinculada && r.pessoa?.colaboradorId !== SESSAO.colaboradorId) { encerrarSessaoAluno(FIM_ALUNO); return; }
     const proxima = { ...SESSAO, pessoaRH:r.vinculada ? r.pessoa : null, vinculoRH:r.motivo || '', identidadeConferida:true };
     if (JSON.stringify(proxima) !== JSON.stringify(SESSAO) && STORE.setUser(proxima)) SESSAO = STORE.getUser();
   } catch { /* Offline conserva o último vínculo validado, sem inventar uma pessoa. */ }
@@ -395,24 +401,131 @@ STORE.on('sync', st => {
   const chip = $('#chip-sync');
   if (chip) { chip.textContent = rotuloSync(st); chip.classList.toggle('pendente', st.status !== 'ok'); }
 });
-STORE.on('pull', () => { if(STORE.getConhecimento().versao===window.CONHECIMENTO_VERSAO) _avisoConhecimento=''; if (!document.querySelector('dialog[open], textarea:focus, input:focus, select:focus') && !['editor','formacao-editor','formacao','material-editor','material','perfil-editor','perfil-teste'].includes(ROTA.nome)) renderApp(); });
+// Telas em que a pessoa preenche ou lê com estado na tela: atualização vinda de
+// fora não redesenha por cima. O catálogo entra aqui: ele não usa nada do pull
+// (vem do painel da escola, que se confere sozinho), e redesenhar a cada 90 s
+// apagava a busca e o filtro e voltava a página para o topo.
+const ROTAS_DE_EDICAO = ['editor','formacao-editor','formacao','material-editor','material','perfil-editor','perfil-teste','importar','matriz','catalogo'];
+STORE.on('pull', () => { if(STORE.getConhecimento().versao===window.CONHECIMENTO_VERSAO) _avisoConhecimento=''; if (!document.querySelector('dialog[open], .nav-escola[open], textarea:focus, input:focus, select:focus') && !ROTAS_DE_EDICAO.includes(ROTA.nome)) renderApp(); });
 STORE.on('escopoGestor', () => {if(SESSAO?.papel==='gestor' && ['pessoas','mapa','meus'].includes(ROTA.nome))renderApp();});
 STORE.on('pullErro', msg => { _ultimoSync = { status: 'erro' }; const chip = $('#chip-sync'); if (chip) { chip.textContent = 'Atualização pendente'; chip.title = msg; } });
-STORE.on('sessao', msg => { AUTH.esquecer(); STORE.setUser(null); SESSAO = null; _ultimoSync = null; renderApp(); toast(msg, 'erro'); });
+// Cache da escola no aparelho sai junto com a sessão, mesmo com envio pendente:
+// o próximo crachá do aparelho não lê o pacote de quem saiu.
+function limparEscolaDoAparelho() { try { window.EDUCACAO?.limparCacheAparelho?.(); } catch { /* sem cache */ } }
+// Fim da sessão do aluno sem ser pelo Sair (401 do servidor, entrada vencida,
+// crachá que não é dele): sai do aparelho tudo o que é do aluno, o cache dos POPs
+// com a fila (sem destino: o servidor não aceita mais aquele crachá), o crachá
+// dele e o cache da escola. O crachá da Central, que é da Entrada Única, fica.
+const FIM_ALUNO = 'Sua entrada de aluno terminou. Entre de novo com seu ID do RH e primeiro nome.';
+function encerrarSessaoAluno(msg) {
+  limparEscolaDoAparelho();
+  try { STORE.descartarConta(STORE.getUser()); } catch { /* nada guardado */ }
+  AUTH.esquecerAluno(); STORE.setUser(null); SESSAO = null; _ultimoSync = null; renderApp();
+  if (msg) toast(msg, 'erro');
+}
+// Sair. Para o aluno, sai tudo o que é dele neste aparelho (crachá, cache e fila
+// dos POPs, envio da escola guardado na aba) e o cache da escola de quem quer que
+// seja; registro ainda não enviado só sai se a pessoa confirmar. Qualquer Sair
+// apaga também o cache de outros alunos que ficou no aparelho (aparelho dividido).
+function sairDaConta() {
+  const aluno = souAluno();
+  if (aluno) {
+    const st = STORE.resumoSync(), envio = window.EDUCACAO?.estadoEnvio?.() || {}, faltam = (st.pendentes || 0) + (st.naoGravados || 0) + (envio.pendente ? 1 : 0);
+    if (faltam && !confirm('Há ' + faltam + (faltam === 1 ? ' registro seu ainda não enviado' : ' registros seus ainda não enviados') + '. Saindo agora, ' + (faltam === 1 ? 'ele é apagado' : 'eles são apagados') + ' deste aparelho. Sair mesmo assim?')) return false;
+    try { window.EDUCACAO?.descartarEnvio?.(); } catch { /* nada guardado */ }
+    STORE.descartarConta(STORE.getUser());
+  }
+  STORE.limparOutrosAlunos(null);
+  // O aluno leva só o crachá dele: o da Central é da Entrada Única do Painel.
+  limparEscolaDoAparelho(); if (aluno) AUTH.esquecerAluno(); else AUTH.esquecer(); STORE.setUser(null); SESSAO = null; location.hash = '#/'; renderApp();
+  return true;
+}
+STORE.on('sessao', msg => {
+  if (souAluno() || STORE.getUser()?.papel === 'aluno') { encerrarSessaoAluno(msg); return; }
+  limparEscolaDoAparelho(); AUTH.esquecer(); STORE.setUser(null); SESSAO = null; _ultimoSync = null; renderApp(); toast(msg, 'erro');
+});
 STORE.on('quota', () => { _ultimoSync=STORE.resumoSync(); const chip=$('#chip-sync'); if(chip){chip.textContent=rotuloSync(_ultimoSync);chip.classList.add('pendente');} toast('Não foi possível gravar neste aparelho. Abra o estado de sincronização para tentar novamente ou baixar uma cópia.', 'erro'); });
 
+// Navegação enxuta (auditoria de 14/10/2026, P1): o aluno tem quatro destinos e
+// quem gerencia ganha o menu "Escola". O destino aceso sai da ROTA atual, não do
+// parâmetro de quem desenha a tela: antes Alunos, NRs e Vídeos acendiam
+// "Biblioteca e vídeos", porque a academia passava sempre 'conhecimento'.
+const GRUPO_DA_ROTA = { inicio:'inicio', '':'inicio', formacao:'inicio', conquistas:'inicio', avaliacoes:'inicio', perfil:'inicio', 'perfil-teste':'inicio', meus:'inicio',
+  catalogo:'catalogo', pops:'pops', pop:'pops', fab:'pops', jornada:'pops', etapa:'pops',
+  conhecimento:'conhecimento', treinamento:'conhecimento', biblioteca:'conhecimento', videos:'conhecimento', material:'conhecimento', nrs:'conhecimento',
+  escola:'escola', 'formacao-editor':'escola', alunos:'escola', aluno:'escola', matriz:'escola', importar:'escola', 'material-editor':'escola', 'perfil-editor':'escola', pessoas:'escola', mapa:'escola',
+  menu:'conta', senha:'conta' };
+function grupoDaRota(r) {
+  r = r || (typeof ROTA !== 'undefined' ? ROTA : { nome: 'inicio' });
+  if (r.nome === 'editor') return r.tipoEditor === 'treinamento' ? 'conhecimento' : 'pops';
+  // Provas para aprovar (gestão) é a mesma tela de avaliações com outro recorte:
+  // vinda do menu Escola, fica na Escola em vez de acender o Início do aluno.
+  if (r.nome === 'avaliacoes' && r.arg === 'equipe') return 'escola';
+  return GRUPO_DA_ROTA[r.nome] || 'inicio';
+}
+// Itens do menu Escola conforme a permissão: gestão completa para admin e gestor,
+// só as práticas para quem é instrutor; importar pacote é da administração.
+// Equipe e vínculos e o histórico anterior têm a mesma guarda das telas deles.
+// Biblioteca, Vídeos e NRs são as telas de Conhecimento (com os botões de quem
+// gerencia): o menu diz isso, para ninguém sair da Escola sem perceber.
+function itensEscola() {
+  if (souAluno()) return [];
+  const g = (typeof window !== 'undefined' && window.EDUCACAO?.estadoGestao?.()) || {};
+  const gere = souAdmin() || meusSetores().length > 0 || !!g.podeGerir;
+  if (!gere && !g.podeValidar) return [];
+  const itens = [['escola', gere ? 'Gestão de cursos' : 'Práticas para validar', '#/escola']];
+  if (gere) itens.push(['alunos','Acompanhamento','#/alunos'],['avaliacoes-equipe','Provas para aprovar','#/avaliacoes/equipe'],['matriz','Matriz de cargos','#/matriz']);
+  if (souAdmin() || meusSetores().length > 0) itens.push(['pessoas','Equipe e vínculos','#/pessoas'],['mapa','Histórico anterior','#/mapa']);
+  if (souAdmin()) itens.push(['importar','Importar pacote','#/importar'],['entrada-aluno','Entrada do aluno','#/escola/entrada']);
+  if (gere) itens.push(['biblioteca','Biblioteca','#/biblioteca','Abrem em Conhecimento'],['videos','Vídeos','#/videos','Abrem em Conhecimento'],['nrs','NRs','#/nrs','Abrem em Conhecimento']);
+  return itens;
+}
+// Item do menu Escola que corresponde à rota atual.
+function itemEscolaAtual(id, r) {
+  if (id === 'avaliacoes-equipe') return r.nome === 'avaliacoes' && r.arg === 'equipe';
+  if (id === 'entrada-aluno') return r.nome === 'escola' && r.arg === 'entrada';
+  if (id === 'escola' && r.nome === 'escola' && r.arg === 'entrada') return false;
+  return r.nome === id || (id === 'escola' && r.nome === 'formacao-editor') || (id === 'alunos' && r.nome === 'aluno');
+}
+// Subnavegação do grupo: os destinos que dividem uma aba do topo. Fica numa linha
+// curta logo abaixo do topo e quebra em vez de rolar para o lado.
+const SUBNAV = {
+  pops: [['pops','POPs','#/pops',['pops','pop']],['fab','Jornadas de fabricação','#/fab',['fab','jornada','etapa']]],
+  conhecimento: [['biblioteca','Biblioteca','#/biblioteca',['biblioteca','material']],['videos','Vídeos','#/videos',['videos']],['nrs','NRs','#/nrs',['nrs']],['conhecimento','Treinamentos','#/conhecimento',['conhecimento','treinamento']],['referencias','Referências','#/conhecimento/referencias',[]]],
+  inicio: [['inicio','Meus cursos','#/',['inicio','','formacao']],['avaliacoes','Avaliações','#/avaliacoes',['avaliacoes']],['conquistas','Histórico','#/conquistas',['conquistas']],['perfil','Perfil','#/perfil',['perfil','perfil-teste']],['meus','Atribuições anteriores','#/meus',['meus']]],
+};
+function htmlSubnav(grupo) {
+  const r = typeof ROTA !== 'undefined' ? ROTA : { nome: 'inicio', arg: '' };
+  // Início, curso e aula mostram os atalhos e o "voltar" no próprio conteúdo: o
+  // título sobe na tela do celular. As listas pessoais (avaliações, histórico...) usam a fileira.
+  if (!SUBNAV[grupo] || (grupo === 'inicio' && ['inicio','','formacao'].includes(r.nome))) return '';
+  const atual = grupo === 'conhecimento' && r.nome === 'conhecimento' && r.arg ? 'referencias' : null;
+  return '<nav class="subnav" aria-label="Nesta área"><div class="subnav-itens">' + SUBNAV[grupo].filter(([id]) => !(souAluno() && id === 'referencias')).map(([id, nome, url, rotas]) => {
+    const ativo = atual ? id === atual : rotas.includes(r.nome) && !(id === 'conhecimento' && r.nome === 'conhecimento' && r.arg);
+    return '<a href="' + url + '"' + (ativo ? ' class="ativa" aria-current="page"' : '') + '>' + nome + '</a>';
+  }).join('') + '</div></nav>';
+}
 function htmlTopo(aba) {
-  const links=[['inicio','Minha formação','#/'],['pops','POPs','#/pops'],['fab','Fabricação','#/fab'],['meus','Meu aprendizado','#/meus'],['conhecimento','Biblioteca e vídeos','#/biblioteca']];
-  if (souAdmin() || meusSetores().length) links.push(['pessoas','Equipe','#/pessoas'],['mapa','Acompanhamento','#/mapa']);
-  if(souAdmin() || meusSetores().length || window.EDUCACAO?.podeAcompanhar())links.push(['escola','Gestão da escola','#/escola'],['alunos','Alunos','#/alunos']);
-  links.push(['menu','Minha conta','#/menu']);
+  const grupo = grupoDaRota(), pend = minhasPendencias().length, escola = itensEscola();
+  const destinos = [['inicio','Início','#/','⌂'],['catalogo','Catálogo','#/catalogo','▦'],['pops','POPs e Fabricação','#/pops','▤'],['conhecimento','Conhecimento','#/conhecimento','◈']];
+  const r = typeof ROTA !== 'undefined' ? ROTA : { nome: 'inicio' };
+  const link = ([id, nome, url, ic]) => '<a href="' + url + '"' + (grupo === id ? ' class="ativa" aria-current="page"' : '') + '><span class="nav-ic" aria-hidden="true">' + ic + '</span><span class="nav-rotulo">' + nome + '</span>' +
+    (id === 'inicio' && pend ? '<b class="nav-badge" aria-label="' + pend + (pend === 1 ? ' atribuição anterior pendente' : ' atribuições anteriores pendentes') + '">' + pend + '</b>' : '') + '</a>';
+  const menuEscola = escola.length ? '<details class="nav-escola' + (grupo === 'escola' ? ' ativa' : '') + '"><summary' + (grupo === 'escola' ? ' aria-current="page"' : '') + '><span class="nav-ic" aria-hidden="true">▣</span><span class="nav-rotulo">Escola</span></summary><div class="nav-escola-lista">' +
+    escola.map(([id, nome, url, grupoItem], i) => (grupoItem && grupoItem !== escola[i - 1]?.[3] ? '<p class="nav-escola-grupo">' + grupoItem + '</p>' : '') + '<a href="' + url + '"' + (itemEscolaAtual(id, r) ? ' aria-current="page"' : '') + '>' + nome + '</a>').join('') + '</div></details>' : '';
   return '<a class="pular" href="#conteudo">Ir para o conteúdo</a><header class="app-cab"><div class="topo">' +
-    '<a href="#/" aria-label="Início"><img src="./logo-impresilk.png" alt="Impresilk"></a>' +
-    '<div class="tit"><b>Painel de Educação</b><span>Impresilk · '+esc(SESSAO.nome)+'</span></div>'+
-    '<button class="chip-sync" id="chip-sync" title="Conferir sincronização">'+rotuloSync(_ultimoSync)+'</button></div>'+
-    '<nav class="abas" aria-label="Navegação principal">'+links.map(([id,nome,url])=>'<a href="'+url+'" '+(aba===id?'class="ativa" aria-current="page"':'')+'>'+nome+(id==='meus' && minhasPendencias().length?' <b>('+minhasPendencias().length+')</b>':'')+'</a>').join('')+'</nav></header>'+(_avisoConhecimento?'<div class="aviso amarelo aviso-app" role="status">'+esc(_avisoConhecimento)+'</div>':'')+(_avisoCache?'<div class="aviso amarelo aviso-app" role="status">'+esc(_avisoCache)+'</div>':'');
+    '<a href="#/" class="topo-logo" aria-label="Início"><img src="./logo-impresilk.png" alt="Impresilk"></a>' +
+    // No celular o nome é cortado com reticências: "Minha conta" ganha linha
+    // própria (styles.css) e nunca some, mesmo com nome longo.
+    '<a class="tit" href="#/menu"' + (grupo === 'conta' ? ' aria-current="page"' : '') + '><b>Escola Impresilk</b><span>' + esc(SESSAO.nome) + '<small class="tit-sep"> · </small><em class="tit-conta">Minha conta</em></span></a>' +
+    '<button class="chip-sync" id="chip-sync" title="Conferir sincronização">' + rotuloSync(_ultimoSync) + '</button></div>' +
+    '<nav class="nav-principal' + (escola.length ? ' com-escola' : '') + '" aria-label="Navegação principal">' + destinos.map(link).join('') + menuEscola + '</nav></header>' +
+    htmlSubnav(grupo) +
+    (_avisoConhecimento ? '<div class="aviso amarelo aviso-app" role="status">' + esc(_avisoConhecimento) + '</div>' : '') + (_avisoCache ? '<div class="aviso amarelo aviso-app" role="status">' + esc(_avisoCache) + '</div>' : '');
 }
 
+// Clique fora do menu Escola aberto fecha o menu (o <details> sozinho não fecha).
+if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') document.addEventListener('click', e => { const m = document.querySelector('.nav-escola[open]'); if (m && !m.contains(e.target)) m.open = false; });
 function ligarTopo() {
   if (!podeRegistrarAprendizado()) $$('#bt-li, #bt-ok, #bt-concluir').forEach(bt => {
     bt.disabled=true;
@@ -421,15 +534,52 @@ function ligarTopo() {
   const chip = $('#chip-sync');
   if (chip) chip.onclick = () => { const escola=window.EDUCACAO?.estadoEnvio();if(escola?.pendente || escola?.erro){window.EDUCACAO.conferirEstado();return;} if (STORE.resumoSync().pendentes || ['erro','revisar'].includes(STORE.resumoSync().status)) abrirPendencias(); else { sincronizarAgora(); toast('Conferindo atualizações…'); } };
   associarRotulos($('#app'));
+  // Menu Escola fecha ao escolher, ao clicar fora e com Esc (o <details> sozinho não fecha).
+  const menu = $('.nav-escola');
+  if (menu) { $$('a', menu).forEach(a => a.onclick = () => { menu.open = false; }); menu.onkeydown = e => { if (e.key === 'Escape') { menu.open = false; $('summary', menu)?.focus(); } }; }
   const conteudo=$('.miolo'); if(conteudo){conteudo.id='conteudo';conteudo.tabIndex=-1;}
   const pular=$('.pular'); if(pular) pular.onclick=e=>{e.preventDefault();conteudo?.focus();};
   $$('[data-etapa], [data-pessoa]').forEach(el => { el.setAttribute('role','button'); el.tabIndex=0; el.onkeydown=e => { if (e.key==='Enter' || e.key===' ') { e.preventDefault(); el.click(); } }; });
 }
 
 /* ══════════ telas ══════════ */
+// Duas portas (pedido do Léo, 14/10/2026: "o acesso na escola é feito pelo id do
+// RH e o seu primeiro nome minúsculo; a senha fica pros adm"). "Sou aluno" é a
+// padrão: ID do RH e primeiro nome, sem senha. "Administração" é a de sempre:
+// usuário e senha da Central, para administração, gestão e instrutores.
 function renderLogin(app) {
-  document.title="📋 POPs · Entrada";
-  app.innerHTML='<div class="tela-login"><div class="login-layout"><section class="login-apresentacao"><div class="eyebrow">IMPRESILK · CONHECIMENTO EM PRÁTICA</div><h1>O jeito certo de fazer.<br>Ao alcance da equipe.</h1><p>Procedimentos, jornadas de fabricação e aprendizado reunidos em um só lugar.</p><div class="login-beneficios"><p><b>01</b> Encontre o procedimento da sua tarefa.</p><p><b>02</b> Siga cada etapa com clareza.</p><p><b>03</b> Acompanhe o que precisa aprender.</p></div></section><div class="cartao-login"><img src="./logo-impresilk.png" alt="Impresilk"><h2>Entre com sua conta da equipe</h2><p class="sub2">O mesmo usuário e senha da Entrada Única. Sua ficha do RH acompanha você.</p><form id="lg-form"><div class="campo"><label for="lg-u">Usuário da equipe</label><input id="lg-u" type="text" autocomplete="username" autocapitalize="none" required></div><div class="campo"><label for="lg-s">Senha</label><input id="lg-s" type="password" autocomplete="current-password" required></div><div id="lg-erro" role="alert"></div><button class="botao largo" id="lg-entrar" type="submit">Entrar</button><details class="login-alternativo"><summary>Outras formas de acesso</summary><div class="campo"><label for="lg-tipo">Tipo de conta</label><select id="lg-tipo"><option value="rh">Conta da equipe / RH</option><option value="legado">Senha própria antiga dos POPs</option></select></div><a href="https://leogpereira-afk.github.io/painel-impresilk/">Abrir a Entrada Única</a></details></form><p class="dica">O primeiro acesso precisa de internet. Depois de sincronizar, consulte os conteúdos disponíveis mesmo sem sinal.</p></div></div></div>';
+  document.title="Escola Impresilk · Entrada";
+  app.innerHTML='<div class="tela-login"><div class="login-layout"><section class="login-apresentacao"><div class="eyebrow">IMPRESILK · CONHECIMENTO EM PRÁTICA</div><h1>O jeito certo de fazer.<br>Ao alcance da equipe.</h1><p>Procedimentos, jornadas de fabricação e aprendizado reunidos em um só lugar.</p><div class="login-beneficios"><p><b>01</b> Encontre o procedimento da sua tarefa.</p><p><b>02</b> Siga cada etapa com clareza.</p><p><b>03</b> Acompanhe o que precisa aprender.</p></div></section><div class="cartao-login"><img src="./logo-impresilk.png" alt="Impresilk">'+
+    '<div class="login-portas" role="tablist" aria-label="Como você entra"><button type="button" role="tab" id="lg-porta-aluno" aria-controls="lg-painel-aluno" aria-selected="true">Sou aluno</button><button type="button" role="tab" id="lg-porta-adm" aria-controls="lg-painel-adm" aria-selected="false" tabindex="-1">Administração</button></div>'+
+    '<section id="lg-painel-aluno" role="tabpanel" aria-labelledby="lg-porta-aluno"><h2>Entre com seu ID do RH</h2><p class="sub2">Seu ID do RH e seu primeiro nome. Não precisa de senha.</p><form id="lg-aluno" novalidate><div class="campo"><label for="lg-id">ID do RH (6 números)</label><input id="lg-id" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" required aria-describedby="lg-id-ajuda"><p class="dica" id="lg-id-ajuda">O ID está no seu cadastro do RH.</p></div><div class="campo"><label for="lg-nome">Primeiro nome</label><input id="lg-nome" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="60" required></div><div id="lg-aluno-erro" role="alert"></div><button class="botao largo" id="lg-aluno-entrar" type="submit">Entrar</button></form></section>'+
+    '<section id="lg-painel-adm" role="tabpanel" aria-labelledby="lg-porta-adm" hidden><h2>Administração</h2><p class="sub2">Administração, gestão e instrutores: o mesmo usuário e senha da Entrada Única.</p><form id="lg-form"><div class="campo"><label for="lg-u">Usuário</label><input id="lg-u" type="text" autocomplete="username" autocapitalize="none" required></div><div class="campo"><label for="lg-s">Senha</label><input id="lg-s" type="password" autocomplete="current-password" required></div><div id="lg-erro" role="alert"></div><button class="botao largo" id="lg-entrar" type="submit">Entrar</button><details class="login-alternativo"><summary>Outras formas de acesso</summary><div class="campo"><label for="lg-tipo">Tipo de conta</label><select id="lg-tipo"><option value="rh">Conta da equipe / RH</option><option value="legado">Senha própria antiga dos POPs</option></select></div><a href="https://leogpereira-afk.github.io/painel-impresilk/">Abrir a Entrada Única</a></details></form></section>'+
+    '<p class="dica">O primeiro acesso precisa de internet. Depois de sincronizar, consulte os conteúdos disponíveis mesmo sem sinal.</p></div></div></div>';
+  // Abas acessíveis: setas trocam de porta, como num grupo de abas.
+  const portas=[['aluno','#lg-porta-aluno','#lg-painel-aluno','#lg-id'],['adm','#lg-porta-adm','#lg-painel-adm','#lg-u']];
+  const abrirPorta=(qual,foco)=>{for(const [nome,aba,painel,campo] of portas){const sim=nome===qual;$(aba).setAttribute('aria-selected',String(sim));$(aba).tabIndex=sim?0:-1;$(painel).hidden=!sim;if(sim&&foco)$(campo)?.focus();}};
+  for(const [nome,aba] of portas){$(aba).onclick=()=>abrirPorta(nome,true);$(aba).onkeydown=e=>{if(['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();const outra=nome==='aluno'?'adm':'aluno';abrirPorta(outra,false);$(portas.find(p=>p[0]===outra)[1]).focus();}};}
+  const erroAluno=html=>{$('#lg-aluno-erro').innerHTML=html?'<div class="aviso vermelho">'+html+'</div>':'';};
+  $('#lg-id').oninput=e=>{const so=e.target.value.replace(/\D/g,'').slice(0,6);if(so!==e.target.value)e.target.value=so;};
+  $('#lg-aluno').onsubmit=async e=>{
+    e.preventDefault();
+    const id=$('#lg-id').value.replace(/\s/g,''), nome=$('#lg-nome').value.trim();
+    if(!/^\d{6}$/.test(id)){erroAluno('O ID do RH tem 6 números. Ele está no seu cadastro do RH.');$('#lg-id').focus();return;}
+    if(!nome){erroAluno('Escreva seu primeiro nome.');$('#lg-nome').focus();return;}
+    if(/\s/.test(nome)){erroAluno('Escreva só o primeiro nome, sem o sobrenome.');$('#lg-nome').focus();return;}
+    const bt=$('#lg-aluno-entrar');bt.disabled=true;bt.textContent='Entrando…';erroAluno('');
+    try {
+      const r=await AUTH.entrarAluno(id,nome);
+      // Aparelho dividido: o que ficou de outra pessoa sai antes de a nova sessão começar.
+      limparEscolaDoAparelho();
+      const sessao={usuario:r.usuario,nome:r.nome,papel:'aluno',origemLogin:'aluno',colaboradorId:r.colaboradorId,validoAte:r.validoAte};
+      STORE.limparOutrosAlunos(sessao);
+      if(!STORE.setUser(sessao))throw new Error('Não consegui guardar a sessão neste aparelho.');
+      SESSAO=STORE.getUser();_ultimoSync=null;await atualizarIdentidadeRH();if(!SESSAO)return;STORE.trySync();STORE.pull();location.hash='#/';renderApp();
+    } catch(err){
+      const ajuda=err.status===401?' Confira o ID no seu cadastro do RH e escreva só o primeiro nome.':err.status===429?' Se outras pessoas na mesma rede também erraram, a administração pode liberar a entrada na hora.':'';
+      erroAluno(esc(err.message || 'Não foi possível entrar. Tente novamente.')+ajuda);
+    } finally {if(bt.isConnected){bt.disabled=false;bt.textContent='Entrar';}}
+  };
   $('#lg-form').onsubmit=async e=>{
     e.preventDefault(); const u=$('#lg-u').value.trim(), senha=$('#lg-s').value;
     if(!u || !senha) return;
@@ -479,6 +629,7 @@ function htmlRelacionados(p) {
   return '<section class="card conteudo-relacionado"><h2>Conexões deste procedimento</h2>'+(vinculados.length?'<h3>Vínculos registrados</h3>'+vinculados.map(cartaoConteudo).join(''):'<p class="dica">Ainda não há vínculos registrados pela gestão.</p>')+(relacionados.length || jornadas.length?'<h3>Referências relacionadas</h3><p class="dica">Sugestões da base documental para consultar o processo completo.</p><div class="conteudo-grid">'+relacionados.slice(0,4).map(x=>cartaoConteudo({...x,tipo:'pop'})).join('')+jornadas.slice(0,3).map(x=>cartaoConteudo({...x,tipo:'jornada'})).join('')+'</div>':'')+sugestoes.topicos.map(t=>'<a class="botao suave" href="#/conhecimento/'+encodeURIComponent(t.id)+'">'+esc(t.titulo)+'</a>').join(' ')+'</section>';
 }
 function abasConhecimento(referencias) {
+  if (souAluno()) return '';
   return '<nav class="chips treino-abas" aria-label="Base de conhecimento"><a class="chip '+(!referencias?'marcado':'')+'" href="#/conhecimento"'+(!referencias?' aria-current="page"':'')+'>Treinamentos</a><a class="chip '+(referencias?'marcado':'')+'" href="#/conhecimento/referencias"'+(referencias?' aria-current="page"':'')+'>Referências da empresa</a></nav>';
 }
 function atribuirTreinamento(t) {
@@ -486,6 +637,7 @@ function atribuirTreinamento(t) {
   abrirLote([{tipo:'treinamento',id:t.id,titulo:t.titulo,grupo:'Treinamentos'}]);
 }
 function renderConhecimento(app) {
+  if (ROTA.arg && souAluno()) { location.hash = '#/conhecimento'; return; }
   if (ROTA.arg) { renderReferencias(app); return; }
   const lista=STORE.col('treinamentos').slice().sort((a,b)=>String(a.titulo).localeCompare(String(b.titulo),'pt-BR'));
   const ss=[...new Set(lista.map(t=>t.setor || 'Geral'))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
@@ -579,7 +731,7 @@ function renderFab(app) {
   app.innerHTML = htmlTopo('fab') +
     '<div class="miolo">' +
     '<div class="card"><div class="sub">Como a peça é feita</div>' +
-    '<p class="bloco-par">A Impresilk tem <b>' + ls.length + ' linhas de produção</b>. Cada etapa abaixo tem uma jornada que ensina aquele processo do começo ao fim — na ordem em que a peça anda pela fábrica.</p></div>' +
+    '<p class="bloco-par">A Impresilk tem <b>' + ls.length + ' linhas de produção</b>. Cada etapa abaixo tem uma jornada que ensina aquele processo do começo ao fim, na ordem em que a peça anda pela fábrica.</p></div>' +
     ls.map(l => {
       const fluxo = l.fluxo || [];
       const comJornada = fluxo.filter(f => jornadaDe(f.setor)).length;
@@ -627,7 +779,7 @@ function renderJornada(app) {
     '<span>' + etapas.length + ' etapas</span><span>v' + esc(j.versao || '1.0') + '</span></div>' +
     (j.descricao ? '<p class="bloco-par">' + esc(j.descricao) + '</p>' : '') +
     '<div class="prog-barra"><i style="width:' + pct + '%"></i></div>' +
-    (pct >= 100 ? '<div class="aviso verde">🎓 Jornada concluída em ' + fmtDataHora(pr.concluidaEm) + ' — você domina este processo.</div>' : '') +
+    (pct >= 100 ? '<div class="aviso verde">🎓 Jornada concluída em ' + fmtDataHora(pr.concluidaEm) + '. Você domina este processo.</div>' : '') +
     '</div>' +
     '<div class="card">' +
     etapas.map((e, i) => {
@@ -671,7 +823,7 @@ function renderEtapa(app) {
     '<a href="#/jornada/' + j.id + '" style="color:var(--azul); font-weight:600; text-decoration:none">← ' + esc(j.titulo) + '</a>' +
     '<div class="card pop-cab" style="margin-top:10px"><h1>Etapa ' + (n + 1) + ' · ' + esc(e.titulo) + '</h1></div>' +
     '<div class="card">' + blocosParaHtml(e.blocos) + '</div>' +
-    (!liberada ? '<div class="aviso amarelo">Conclua a etapa anterior primeiro — a ordem faz parte do aprendizado.</div>' : '') +
+    (!liberada ? '<div class="aviso amarelo">Conclua a etapa anterior primeiro: a ordem faz parte do aprendizado.</div>' : '') +
     '<div class="acoes">' +
     (feita ? '<div class="aviso verde" style="flex:1">✓ Etapa concluída em ' + fmtDataHora(pr.etapas[e.id]) + '</div>'
       : (liberada ? '<button class="botao verde largo" id="bt-concluir">✔ Concluí esta etapa</button>' : '')) +
@@ -754,8 +906,8 @@ function renderMeus(app) {
       '<h3>' + esc(item.titulo) + '</h3>' +
       '<div class="meta">' +
       (ok ? '<span class="selo lido">✓ feito</span>'
-          : c && c.vencido ? '<span class="selo pendente">venceu — refazer</span>'
-          : c && c.desatualizado ? '<span class="selo pendente">mudou — releia</span>'
+          : c && c.vencido ? '<span class="selo pendente">venceu: refazer</span>'
+          : c && c.desatualizado ? '<span class="selo pendente">mudou: releia</span>'
           : '<span class="selo pendente">pendente</span>') +
       (item.setor ? '<span class="selo setor">' + esc(item.setor) + '</span>' : '') +
       '</div></a>';
@@ -940,7 +1092,7 @@ function abrirLote(conteudos) {
       conclusaoDe({ tipo, refId }, p.usuario));
     const podem = tem.filter(x => !feitos.includes(x));
     if (!podem.length) {
-      toast('Todos já concluíram — não dá pra tirar sem esconder a prova.', 'erro');
+      toast('Todos já concluíram. Não dá para tirar sem esconder a prova.', 'erro');
       return;
     }
     if (!confirm('Tirar “' + (item ? item.titulo : '') + '” de ' + podem.length + ' pessoa(s)?' +
@@ -1139,7 +1291,7 @@ function renderEditorPop(app) {
     '<div class="campo"><label>Objetivo (uma frase: o que este procedimento garante)</label><input type="text" id="e-objetivo" value="' + esc(p.objetivo) + '"></div>' +
     '<div class="campo"><label>Quem executa</label><input type="text" id="e-resp" value="' + esc(p.responsavel || '') + '" placeholder="Ex: Líder de Instalações"></div>' +
     '<div class="campo"><label>EPIs (separados por vírgula)</label><input type="text" id="e-epis" value="' + esc((p.epis || []).join(', ')) + '" placeholder="Luva, Óculos de proteção"></div>' +
-    '<div class="campo"><label>Versão</label><input type="text" id="e-versao" value="' + esc(p.versao || '1.0') + '"><div class="dica">Suba a versão quando o conteúdo mudar de verdade — quem já leu vai ver "mudou — releia".</div></div>' +
+    '<div class="campo"><label>Versão</label><input type="text" id="e-versao" value="' + esc(p.versao || '1.0') + '"><div class="dica">Suba a versão quando o conteúdo mudar de verdade: quem já leu verá "mudou: releia".</div></div>' +
     '<div class="campo"><label>Conteúdo</label><textarea id="e-conteudo">' + esc(blocosParaTexto(p.blocos)) + '</textarea>' +
     '<div class="dica">## Subtítulo &nbsp;·&nbsp; 1. passo numerado &nbsp;·&nbsp; - item de lista &nbsp;·&nbsp; ! destaque &nbsp;·&nbsp; !! alerta &nbsp;·&nbsp; [ ] item de checklist &nbsp;·&nbsp; linha solta = parágrafo</div></div>' +
     '<div class="campo"><label for="e-fontes">Fontes e documentos usados (um por linha)</label><textarea id="e-fontes" style="min-height:90px">'+esc((p.fontes || []).join('\n'))+'</textarea></div>'+
@@ -1321,13 +1473,30 @@ function abrirArquivados() {
   $('#arq-col', m).onchange = carregar; carregar();
 }
 
+function renderMenuAluno(app) {
+  const ate = SESSAO.validoAte ? fmtDataHora(SESSAO.validoAte) : '';
+  app.innerHTML = htmlTopo('menu') + '<div class="miolo">' +
+    '<div class="card"><div class="sub">Sua conta</div><p class="bloco-par"><b>' + esc(SESSAO.pessoaRH?.nome || SESSAO.nome) + '</b> · aluno</p>' +
+    '<p class="dica">Você entrou com o ID do RH e o primeiro nome.' + (ate ? ' Esta entrada vale até ' + esc(ate) + '; depois é só entrar de novo.' : '') + '</p>' +
+    '<p class="dica">Última sincronização: ' + (STORE.lastSync() ? fmtDataHora(STORE.lastSync()) : 'ainda não sincronizou') + '</p>' +
+    '<p class="dica">Versão da tela: ' + esc(window.ESCOLA_TELA_VERSAO || 'não informada') + '</p>' +
+    '<div class="acoes"><button class="botao fantasma" id="bt-sair">Sair</button></div>' +
+    '<p class="dica">Aparelho dividido? Saia ao terminar: seus cursos e registros saem deste aparelho junto.</p></div>' +
+    '<div class="card"><h2>Sincronização</h2><p class="dica">Confira se seus registros chegaram ao servidor.</p><div class="acoes"><button class="botao suave" id="bt-pendencias">Ver pendências</button></div></div>' +
+    '</div>';
+  ligarTopo();
+  $('#bt-pendencias').onclick = abrirPendencias;
+  $('#bt-sair').onclick = sairDaConta;
+}
 function renderMenu(app) {
+  if (souAluno()) { renderMenuAluno(app); return; }
   const cfgInicial = STORE.getCFG();
   app.innerHTML = htmlTopo('menu') +
     '<div class="miolo">' +
     '<div class="card"><div class="sub">Sua conta</div>' +
     '<p class="bloco-par"><b>' + esc(SESSAO.nome) + '</b> · ' + esc(SESSAO.papel) + '</p>' +
     '<p class="dica">Última sincronização: ' + (STORE.lastSync() ? fmtDataHora(STORE.lastSync()) : 'ainda não sincronizou') + '</p>' +
+    '<p class="dica">Versão da tela: ' + esc(window.ESCOLA_TELA_VERSAO || 'não informada') + '</p>' +
     '<div class="acoes">'+(SESSAO.origemLogin==='rh'?'<a class="botao suave" href="https://leogpereira-afk.github.io/painel-impresilk/">Gerenciar minha conta na Entrada Única</a>':'<a class="botao suave" href="#/senha">Trocar a minha senha dos POPs</a>') +
     '<button class="botao fantasma" id="bt-sair">Sair</button></div></div>' +
     '<div class="card"><h2>Sincronização e recuperação</h2><p class="dica">Revise envios pendentes e recupere rascunhos deste aparelho.</p><div class="acoes"><button class="botao suave" id="bt-pendencias">Ver pendências</button><button class="botao fantasma" id="bt-rascunhos">Baixar rascunhos</button>' + (souAdmin() ? '<button class="botao fantasma" id="bt-arquivados">Itens arquivados</button>' : '') + '</div></div>' +
@@ -1344,9 +1513,7 @@ function renderMenu(app) {
   $('#bt-pendencias').onclick = abrirPendencias;
   $('#bt-rascunhos').onclick = baixarRascunhos;
   if ($('#bt-arquivados')) $('#bt-arquivados').onclick = abrirArquivados;
-  $('#bt-sair').onclick = () => {
-    AUTH.esquecer(); STORE.setUser(null); SESSAO = null; location.hash = '#/'; renderApp();
-  };
+  $('#bt-sair').onclick = sairDaConta;
   const sc = $('#bt-salvar-cfg');
   if (sc) sc.onclick = async () => {
     const gestores = {};
@@ -1364,6 +1531,7 @@ function renderMenu(app) {
 
 /* ══════════ rotas ══════════ */
 let ROTA = { nome: 'inicio', arg: '' };
+const ROTAS_ALUNO = ['inicio','','formacao','conquistas','avaliacoes','perfil','perfil-teste','meus','catalogo','pops','pop','fab','jornada','etapa','conhecimento','treinamento','biblioteca','videos','material','nrs','menu'];
 function lerRota() {
   const h = location.hash.replace(/^#\/?/, '');
   const [nome, ...resto] = h.split('/');
@@ -1374,9 +1542,12 @@ function renderApp() {
   const app = $('#app');
   if (!SESSAO) { renderLogin(app); return; }
   lerRota();
-  document.title = 'Educação Impresilk · ' + (({biblioteca:'Biblioteca',videos:'Vídeos',material:'Material de estudo','material-editor':'Preparar material',nrs:'Normas Regulamentadoras',perfil:'Perfil e Desenvolvimento','perfil-editor':'Preparar instrumento','perfil-teste':'Autoconhecimento',alunos:'Alunos',aluno:'Formação do aluno',avaliacoes:'Minhas avaliações',escola:'Gestão da escola',formacao:'Minha jornada','formacao-editor':'Preparar jornada',conquistas:'Meu histórico',conhecimento:'Conhecimento',inicio:'Início',pops:'POPs',fab:'Fabricação',pessoas:'Pessoas',mapa:'Mapa de treinamento',meus:'Meus treinamentos',menu:'Minha conta'})[ROTA.nome] || 'Fabricação');
+  document.title = 'Escola Impresilk · ' + (({biblioteca:'Biblioteca',videos:'Vídeos',material:'Material de estudo','material-editor':'Preparar material',nrs:'Normas Regulamentadoras',perfil:'Perfil e Desenvolvimento','perfil-editor':'Preparar instrumento','perfil-teste':'Autoconhecimento',alunos:'Acompanhamento',aluno:'Cursos do aluno',avaliacoes:'Avaliações',escola:'Gestão de cursos',formacao:'Curso','formacao-editor':'Preparar curso',conquistas:'Meu histórico',conhecimento:'Conhecimento',catalogo:'Catálogo',matriz:'Matriz de cargos',importar:'Importar pacote',inicio:'Início',pops:'POPs',pop:'POP',fab:'Fabricação',jornada:'Jornada de fabricação',etapa:'Etapa de fabricação',treinamento:'Treinamento',editor:'Editor',senha:'Trocar senha',pessoas:'Equipe',mapa:'Histórico anterior',meus:'Atribuições anteriores',menu:'Minha conta'})[ROTA.nome] || 'Início');
   // Enquanto a senha for a temporária, o app inteiro fica atrás desta tela.
   if (SESSAO.trocarSenha && ROTA.nome !== 'senha') { location.hash = '#/senha'; return; }
+  // Aluno: Início, Catálogo, POPs e Fabricação e Conhecimento (e o que mora neles).
+  // Telas de gestão nem desenham; o servidor recusa as operações de qualquer jeito.
+  if (souAluno() && (!ROTAS_ALUNO.includes(ROTA.nome) || (ROTA.nome === 'avaliacoes' && ROTA.arg === 'equipe'))) { location.hash = '#/'; return; }
   const R = {
     'inicio': renderInicio, '': renderInicio,
     'formacao': a => window.EDUCACAO.render(a),
@@ -1384,6 +1555,7 @@ function renderApp() {
     'escola': a => window.EDUCACAO.render(a),
     'conquistas': a => window.EDUCACAO.render(a),
     'conhecimento': renderConhecimento,
+    ...Object.fromEntries(['catalogo','matriz','importar'].map(r=>[r,a=>ESCOLA_CATALOGO.render(a)])),
     'biblioteca': a => ACADEMIA.render(a),
     ...Object.fromEntries(['nrs','perfil','perfil-editor','perfil-teste','alunos','aluno','avaliacoes'].map(r=>[r,a=>ESCOLA_GESTAO.render(a)])),
     'videos': a => ACADEMIA.render(a),
@@ -1402,6 +1574,7 @@ function renderApp() {
     'senha': renderTrocarSenha,
     'editor': (a) => {
       const [tipo] = (ROTA.arg || '').split('~');
+      ROTA.tipoEditor = tipo;
       ROTA.arg = (ROTA.arg || '').split('~').slice(1).join('~');
       if (tipo === 'pop') renderEditorPop(a); else if (tipo === 'treinamento') renderEditorTreinamento(a); else if (tipo === 'jornada') renderEditorJornada(a); else location.hash='#/conhecimento';
     },
@@ -1417,21 +1590,35 @@ window.addEventListener('hashchange', renderApp);
   renderApp();
   // O Painel guarda o crachá, mas não cria pops_user neste aparelho.
   // Só o servidor pode transformar esse crachá em uma sessão dos POPs.
-  if (SESSAO || AUTH.temCracha()) {
+  if (SESSAO?.papel === 'aluno') {
+    // Sessão de aluno só segue com o crachá DELE ('pops_cracha_aluno', com sis,
+    // sub e ficha da sessão), nunca com o da Central que a Entrada Única do Painel
+    // guarda em 'pops_cracha'. Sem o dele, ou vencida no relógio deste aparelho:
+    // termina sem abrir dados, levando o cache do aluno.
+    if (!AUTH.crachaDe(SESSAO) || (SESSAO.validoAte && Date.parse(SESSAO.validoAte) <= Date.now())) {
+      encerrarSessaoAluno(FIM_ALUNO);
+    } else {
+      // identidadeRH com o crachá do aluno: 401 encerra a sessão pelo aviso do STORE.
+      const usuario = SESSAO.usuario;
+      atualizarIdentidadeRH().then(() => { if (SESSAO?.usuario !== usuario) return; STORE.trySync(); STORE.pull().then(() => { if (!ROTAS_DE_EDICAO.includes(ROTA.nome)) renderApp(); }); });
+    }
+  } else if (SESSAO || AUTH.temCracha()) {
+    // Crachá de aluno sem sessão de aluno não serve a ninguém.
+    AUTH.esquecerAluno?.();
     const usuario = SESSAO?.usuario, cracha = AUTH.cracha();
     AUTH.eu().then(async r => {
       if (AUTH.cracha() !== cracha || SESSAO?.usuario !== usuario) return;
-      if (r === false) { AUTH.esquecer(); STORE.setUser(null); SESSAO = null; renderApp(); return; }
+      if (r === false) { try { if (typeof window !== 'undefined') window.EDUCACAO?.limparCacheAparelho?.(); } catch { /* sem cache */ } AUTH.esquecer(); STORE.setUser(null); SESSAO = null; renderApp(); return; }
       if (r && r.usuario && r.papel) {
         const trocarSenha = r.trocarSenha === undefined
           ? (SESSAO?.usuario === r.usuario && !!SESSAO.trocarSenha) : !!r.trocarSenha;
         if (!STORE.setUser({ ...SESSAO, usuario: r.usuario, nome: r.nome, papel: r.papel, trocarSenha })) return;
         SESSAO = STORE.getUser();
-        if (!['editor','formacao-editor','formacao','material-editor','material','perfil-editor','perfil-teste'].includes(ROTA.nome)) renderApp();
+        if (!ROTAS_DE_EDICAO.includes(ROTA.nome)) renderApp();
       }
       if (!SESSAO) return;
       await atualizarIdentidadeRH();
-      STORE.trySync(); STORE.pull().then(() => { if (!['editor','formacao-editor','formacao','material-editor','material','perfil-editor','perfil-teste'].includes(ROTA.nome)) renderApp(); });
+      STORE.trySync(); STORE.pull().then(() => { if (!ROTAS_DE_EDICAO.includes(ROTA.nome)) renderApp(); });
     });
   }
   setInterval(() => { if (SESSAO && document.visibilityState === 'visible') { sincronizarAgora(); } }, 90000);

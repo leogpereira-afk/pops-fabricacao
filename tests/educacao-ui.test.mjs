@@ -71,7 +71,7 @@ test('ciência enviada pelo botão contém aceite explícito e versão estudada'
 });
 test('revisão de fonte ou formação não mantém progresso antigo como concluído',async()=>{
  const f=formation([makeStage({status:'revisar',statusFonte:'pendente',motivoBloqueio:'Fonte mudou'})],{versao:'2',revisaoNecessaria:true,progresso:{concluidas:0,total:1,percentual:0,etapaAtual:'e1'}});
- const h=harness({data:snapshot([f],{aprendizagem:[{formacaoId:'f1',formacaoVersao:'1',etapas:{e1:{status:'concluida'}},pontos:10}]})});await h.route('formacao','f1');assert.match(h.text(),/Revisão necessária/);assert.doesNotMatch(h.text(),/100% concluído/);assert.match(h.text(),/0\/1 etapas/);
+ const h=harness({data:snapshot([f],{aprendizagem:[{formacaoId:'f1',formacaoVersao:'1',etapas:{e1:{status:'concluida'}},pontos:10}]})});await h.route('formacao','f1');assert.match(h.text(),/Revisão necessária/);assert.doesNotMatch(h.text(),/100% concluído/);assert.match(h.text(),/0\/1 aulas/);
 });
 test('avaliação mostra nota e explicação retornada pelo servidor sem JSON cru',async()=>{
  const f=formation([makeStage({tipo:'avaliacao',quiz:[question]})]);const b=backendApp(f);const h=harness({backend:b});await h.route('formacao','f1~e1');await h.click('[data-evento="leitura"]');const radio=h.node('[name="q1"]');radio.checked=true;await h.submit('#edu-quiz');
@@ -121,10 +121,10 @@ test('nova versão exige nova leitura e novas respostas sem herdar tentativa ant
 test('acompanhamento calcula progresso do aluno sem usar o progresso pessoal do gestor',async()=>{
  const f=formation([makeStage({status:'nao_iniciada'})],{liberada:false,progresso:{concluidas:0,total:1,percentual:0}});
  const registro={id:'ap-aluno',formacaoId:'f1',formacaoVersao:'1',nome:'Pessoa concluinte',colaboradorId:'rh2',etapas:{e1:{status:'concluida',concluidaEm:'2026-10-08T12:00:00Z'}}};
- const h=harness({papel:'gestor',data:snapshot([f],{gestao:{podeGerir:true,podeValidar:true,pessoas:[],registros:[registro]}})});await h.route('escola');assert.match(h.node('#edu-registros').textContent,/1\/1 etapas/);assert.match(h.node('#edu-registros').textContent,/Concluída/);
+ const h=harness({papel:'gestor',data:snapshot([f],{gestao:{podeGerir:true,podeValidar:true,pessoas:[],registros:[registro]}})});await h.route('escola');assert.match(h.node('#edu-registros').textContent,/1\/1 aulas/);assert.match(h.node('#edu-registros').textContent,/Concluída/);
 });
 test('gestor vê catálogo de gestão sem contabilizar jornadas não atribuídas como pessoais',async()=>{
- const f=formation([makeStage()],{liberada:false});const h=harness({papel:'gestor',data:snapshot([f],{gestao:{podeGerir:true,podeValidar:true,pessoas:[],registros:[]}})});await h.route();const resumo=h.app.querySelectorAll('span').find(n=>n.textContent.includes('jornadas liberadas'));assert.equal(resumo.querySelector('strong').textContent,'0');assert.match(h.text(),/Nenhuma jornada liberada ainda/);assert.doesNotMatch(h.text(),/Etapa atual: Etapa inicial/);
+ const f=formation([makeStage()],{liberada:false});const h=harness({papel:'gestor',data:snapshot([f],{gestao:{podeGerir:true,podeValidar:true,pessoas:[],registros:[]}})});await h.route();const resumo=h.app.querySelectorAll('span').find(n=>n.textContent.includes('cursos liberados'));assert.equal(resumo.querySelector('strong').textContent,'0');assert.match(h.text(),/Nenhum curso liberado ainda/);assert.doesNotMatch(h.text(),/Aula atual: Etapa inicial/);
 });
 test('responsável analisa prática na tela e servidor libera próximo passo do aluno',async()=>{
  const f=formation([makeStage({tipo:'pratica',checklist:['Conferir a execução'],validadores:['bruno']}),makeStage({id:'e2',titulo:'Educação contínua',tipo:'continua',prerequisitos:['e1']})]);const b=backendApp(f,[],{educacao:{instrutores:{bruno:['Produção']}}});
@@ -134,7 +134,7 @@ test('responsável analisa prática na tela e servidor libera próximo passo do 
 });
 test('acompanhamento sinaliza revisão necessária quando a jornada muda de versão',async()=>{
  const f=formation([makeStage({status:'nao_iniciada'})],{versao:'2',liberada:false});const registro={id:'ap-aluno',formacaoId:'f1',formacaoVersao:'1',nome:'Pessoa concluinte',colaboradorId:'rh2',etapas:{e1:{status:'concluida'}}};
- const h=harness({papel:'gestor',data:snapshot([f],{gestao:{podeGerir:true,podeValidar:true,pessoas:[],registros:[registro]}})});await h.route('escola');assert.match(h.node('#edu-registros').textContent,/0\/1 etapas/);assert.match(h.node('#edu-registros').textContent,/Revisão necessária/);
+ const h=harness({papel:'gestor',data:snapshot([f],{gestao:{podeGerir:true,podeValidar:true,pessoas:[],registros:[registro]}})});await h.route('escola');assert.match(h.node('#edu-registros').textContent,/0\/1 aulas/);assert.match(h.node('#edu-registros').textContent,/Revisão necessária/);
 });
 test('quem ainda precisa começar reúne atribuições por pessoa função e setor com busca',async()=>{
  const f=formation([makeStage()],{liberacao:{pessoas:['rh1','rh5'],cargos:['c2'],setores:['Impressão'],todos:false}}),rascunho=formation([makeStage()],{id:'f2',publicada:false,liberacao:{todos:true}});

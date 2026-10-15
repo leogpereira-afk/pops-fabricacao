@@ -56,7 +56,7 @@ function harness({data=snapshot(),api,backend:b,papel='equipe',storage=new Map()
 
 test('entrada pessoal prioriza próximo passo e escapa textos do catálogo',async()=>{
  const f=formation([makeStage({titulo:'Conferir <script>alert(1)</script>'})]);const h=harness({data:snapshot([f])});await h.route();
- assert.match(h.text(),/SEU PRÓXIMO PASSO/);assert.match(h.html,/Continuar de onde parei/);assert.match(h.html,/&lt;script&gt;/);assert.doesNotMatch(h.html,/<script>|Procedimentos disponíveis|POPs para revisar/);
+ assert.match(h.text(),/SEU PRÓXIMO PASSO/);assert.match(h.html,/Começar →/);assert.match(h.text(),/Jornada de teste · aula 1 de 1/);assert.match(h.html,/&lt;script&gt;/);assert.doesNotMatch(h.html,/<script>|Procedimentos disponíveis|POPs para revisar/);
 });
 test('etapa bloqueada explica o pré-requisito e não oferece registro nem avaliação',async()=>{
  const e=makeStage({tipo:'avaliacao',quiz:[question],prerequisitos:['anterior'],motivoBloqueio:'Conclua antes a integração'});const h=harness({data:snapshot([formation([e])])});await h.route('formacao','f1~e1');
@@ -75,7 +75,7 @@ test('revisão de fonte ou formação não mantém progresso antigo como conclu�
 });
 test('avaliação mostra nota e explicação retornada pelo servidor sem JSON cru',async()=>{
  const f=formation([makeStage({tipo:'avaliacao',quiz:[question]})]);const b=backendApp(f);const h=harness({backend:b});await h.route('formacao','f1~e1');await h.click('[data-evento="leitura"]');const radio=h.node('[name="q1"]');radio.checked=true;await h.submit('#edu-quiz');
- assert.equal(h.calls.find(c=>c.evento==='responder').formacaoVersao,'1');const area=h.node('#edu-retorno');assert.match(area.textContent,/100/);assert.match(area.textContent,/Conferir evita o erro/);assert.doesNotMatch(h.html,/&quot;questoes&quot;|&quot;explicacao&quot;/);
+ assert.equal(h.calls.find(c=>c.evento==='responder').formacaoVersao,'1');const area=h.node('#edu-resultado');assert.match(area.textContent,/Aprovado na prova · 100%/);assert.match(area.textContent,/Conferir evita o erro/);assert.doesNotMatch(h.html,/&quot;questoes&quot;|&quot;explicacao&quot;/);
 });
 test('falha de rede oferece reenvio na mesma tela sem fabricar confirmação',async()=>{
  let tentativa=0;const h=harness({api:async payload=>{if(payload.operacao==='painel')return snapshot();tentativa++;if(tentativa===1)throw new Error('Sem conexão');return {ok:true};}});await h.route('formacao','f1~e1');await h.click('[data-evento="leitura"]');
@@ -162,4 +162,33 @@ test('editor da etapa escolhe responsáveis por nome e preserva vínculos anteri
 });
 test('responsáveis duplicados são explicados sem sobrescrever seus setores',async()=>{
  const data=snapshot([],{gestao:{podeGerir:true,podeValidar:true,pessoas:[{colaboradorId:'rh2',nome:'Bruno RH',usuario:'bruno',setor:'Produção'}],registros:[],instrutores:{bruno:['Produção']}}});const h=harness({papel:'admin',data});await h.route('escola');await h.click('#edu-adicionar-instrutor');const segunda=h.app.querySelectorAll('[data-instrutor-linha]')[1];segunda.querySelector('[data-instrutor-pessoa]').value='bruno';segunda.querySelector('[data-instrutor-setores]').children.find(o=>o.value==='Produção').selected=true;await h.submit('#edu-instrutores');assert.match(h.node('#edu-instrutores-erro').textContent,/aparece mais de uma vez/);assert.equal(h.calls.some(p=>p.operacao==='configurarInstrutores'),false);
+});
+
+// Auditoria de 15/10/2026: texto das aulas, primeiro passo, prática e Silk.
+test('aula mostra negrito, subtítulo e listas do curso, sem deixar passar HTML',()=>{
+ const h=harness();const html=h.edu.textoAula('**O que levar**\n\nTexto com **cola certa** e <script>x</script>\n- Fita\n- Estilete\n\n3. Medir\n4. Cortar');
+ assert.match(html,/<h4>O que levar<\/h4>/);assert.match(html,/<strong>cola certa<\/strong>/);assert.match(html,/&lt;script&gt;x&lt;\/script&gt;/);
+ assert.match(html,/<ul><li>Fita<\/li><li>Estilete<\/li><\/ul>/);assert.match(html,/<ol start="3"><li>Medir<\/li><li>Cortar<\/li><\/ol>/);
+ assert.doesNotMatch(html,/<script>|\*\*/);
+});
+test('primeiro dia começa pela trilha de menor ordem, não pela ordem em que o servidor mandou',async()=>{
+ const almox=formation([makeStage({id:'a1',titulo:'Aula de almoxarifado'})],{id:'f-alm',titulo:'Almoxarifado fictício',catalogo:{trilha:'producao',ordem:1}});
+ const integra=formation([makeStage({id:'i1',titulo:'Boas-vindas fictícias',duracaoMinutos:15})],{id:'f-int',titulo:'Integração fictícia',catalogo:{trilha:'nucleo-comum',ordem:1}});
+ const h=harness({data:snapshot([almox,integra],{catalogo:{familias:{},trilhas:{'nucleo-comum':{nome:'Núcleo comum',ordem:0},producao:{nome:'Produção',ordem:20}}}})});await h.route();
+ const proximo=h.node('.edu-proximo');assert.match(proximo.textContent,/Boas-vindas fictícias/);assert.match(proximo.textContent,/Integração fictícia · aula 1 de 1 · 15 min/);
+ assert.equal(proximo.querySelector('.botao').attributes.href,'#/formacao/f-int/i1');
+ // Primeiro acesso: boas-vindas com o primeiro nome e o Silk decorativo, fora do leitor de tela.
+ assert.match(h.text(),/Bem-vindo à Escola Impresilk, Ana\./);const silk=h.node('.edu-proximo-bloco').querySelector('.silk');assert.equal(silk.attributes.alt,'');assert.equal(silk.attributes['aria-hidden'],'true');
+});
+test('prática enviada antes da leitura registra a leitura junto e não perde o que foi marcado',async()=>{
+ const pratica=makeStage({id:'p1',titulo:'Prática fictícia',tipo:'pratica',checklist:['Conferiu a peça'],validadores:['bruno'],aprovacao:undefined});
+ const b=backendApp(formation([pratica]));const h=harness({backend:b});await h.route('formacao','f1~p1');
+ h.node('[name="item-0"]').checked=true;h.node('#edu-evidencia').value='Peça conferida no posto.';await h.submit('#edu-pratica');
+ const eventos=h.calls.filter(c=>c.operacao==='registrar').map(c=>c.evento);assert.deepEqual(eventos,['leitura','enviarPratica']);
+ assert.deepEqual(h.calls.find(c=>c.evento==='enviarPratica').checklist,[true]);assert.ok(h.toasts.some(t=>/Prática enviada/.test(t.m)));
+});
+test('com a prática no validador, o Início diz isso em vez de mandar continuar',async()=>{
+ const pratica=makeStage({id:'p1',titulo:'Prática fictícia',tipo:'pratica',checklist:['Item'],validadores:['bruno']});
+ const h=harness({data:snapshot([formation([pratica])],{aprendizagem:[{formacaoId:'f1',formacaoVersao:'1',atualizadoEm:'2026-10-15T10:00:00Z',etapas:{p1:{status:'aguardando_validacao'}}}]})});await h.route();
+ assert.match(h.node('.edu-proximo').textContent,/Sua prática está com o validador/);assert.doesNotMatch(h.node('.edu-proximo').textContent,/Continuar de onde parei/);
 });

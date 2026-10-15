@@ -38,10 +38,20 @@ window.ESCOLA_CATALOGO=(()=>{
   const out=Object.entries(cat.trilhas).sort(ordemTrilha).map(([id,t])=>{const cursos=fs.filter(f=>f.catalogo?.trilha===id).sort(ordemCurso);cursos.forEach(f=>usados.add(f.id));return {id,nome:t.nome||id,descricao:t.descricao||'',cursos};});
   const resto=fs.filter(f=>!usados.has(f.id)).sort(ordemCurso);
   if(resto.length)out.push({id:'',nome:'Cursos sem trilha',descricao:'Cursos que ainda não foram organizados em uma trilha.',cursos:resto});
+  // Sub-área (campo area do curso) dentro da área, na ordem do primeiro curso dela.
+  for(const g of out){const subs=new Map();for(const f of g.cursos){const k=f.catalogo?.area&&norm(f.catalogo.area)!==norm(g.nome)?f.catalogo.area:'';if(!subs.has(k))subs.set(k,[]);subs.get(k).push(f);}g.subareas=[...subs.entries()].map(([nome,cursos])=>({nome,cursos}));}
   return out;
  }
+ // Busca pelo nome que o chão usa: sem acento, sem hífen e sem plural simples
+ // ("letra caixa" acha "Letra-caixa", "vendas" acha "Venda"), com as palavras-chave,
+ // o resumo e o título das aulas (auditoria de 15/10, J10).
+ const termos=t=>norm(t).replace(/[^a-z0-9]+/g,' ').trim().split(/\s+/).filter(Boolean).map(w=>w.length>3&&w.endsWith('s')?w.slice(0,-1):w);
+ const indiceBusca=(f,g)=>' '+termos([f.titulo,f.catalogo?.codigo,f.catalogo?.area,f.catalogo?.resumo,...(f.catalogo?.palavrasChave||[]),g?.nome,...(f.etapas||[]).map(e=>e.titulo),...(f.recomendadas||[]).map(r=>r.titulo)].filter(Boolean).join(' ')).join(' ')+' ';
+ const casaBusca=(indice,q)=>termos(q).every(w=>indice.includes(' '+w));
+ // Silk do cabeçalho da área escolhida (um por tela); a van fica na Montagem externa.
+ const SILK_AREA={'nucleo-comum':'boas-vindas',comercial:'boas-vindas',producao:'rolo',adm:'apontando',lideranca:'confiante',carreira:'apontando'};
  function cartaoCurso(f,d){
-  const st=estadoParaMim(f,d.aprendizagem||[]),c=f.catalogo||{},meta=[c.codigo,c.area,E().niveis[c.nivel],E().cargaTexto(c.cargaMinutos)].filter(Boolean),gere=!!d.gestao?.podeGerir&&!!f.liberacao;
+  const st=estadoParaMim(f,d.aprendizagem||[]),c=f.catalogo||{},meta=[E().niveis[c.nivel],E().cargaTexto(c.cargaMinutos),c.codigo].filter(Boolean),gere=!!d.gestao?.podeGerir&&!!f.liberacao;
   const recs=(f.recomendadas||[]).map(r=>esc(r.titulo||r.id)+' ('+(r.concluida?'concluído':r.liberada?'disponível':'não liberado')+')');
   // Curso que a pessoa já fez e perdeu (troca de cargo, por exemplo) não é "ainda
   // não liberado": o histórico dela continua guardado e é para lá que ela vai.
@@ -52,7 +62,7 @@ window.ESCOLA_CATALOGO=(()=>{
     :'<p class="cat-aviso">Este curso ainda não foi liberado para você. Peça ao seu gestor.</p>')
    :st==='em_preparacao'?'<p class="dica">Rascunho: aparece só para quem gerencia.</p>'
    :'<a class="botao mini'+(st==='concluido'?' suave':'')+'" href="'+E().rota(f.id)+'">'+(st==='concluido'?'Rever curso':st==='em_andamento'?'Continuar':'Começar curso')+'</a>';
-  return '<article class="cat-curso" data-estado="'+st+'" data-busca="'+esc(norm([f.titulo,f.catalogo?.codigo,f.catalogo?.area,...(f.recomendadas||[]).map(r=>r.titulo)].join(' ')))+'"><div class="cat-curso-topo">'+(meta.length?'<span class="ac-kicker">'+esc(meta.join(' · '))+'</span>':'<span></span>')+'<span class="edu-status '+st+'">'+ESTADOS[st]+'</span></div><h3>'+esc(f.titulo)+'</h3><p class="dica">'+plural((f.etapas||[]).length,'aula','aulas')+(f.prazo?' · prazo '+esc(fmtData(f.prazo)):'')+'</p>'+(recs.length?'<p class="cat-recomenda"><b>Recomendado antes:</b> '+recs.join(' · ')+'</p>':'')+'<div class="acoes">'+acao+(gere?'<a class="botao mini fantasma" href="#/formacao-editor/'+encodeURIComponent(f.id)+'">Gerenciar curso</a>':'')+'</div></article>';
+  return '<article class="cat-curso" data-estado="'+st+'"'+(c.trilha?' data-trilha="'+esc(c.trilha)+'"':'')+' data-busca="'+esc(indiceBusca(f,{nome:E().catalogoCfg(d).trilhas[c.trilha]?.nome}))+'"><div class="cat-curso-topo">'+(meta.length?'<span class="edu-meta">'+esc(meta.join(' · '))+'</span>':'<span></span>')+'<span class="edu-status '+st+'">'+ESTADOS[st]+'</span></div><h3>'+esc(f.titulo)+'</h3>'+(c.resumo?'<p class="edu-resumo-curso">'+esc(c.resumo)+'</p>':'')+'<p class="dica">'+plural((f.etapas||[]).length,'aula','aulas')+(f.prazo?' · prazo '+esc(fmtData(f.prazo)):'')+'</p>'+(recs.length?'<p class="cat-recomenda"><b>Recomendado antes:</b> '+recs.join(' · ')+'</p>':'')+'<div class="acoes">'+acao+(gere?'<a class="botao mini fantasma" href="#/formacao-editor/'+encodeURIComponent(f.id)+'">Gerenciar curso</a>':'')+'</div></article>';
  }
  function catalogo(app,d){
   const gs=gruposCatalogo(d),total=(d.formacoes||[]).length,gere=!!d.gestao?.podeGerir,arquivados=(d.formacoes||[]).some(f=>f.ativa===false);
@@ -62,13 +72,22 @@ window.ESCOLA_CATALOGO=(()=>{
    :gere?'Nenhum curso desta trilha é do seu setor ou está liberado para você.'
    :'Nenhum curso desta trilha está liberado para você ainda. Se precisar de um, fale com seu gestor.';
   const el=A().layout(app,'Catálogo de cursos',gere?'Trilhas e cursos da Escola Impresilk, com o seu andamento em cada um.':'Trilhas e cursos liberados para você, com o seu andamento em cada um.',gere?'<a class="botao mini suave" href="#/matriz">Matriz de cargos</a>':'');
-  el.innerHTML=E().htmlAtualizacaoPainel()+'<section class="card ac-filtros"><div class="campo"><label for="cat-busca">Buscar curso</label><input id="cat-busca" type="search" placeholder="Nome, código ou área"></div><div class="campo"><label for="cat-estado">Mostrar</label><select id="cat-estado"><option value="">Todos os cursos</option>'+Object.entries(ESTADOS).filter(([k])=>(k!=='em_preparacao'||gere)&&(k!=='arquivado'||arquivados)).map(([k,v])=>'<option value="'+k+'">'+v+'</option>').join('')+'</select></div></section>'+
+  const areas=gs.filter(g=>g.id&&g.cursos.length);
+  el.innerHTML=E().htmlAtualizacaoPainel()+(areas.length>1?'<nav class="cat-areas" aria-label="Áreas"><button type="button" class="chip" data-area="" aria-pressed="true">Todas</button>'+areas.map(g=>'<button type="button" class="chip" data-area="'+esc(g.id)+'" data-trilha="'+esc(g.id)+'" aria-pressed="false">'+esc(g.nome)+'</button>').join('')+'</nav>':'')+'<section class="card ac-filtros"><div class="campo"><label for="cat-busca">Buscar curso</label><input id="cat-busca" type="search" placeholder="Nome, máquina, setor ou assunto"></div><div class="campo"><label for="cat-estado">Mostrar</label><select id="cat-estado"><option value="">Todos os cursos</option>'+Object.entries(ESTADOS).filter(([k])=>(k!=='em_preparacao'||gere)&&(k!=='arquivado'||arquivados)).map(([k,v])=>'<option value="'+k+'">'+v+'</option>').join('')+'</select></div></section>'+
    '<p class="dica" id="cat-contagem" aria-live="polite"></p>'+
    (gs.length?gs.map(g=>{const feitos=g.cursos.filter(f=>estadoParaMim(f,d.aprendizagem||[])==='concluido').length,libs=g.cursos.filter(f=>!['nao_liberado','em_preparacao','arquivado'].includes(estadoParaMim(f,d.aprendizagem||[]))).length;
-    return '<section class="cat-trilha" data-trilha="'+esc(g.id)+'"><div class="secao-titulo"><div><span class="ac-kicker">'+(g.id?'Trilha':'Sem trilha')+'</span><h2>'+esc(g.nome)+'</h2>'+(g.descricao?'<p class="dica">'+esc(g.descricao)+'</p>':'')+'</div><span class="dica">'+(libs?'Concluídos: '+feitos+' de '+libs:'')+'</span></div><div class="cat-grade">'+(g.cursos.length?g.cursos.map(f=>cartaoCurso(f,d)).join(''):'<p class="dica cat-vazio">'+vazio+'</p>')+'</div></section>';}).join('')
+    const sub=s=>'<div class="cat-sub"'+(s.nome?' data-sub="'+esc(norm(s.nome))+'"':'')+'>'+(s.nome?'<h3 class="cat-sub-titulo">'+esc(s.nome)+'</h3>':'')+(norm(s.nome)==='montagem externa'?'<img class="silk-faixa" src="./silk/silk-van-g.webp" srcset="./silk/silk-van-p.webp 640w, ./silk/silk-van-g.webp 1200w" sizes="(max-width: 600px) 100vw, 1144px" width="1200" height="670" alt="" aria-hidden="true" loading="lazy" decoding="async">':'')+'<div class="cat-grade">'+s.cursos.map(f=>cartaoCurso(f,d)).join('')+'</div></div>';
+    return '<section class="cat-trilha" data-trilha="'+esc(g.id)+'"><div class="secao-titulo cat-area-topo">'+(SILK_AREA[g.id]?'<span class="cat-silk" hidden>'+E().silk(SILK_AREA[g.id],110)+'</span>':'')+'<div><span class="ac-kicker">'+(g.id?'Área':'Sem área')+'</span><h2>'+esc(g.nome)+'</h2>'+(g.descricao?'<p class="dica">'+esc(g.descricao)+'</p>':'')+'</div><span class="dica">'+(libs?'Concluídos: '+feitos+' de '+libs:'')+'</span></div>'+(g.cursos.length?g.subareas.map(sub).join(''):'<div class="cat-grade"><p class="dica cat-vazio">'+vazio+'</p></div>')+'</section>';}).join('')
    :'<section class="card"><h2>O catálogo está em preparação</h2><p>'+(total?'':'Ainda não há cursos liberados para você. ')+'As trilhas e os cursos aparecem aqui quando a gestão os organiza.</p></section>')+
    '<p class="dica">Cursos recomendados antes de outro são uma sugestão de ordem e não bloqueiam ninguém. Curso não liberado: peça ao seu gestor, que libera pelo cargo, pela família de cargos, pelo setor ou por pessoa.</p>';
-  const pintar=()=>{const q=norm($('#cat-busca').value),st=$('#cat-estado').value;let n=0;$$('.cat-curso').forEach(c=>{const ok=(!q||c.dataset.busca.includes(q))&&(!st||c.dataset.estado===st);c.hidden=!ok;if(ok)n++;});$('#cat-contagem').textContent=plural(n,'curso','cursos')+' neste filtro.';};
+  // Filtro por área: com uma área escolhida, o Silk dela aparece no cabeçalho;
+  // em "Todas", nenhum (um Silk por tela). Seção ou sub-área sem curso visível some.
+  let area='';
+  const pintar=()=>{const q=$('#cat-busca').value,st=$('#cat-estado').value;let n=0;
+   $$('.cat-trilha').forEach(sec=>{const naArea=!area||sec.dataset.trilha===area;let vis=0;sec.querySelectorAll('.cat-sub').forEach(sb=>{let v=0;sb.querySelectorAll('.cat-curso').forEach(c=>{const ok=naArea&&(!q||casaBusca(c.dataset.busca,q))&&(!st||c.dataset.estado===st);c.hidden=!ok;if(ok){n++;v++;}});sb.hidden=!v;vis+=v;});const vazioSec=!sec.querySelector('.cat-sub');sec.hidden=!naArea||(!vis&&!vazioSec)||(vazioSec&&!!(q||st));const sk=sec.querySelector('.cat-silk');if(sk)sk.hidden=!area;});
+   $$('[data-area]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.area===area)));
+   $('#cat-contagem').textContent=plural(n,'curso','cursos')+' neste filtro.';};
+  $$('[data-area]').forEach(b=>b.onclick=()=>{area=b.dataset.area;pintar();});
   $('#cat-busca').oninput=pintar;$('#cat-estado').onchange=pintar;pintar();
  }
 

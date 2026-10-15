@@ -66,13 +66,13 @@ test('aula com avaliação exige compreensão e documento sem conferência deixa
 test('catálogo do curso é validado e mudar o catálogo não pede versão nova nem derruba a avaliação aprovada',async()=>{
  const aprovada=etapa('aula1','aula',{quiz,aprovacao:{por:'admin',em:'2026-10-01T00:00:00Z',versao:'1',parecer:'Conferida'}});
  const b=app({rows:[row('formacoes',formacao({id:'f0',titulo:'Fundamentos fictícios'})),row('formacoes',formacao({etapas:[aprovada]}))]});
- const cat={trilha:'mubisys',area:'Comercial',nivel:'essencial',cargaMinutos:90,ordem:2,familias:['operacao-ficticia'],preRequisitos:['f0'],codigo:'SIS-01'};
+ const cat={trilha:'mubisys',area:'Comercial',nivel:'essencial',cargaMinutos:90,ordem:2,familias:['operacao-ficticia'],preRequisitos:['f0'],codigo:'SIS-01',resumo:'Resumo fictício do curso',palavrasChave:['cnc','router']};
  const r=await cmd(b,'salvarFormacao',{formacao:formacao({etapas:[aprovada],catalogo:cat}),expectedRevision:1,mutationId:'cat-ok'},admin);
  assert.equal(r.status,200);assert.deepEqual(r.body.registro.catalogo,cat);assert.equal(r.body.registro.versao,'1');
  assert.equal(r.body.registro.etapas[0].aprovacao.por,'admin');assert.equal(r.body.registro.versoesAnteriores.length,0);
  const invalidos=[[{trilha:'Mubisys'},400],[{trilha:'trilha-inexistente'},409],[{nivel:'basico'},400],[{cargaMinutos:0},400],[{cargaMinutos:100001},400],[{ordem:10001},400],[{ordem:1.5},400],
   [{familias:['familia-inexistente']},409],[{familias:Array.from({length:21},(_,i)=>'f'+i)},400],[{familias:['Com Espaco']},400],[{preRequisitos:['f1']},400],[{preRequisitos:['curso-inexistente']},409],
-  [{preRequisitos:['f0','f0']},400],[{codigo:'x'.repeat(41)},400],[{area:'x'.repeat(121)},400],['texto',400]];
+  [{preRequisitos:['f0','f0']},400],[{codigo:'x'.repeat(41)},400],[{resumo:'x'.repeat(201)},400],[{palavrasChave:'cnc'},400],[{palavrasChave:['']},400],[{palavrasChave:['x'.repeat(41)]},400],[{palavrasChave:Array.from({length:21},(_,i)=>'p'+i)},400],[{area:'x'.repeat(121)},400],['texto',400]];
  for(const [i,[c,status]] of invalidos.entries()){
   const x=await cmd(b,'salvarFormacao',{formacao:formacao({etapas:[aprovada],catalogo:typeof c==='string'?c:{...cat,...c}}),expectedRevision:r.body.revision,mutationId:'cat-invalido-'+i},admin);
   assert.equal(x.status,status,JSON.stringify(c).slice(0,60));

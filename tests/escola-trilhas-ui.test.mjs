@@ -54,7 +54,9 @@ test('catálogo agrupa por trilha e mostra o estado de cada curso para quem estu
  const secoes=t.app.querySelectorAll('.cat-trilha').map(x=>x.querySelector('h2').textContent);
  assert.deepEqual(secoes,['Integração fictícia','Sistema fictício','Cursos sem trilha']);
  const card=titulo=>t.app.querySelectorAll('.cat-curso').find(c=>c.querySelector('h3').textContent===titulo);
- assert.equal(card('Curso c-integracao').dataset.estado,'concluido');assert.match(card('Curso c-integracao').textContent,/INT-01 · Integração · Essencial · 1 h 30 min/);
+ assert.equal(card('Curso c-integracao').dataset.estado,'concluido');assert.match(card('Curso c-integracao').textContent,/Essencial · 1 h 30 min · INT-01/);
+ // A sub-área (campo area) vira subtítulo dentro da área, não se repete no cartão.
+ assert.equal(t.app.querySelectorAll('.cat-sub').find(sb=>sb.querySelectorAll('.cat-curso').some(c=>c.querySelector('h3').textContent==='Curso c-integracao')).querySelector('.cat-sub-titulo').textContent,'Integração');
  assert.equal(card('Curso c-sistema').dataset.estado,'disponivel');
  const recomenda=card('Curso c-sistema').querySelector('.cat-recomenda').textContent;assert.match(recomenda,/Recomendado antes:/);assert.match(recomenda,/Curso c-integracao \(concluído\) · Curso só para designer \(não liberado\)/);
  assert.equal(card('Curso só para designer'),undefined,'Curso fora do público não vira cartão para a pessoa');
@@ -425,4 +427,33 @@ test('provas para aprovar abrem no recorte da gestão, sem a lista pessoal do al
  assert.match(t.app.querySelector('h1').textContent,/Provas para aprovar/);assert.ok(t.node('#eg-provas-aprovar'));assert.match(t.node('#eg-provas-aprovar').textContent,/Curso com prova fictícia/);
  assert.equal(t.app.querySelectorAll('.edu-grid').length,0,'Sem a grade pessoal de avaliações');
  const a=tela(s);await a.route('avaliacoes','equipe');assert.equal(a.node('#eg-provas-aprovar'),null);assert.match(a.text(),/Somente quem gerencia cursos aprova provas/);
+});
+
+// Auditoria de 15/10/2026: catálogo por área e sub-área, filtro de área e busca
+// pelo nome que o chão usa. Cursos e áreas fictícios.
+test('catálogo por área: sub-áreas em ordem, filtro de área com o Silk dela e busca pelas palavras do chão',async()=>{
+ const cfg={gestores:{gestao:['Produção']},educacao:{catalogo:{familias:{'operacao-ficticia':{nome:'Operação fictícia',descricao:'',cargos:['operador-ficticio']}},trilhas:{comercial:{nome:'Comercial',descricao:'',ordem:10},producao:{nome:'Produção',descricao:'',ordem:20}}}}};
+ const lib={pessoas:['rh1'],cargos:[],setores:[],todos:false};
+ const rows=[
+  row('formacoes',curso('c-venda',{titulo:'Venda fictícia',liberacao:lib,catalogo:{trilha:'comercial',area:'Vendas',ordem:20}})),
+  row('formacoes',curso('c-cnc',{titulo:'Router fictício',liberacao:lib,catalogo:{trilha:'producao',area:'Máquinas CNC',ordem:40,palavrasChave:['cnc','router']}})),
+  row('formacoes',curso('c-letra',{titulo:'Letra-caixa fictícia',liberacao:lib,catalogo:{trilha:'producao',area:'Letras caixa',ordem:60,resumo:'Montar e testar a letra.'}})),
+  row('formacoes',curso('c-pcp',{titulo:'Fila fictícia',liberacao:lib,catalogo:{trilha:'producao',area:'PCP',ordem:10}})),
+ ];
+ const s=servidor(rows,cfg),t=tela(s);await t.route('catalogo');
+ const prod=t.app.querySelectorAll('.cat-trilha').find(x=>x.dataset.trilha==='producao');
+ assert.deepEqual(prod.querySelectorAll('.cat-sub-titulo').map(x=>x.textContent),['PCP','Máquinas CNC','Letras caixa']);
+ assert.match(prod.textContent,/Montar e testar a letra\./);
+ // Todas as áreas: nenhum Silk à mostra (um por tela). Com a área escolhida, só o dela.
+ assert.ok(t.app.querySelectorAll('.cat-silk').every(x=>x.hidden));
+ const chip=t.app.querySelectorAll('[data-area]').find(b=>b.dataset.area==='producao');chip.onclick();
+ assert.equal(t.app.querySelectorAll('.cat-trilha').find(x=>x.dataset.trilha==='comercial').hidden,true);
+ assert.equal(prod.querySelector('.cat-silk').hidden,false);assert.equal(prod.querySelector('.cat-silk').querySelector('.silk').attributes.alt,'');
+ const visiveis=()=>t.app.querySelectorAll('.cat-curso').filter(c=>!c.hidden).map(c=>c.querySelector('h3').textContent);
+ const buscar=q=>{t.node('#cat-busca').value=q;t.node('#cat-busca').oninput();return visiveis();};
+ t.app.querySelectorAll('[data-area]').find(b=>b.dataset.area==='').onclick();
+ assert.deepEqual(buscar('cnc'),['Router fictício']);
+ assert.deepEqual(buscar('letra caixa'),['Letra-caixa fictícia']);
+ assert.deepEqual(buscar('vendas'),['Venda fictícia']);
+ assert.deepEqual(buscar('serralheria'),[]);
 });

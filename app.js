@@ -547,11 +547,18 @@ function ligarTopo() {
 // RH e o seu primeiro nome minúsculo; a senha fica pros adm"). "Sou aluno" é a
 // padrão: ID do RH e primeiro nome, sem senha. "Administração" é a de sempre:
 // usuário e senha da Central, para administração, gestão e instrutores.
+// Link pedido antes de entrar (por exemplo, um curso mandado pelo líder): depois de
+// entrar, a pessoa volta para ele. O renderApp continua barrando o que não é dela.
+let _rotaPedida='',_houveSessao=false;
+const rotaDepoisDeEntrar=()=>{const r=_rotaPedida;_rotaPedida='';return /^#\/[a-z]/.test(r)&&!/^#\/senha/.test(r)?r:'#/';};
 function renderLogin(app) {
+  // Só o link aberto antes de qualquer sessão nesta aba: o da pessoa que saiu (ou
+  // cuja sessão venceu) não passa para a próxima pessoa do aparelho.
+  _rotaPedida=!_houveSessao&&location.hash&&location.hash!=='#/'&&location.hash!=='#'?location.hash:'';
   document.title="Escola Impresilk · Entrada";
-  app.innerHTML='<div class="tela-login"><div class="login-layout"><section class="login-apresentacao"><div class="eyebrow">IMPRESILK · CONHECIMENTO EM PRÁTICA</div><h1>O jeito certo de fazer.<br>Ao alcance da equipe.</h1><p>Procedimentos, jornadas de fabricação e aprendizado reunidos em um só lugar.</p><div class="login-beneficios"><p><b>01</b> Encontre o procedimento da sua tarefa.</p><p><b>02</b> Siga cada etapa com clareza.</p><p><b>03</b> Acompanhe o que precisa aprender.</p></div></section><div class="cartao-login"><img src="./logo-impresilk.png" alt="Impresilk">'+
+  app.innerHTML='<div class="tela-login"><div class="login-layout"><section class="login-apresentacao"><img class="silk silk-entrada" src="./silk/silk-boas-vindas-g.webp" width="208" height="334" alt="" aria-hidden="true" decoding="async"><div class="login-texto"><div class="eyebrow">ESCOLA IMPRESILK</div><h1>O jeito certo de fazer.<br>Ao alcance da equipe.</h1><p>Cursos da sua área, prova e prática no posto, com os procedimentos da casa sempre à mão.</p><div class="login-beneficios"><p><b>01</b> Comece pelo curso que a escola indica.</p><p><b>02</b> Pratique no posto com quem valida.</p><p><b>03</b> Consulte os POPs da sua tarefa.</p></div></div></section><div class="cartao-login"><img src="./logo-impresilk.png" alt="Impresilk">'+
     '<div class="login-portas" role="tablist" aria-label="Como você entra"><button type="button" role="tab" id="lg-porta-aluno" aria-controls="lg-painel-aluno" aria-selected="true">Sou aluno</button><button type="button" role="tab" id="lg-porta-adm" aria-controls="lg-painel-adm" aria-selected="false" tabindex="-1">Administração</button></div>'+
-    '<section id="lg-painel-aluno" role="tabpanel" aria-labelledby="lg-porta-aluno"><h2>Entre com seu ID do RH</h2><p class="sub2">Seu ID do RH e seu primeiro nome. Não precisa de senha.</p><form id="lg-aluno" novalidate><div class="campo"><label for="lg-id">ID do RH (6 números)</label><input id="lg-id" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" required aria-describedby="lg-id-ajuda"><p class="dica" id="lg-id-ajuda">O ID está no seu cadastro do RH.</p></div><div class="campo"><label for="lg-nome">Primeiro nome</label><input id="lg-nome" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="60" required></div><div id="lg-aluno-erro" role="alert"></div><button class="botao largo" id="lg-aluno-entrar" type="submit">Entrar</button></form></section>'+
+    '<section id="lg-painel-aluno" role="tabpanel" aria-labelledby="lg-porta-aluno"><h2>Entre com seu ID do RH</h2><p class="sub2">Seu ID do RH e seu primeiro nome. Não precisa de senha.</p><form id="lg-aluno" novalidate><div class="campo"><label for="lg-id">ID do RH (6 números)</label><input id="lg-id" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" required aria-describedby="lg-id-ajuda"><p class="dica" id="lg-id-ajuda">O ID está no seu cadastro do RH. Não sabe o seu? Peça ao seu líder ou ao RH.</p></div><div class="campo"><label for="lg-nome">Primeiro nome</label><input id="lg-nome" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="60" required></div><div id="lg-aluno-erro" role="alert"></div><button class="botao largo" id="lg-aluno-entrar" type="submit">Entrar</button></form></section>'+
     '<section id="lg-painel-adm" role="tabpanel" aria-labelledby="lg-porta-adm" hidden><h2>Administração</h2><p class="sub2">Administração, gestão e instrutores: o mesmo usuário e senha da Entrada Única.</p><form id="lg-form"><div class="campo"><label for="lg-u">Usuário</label><input id="lg-u" type="text" autocomplete="username" autocapitalize="none" required></div><div class="campo"><label for="lg-s">Senha</label><input id="lg-s" type="password" autocomplete="current-password" required></div><div id="lg-erro" role="alert"></div><button class="botao largo" id="lg-entrar" type="submit">Entrar</button><details class="login-alternativo"><summary>Outras formas de acesso</summary><div class="campo"><label for="lg-tipo">Tipo de conta</label><select id="lg-tipo"><option value="rh">Conta da equipe / RH</option><option value="legado">Senha própria antiga dos POPs</option></select></div><a href="https://leogpereira-afk.github.io/painel-impresilk/">Abrir a Entrada Única</a></details></form></section>'+
     '<p class="dica">O primeiro acesso precisa de internet. Depois de sincronizar, consulte os conteúdos disponíveis mesmo sem sinal.</p></div></div></div>';
   // Abas acessíveis: setas trocam de porta, como num grupo de abas.
@@ -574,7 +581,7 @@ function renderLogin(app) {
       const sessao={usuario:r.usuario,nome:r.nome,papel:'aluno',origemLogin:'aluno',colaboradorId:r.colaboradorId,validoAte:r.validoAte};
       STORE.limparOutrosAlunos(sessao);
       if(!STORE.setUser(sessao))throw new Error('Não consegui guardar a sessão neste aparelho.');
-      SESSAO=STORE.getUser();_ultimoSync=null;await atualizarIdentidadeRH();if(!SESSAO)return;STORE.trySync();STORE.pull();location.hash='#/';renderApp();
+      SESSAO=STORE.getUser();_ultimoSync=null;await atualizarIdentidadeRH();if(!SESSAO)return;STORE.trySync();STORE.pull();location.hash=rotaDepoisDeEntrar();renderApp();
     } catch(err){
       const ajuda=err.status===401?' Confira o ID no seu cadastro do RH e escreva só o primeiro nome.':err.status===429?' Se outras pessoas na mesma rede também erraram, a administração pode liberar a entrada na hora.':'';
       erroAluno(esc(err.message || 'Não foi possível entrar. Tente novamente.')+ajuda);
@@ -588,7 +595,7 @@ function renderLogin(app) {
       const rh=$('#lg-tipo').value==='rh', r=await (rh?AUTH.loginRH(u,senha):AUTH.login(u,senha));
       if(rh && r.trocarSenha){$('#lg-erro').innerHTML='<div class="aviso amarelo">Antes do primeiro acesso, crie sua senha na <a href="https://leogpereira-afk.github.io/painel-impresilk/">Entrada Única</a>. Depois volte aos POPs.</div>';return;}
       if(!STORE.setUser({usuario:r.usuario,nome:r.nome,papel:r.papel,trocarSenha:!!r.trocarSenha,origemLogin:rh?'rh':'legado'}))throw new Error('Não consegui guardar a sessão neste aparelho.');
-      SESSAO=STORE.getUser();_ultimoSync=null;await atualizarIdentidadeRH();STORE.trySync();STORE.pull();location.hash=r.trocarSenha?'#/senha':'#/';renderApp();
+      SESSAO=STORE.getUser();_ultimoSync=null;await atualizarIdentidadeRH();STORE.trySync();STORE.pull();location.hash=r.trocarSenha?'#/senha':rotaDepoisDeEntrar();renderApp();
     } catch(err){$('#lg-erro').innerHTML='<div class="aviso vermelho">'+esc(err.erro || err.message || 'Não foi possível entrar. Tente novamente.')+'</div>';}
     finally {if(bt.isConnected){bt.disabled=false;bt.textContent='Entrar';}}
   };
@@ -1422,7 +1429,7 @@ function renderTrocarSenha(app) {
     STORE.setUser(Object.assign({}, SESSAO, { trocarSenha: false }));
     SESSAO = STORE.getUser();
     toast('Senha trocada ✓', 'sucesso');
-    location.hash = '#/';
+    location.hash = rotaDepoisDeEntrar();
   };
 }
 
@@ -1541,6 +1548,7 @@ function lerRota() {
 function renderApp() {
   const app = $('#app');
   if (!SESSAO) { renderLogin(app); return; }
+  _houveSessao = true;
   lerRota();
   document.title = 'Escola Impresilk · ' + (({biblioteca:'Biblioteca',videos:'Vídeos',material:'Material de estudo','material-editor':'Preparar material',nrs:'Normas Regulamentadoras',perfil:'Perfil e Desenvolvimento','perfil-editor':'Preparar instrumento','perfil-teste':'Autoconhecimento',alunos:'Acompanhamento',aluno:'Cursos do aluno',avaliacoes:'Avaliações',escola:'Gestão de cursos',formacao:'Curso','formacao-editor':'Preparar curso',conquistas:'Meu histórico',conhecimento:'Conhecimento',catalogo:'Catálogo',matriz:'Matriz de cargos',importar:'Importar pacote',inicio:'Início',pops:'POPs',pop:'POP',fab:'Fabricação',jornada:'Jornada de fabricação',etapa:'Etapa de fabricação',treinamento:'Treinamento',editor:'Editor',senha:'Trocar senha',pessoas:'Equipe',mapa:'Histórico anterior',meus:'Atribuições anteriores',menu:'Minha conta'})[ROTA.nome] || 'Início');
   // Enquanto a senha for a temporária, o app inteiro fica atrás desta tela.

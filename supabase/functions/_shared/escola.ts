@@ -268,6 +268,17 @@ export async function escola(body: any, ctx: any) {
     if(c.cargaMinutos!=null){if(!inteiro(c.cargaMinutos,1,100000))fail('Carga horária do curso inválida.');out.cargaMinutos=c.cargaMinutos;}
     if(c.ordem!=null){if(!inteiro(c.ordem,0,10000))fail('Ordem do curso inválida.');out.ordem=c.ordem;}
     const codigo=textoOpcional(c.codigo,40,'Código do curso inválido.');if(codigo)out.codigo=codigo;
+    // Resumo do cartão e palavras que o chão usa para procurar (CNC, serralheria,
+    // balcão). Não pedagógicos, como o resto do catálogo: mudar não pede versão nova.
+    // Tela que não conhece os campos (editor antigo) não os apaga: ausente conserva o anterior.
+    if(!Object.hasOwn(c,'resumo')&&typeof a.resumo==='string'&&a.resumo)out.resumo=a.resumo;
+    if(!Object.hasOwn(c,'palavrasChave')&&Array.isArray(a.palavrasChave)&&a.palavrasChave.length)out.palavrasChave=[...a.palavrasChave];
+    const resumo=textoOpcional(c.resumo,200,'Resumo do curso com até 200 caracteres.');if(resumo)out.resumo=resumo;
+    if(c.palavrasChave!=null){
+      const pc=c.palavrasChave;
+      if(!Array.isArray(pc)||pc.length>20||pc.some((x:any)=>typeof x!=='string'||!x.trim()||x.trim().length>40))fail('Palavras-chave do curso inválidas (até 20, com até 40 caracteres cada).');
+      const limpas=[...new Set(pc.map((x:string)=>x.trim()))];if(limpas.length)out.palavrasChave=limpas;
+    }
     if(c.familias!=null){
       if(!Array.isArray(c.familias)||c.familias.length>20||c.familias.some((x:any)=>!kebab(x))||new Set(c.familias).size!==c.familias.length)fail('Famílias do catálogo inválidas.');
       const antes=Array.isArray(a.familias)?a.familias:[],fora=c.familias.filter((x:string)=>!antes.includes(x)&&!Object.hasOwn(cat.familias,x));

@@ -641,3 +641,67 @@ summary { cursor: pointer; font-weight: 700; min-height: 44px; padding: 6px 0 12
 .imp-msgs{grid-column:1/-1;margin:4px 0 0;padding-left:18px;font-size:.84rem;color:#963b16}.imp-msgs.imp-avisos{color:#5c4a12}.imp-item>.dica{grid-column:1/-1;margin:2px 0 0}
 .imp-exemplo{max-height:320px;overflow:auto;padding:12px;border-radius:8px;background:#f3f6fa;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
 @media(max-width:600px){.imp-item{grid-template-columns:minmax(0,1fr)}.imp-situacao{justify-self:start}.cat-trilha{margin:22px 0}}
+/* Escola: marca, Silk e áreas (15/10/2026). Cores da logo: marinho, ciano,
+   magenta e amarelo. Ciano, magenta e amarelo só em faixa, ponto e barra, nunca
+   em texto pequeno (contraste). Cada área tem a sua cor. */
+:root{--marca-marinho:#002561;--marca-marinho-2:#13306e;--marca-ciano:#00AEEF;--marca-magenta:#EC008C;--marca-amarelo:#FFCD02}
+[data-trilha="comercial"]{--cor-area:var(--marca-magenta)}
+[data-trilha="producao"]{--cor-area:var(--marca-ciano)}
+[data-trilha="adm"]{--cor-area:var(--marca-amarelo)}
+[data-trilha="nucleo-comum"],[data-trilha="lideranca"],[data-trilha="carreira"]{--cor-area:var(--marca-marinho)}
+.edu-jornada[data-trilha],.cat-curso[data-trilha],.edu-neste[data-trilha]{border-top:4px solid var(--cor-area,#dce2ea)}
+.edu-meta{font-size:.84rem;color:var(--cinza);font-weight:600}
+.edu-resumo-curso{margin:0;color:var(--tinta);font-size:.95rem;line-height:1.5}
+.edu-jornada h2{font-size:1.1rem;margin:6px 0}
+/* Aula: letra de leitura e listas (o texto vem com negrito, subtítulo e listas) */
+.edu-topico p,.edu-topico li{font-size:1.04rem;line-height:1.7}
+.edu-topico h4{font-size:1.04rem;margin:16px 0 6px;color:var(--marca-marinho)}
+.edu-topico ul,.edu-topico ol{padding-left:22px;margin:8px 0}.edu-topico li{margin:6px 0}
+.edu-quiz legend,.edu-quiz .edu-check{font-size:1.02rem;line-height:1.55}
+.edu-fim-leitura{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:24px;padding-top:18px;border-top:1px solid var(--borda)}
+.edu-fim-leitura .dica{margin:0}
+/* Prova: resultado logo acima das questões, só as erradas abertas */
+.edu-resultado{border-left:6px solid var(--marca-ciano)}.edu-resultado.rever{border-left-color:var(--marca-amarelo)}
+.edu-resultado h2{margin-top:0}.edu-res-lista{padding-left:22px}.edu-res-lista li{margin:10px 0}.edu-res-lista p{margin:4px 0}
+.edu-q-rever{border-left:4px solid var(--marca-amarelo);padding-left:12px}
+.edu-q-tag{display:inline-block;font-size:.8rem;font-weight:700;color:#5a4300;background:#fff4c2;border-radius:6px;padding:1px 8px;margin-left:6px}
+/* Início: o Silk fica ao lado do próximo passo, no fundo claro, nunca sobre ele */
+.edu-proximo-bloco{display:flex;align-items:flex-end;gap:16px;margin:8px 0 18px}
+.edu-proximo-col{flex:1;min-width:0}.edu-proximo-bloco .edu-proximo{margin:0}
+.edu-ola{font-weight:700;color:var(--marca-marinho);margin:0 0 8px;font-size:1.05rem}
+.edu-todos summary{cursor:pointer;font-weight:700;min-height:44px;display:flex;align-items:center}
+.edu-area h3{margin:22px 0 4px}.edu-area h4{margin:12px 0 0;color:var(--cinza);font-size:.95rem}
+.edu-seguir{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:18px 0}.edu-seguir p{margin:0;font-weight:600}
+.edu-concluido{display:flex;align-items:center;gap:16px;background:#eef9fe;border:1px solid #bfe9fb;border-radius:16px;padding:12px 18px;margin:0 0 16px}
+.edu-concluido h2{margin:0 0 4px}.edu-concluido p{margin:0}
+.edu-proximo :focus-visible{outline-color:var(--marca-amarelo)}
+/* Silk: decorativo, sem clique, com tamanho reservado, fora da impressão */
+.silk{display:block;height:auto;flex-shrink:0;pointer-events:none;user-select:none;-webkit-user-drag:none}
+.silk-faixa{display:block;width:100%;height:200px;object-fit:cover;object-position:58% 32%;border-radius:16px;margin:8px 0 14px;pointer-events:none;user-select:none}
+/* Catálogo: áreas e sub-áreas */
+.cat-area-topo{gap:16px}.cat-silk[hidden],.cat-sub[hidden],.cat-trilha[hidden]{display:none}
+.cat-sub-titulo{margin:18px 0 10px;font-size:1rem;color:var(--marca-marinho);display:flex;align-items:center;gap:8px}
+.cat-sub-titulo::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--cor-area,var(--marca-marinho));flex-shrink:0}
+.cat-areas{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
+.cat-areas .chip[aria-pressed="true"]{background:var(--marca-marinho);border-color:var(--marca-marinho);color:#fff}
+.cat-areas .chip[data-trilha]{border-left:4px solid var(--cor-area)}
+.login-apresentacao{display:flex;gap:28px;align-items:center}.login-apresentacao .silk-entrada{width:208px;height:auto}
+@media(max-width:620px){
+ .edu-proximo-bloco{flex-direction:column;align-items:flex-start;gap:6px}.edu-proximo-bloco .silk{height:96px;width:auto}
+ .silk-faixa{height:150px}.cat-silk .silk{height:80px;width:auto}
+ .login-apresentacao{flex-direction:column;align-items:flex-start;gap:8px}.login-apresentacao .silk-entrada{width:88px}
+}
+@media print{
+ .app-cab,.subnav,.pular,#toasts,#overlays,nav,.edu-acoes,.edu-fim-leitura,.chip-sync,.silk,.silk-faixa,.cat-silk,.cat-areas,.ac-filtros,.edu-atalhos{display:none!important}
+ body,.escola,.miolo{background:#fff!important;padding:0!important;max-width:none!important}
+ .card,.edu-etapa,.cat-curso,.edu-jornada{box-shadow:none!important;break-inside:avoid}.edu-conteudo{display:block}
+}
+/* Cores das trilhas que ainda usam os ids de 14/10 e entrada entre 621 e 900 px
+   (o Silk de 208 px espremia o texto embaixo do cartão de entrada). */
+[data-trilha="administrativo"],[data-trilha="financeiro"],[data-trilha="rh-dp"]{--cor-area:var(--marca-amarelo)}
+[data-trilha="criacao-projetos"]{--cor-area:var(--marca-magenta)}
+[data-trilha="instalacao"]{--cor-area:var(--marca-ciano)}
+[data-trilha="gestao-lideranca"],[data-trilha="mubisys"]{--cor-area:var(--marca-marinho)}
+.cat-areas .chip[data-trilha]{border-left-color:var(--cor-area,var(--borda))}
+@media(max-width:900px){.login-apresentacao{flex-direction:column;align-items:flex-start;gap:8px}.login-apresentacao .silk-entrada{width:120px}}
+@media(max-width:620px){.login-apresentacao .silk-entrada{width:88px}}

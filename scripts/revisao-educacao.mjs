@@ -46,7 +46,7 @@ export function servidorRevisao(){
     const r=await b.call(body,{sub:user.usuario,nome:user.nome,papel:user.papel});send(r.body,r.status);return;
    }
    let name=url.pathname==='/'?'index.html':url.pathname.slice(1);
-   if(!['index.html','app.js','store.js','auth.js','config.js','organizacao.js','conhecimento.js','treinamentos.js','educacao.js','academia.js','escola-gestao.js','escola-catalogo.js','styles.css','logo-impresilk.png','manifest.webmanifest','favicon.svg','icone-192.png','icone-512.png'].includes(name)){res.writeHead(404);res.end();return;}
+   if(!['index.html','app.js','store.js','auth.js','config.js','organizacao.js','conhecimento.js','treinamentos.js','educacao.js','academia.js','escola-gestao.js','escola-catalogo.js','styles.css','logo-impresilk.png','manifest.webmanifest','favicon.svg','icone-192.png','icone-512.png'].includes(name)&&!/^silk\/silk-[a-z-]+-[gp]\.webp$/.test(name)){res.writeHead(404);res.end();return;}
    let out=await fs.readFile(path.join(root,name));
    if(name==='config.js')out=Buffer.from(out.toString().replace('https://heveemylixartyijxewh.supabase.co/functions/v1',url.origin.replace('http://localhost','') || '/api').replace('window.API_BASE = ""','window.API_BASE = "/api"'));
    if(name==='config.js')out=Buffer.from('window.API_BASE="/api";window.API_FN={sync:"pops-sync"};window.CONHECIMENTO_VERSAO="2026.10.05";');
@@ -59,7 +59,7 @@ export function servidorRevisao(){
     const init=`<script>localStorage.setItem('pops_user',${JSON.stringify(JSON.stringify(user))});localStorage.setItem('pops_cracha',${JSON.stringify(token)});</script><div style="background:#fff0c5;padding:8px 16px;text-align:center;font:13px sans-serif;color:#654510">PRÉVIA LOCAL · Pessoas e registros fictícios${process.env.EDUCACAO_FONTES?' · Documentos reais em revisão':''} · <a href="/?pessoa=ana">Colaboradora</a> · <a href="/?pessoa=bruno#/escola">Instrutor</a> · <a href="/?pessoa=gestao#/escola">Gestão</a></div>`;
     out=Buffer.from(out.toString().replace('<body>','<body>'+init));
    }
-   res.writeHead(200,{'Content-Type':name.endsWith('.js')?'text/javascript':name.endsWith('.css')?'text/css':name.endsWith('.png')?'image/png':name.endsWith('.svg')?'image/svg+xml':'text/html','Cache-Control':'no-store'});res.end(out);
+   res.writeHead(200,{'Content-Type':name.endsWith('.js')?'text/javascript':name.endsWith('.css')?'text/css':name.endsWith('.png')?'image/png':name.endsWith('.webp')?'image/webp':name.endsWith('.svg')?'image/svg+xml':'text/html','Cache-Control':'no-store'});res.end(out);
   }catch(e){res.writeHead(500,{'Content-Type':'application/json'});res.end(JSON.stringify({erro:e.message}));}
  });
 }

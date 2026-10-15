@@ -1,5 +1,13 @@
 # Vez do Pops & Fabricação
 
+## Trabalho atual · Silk na jornada, cursos por área e auditoria de jornada e design
+
+Agente: claude. Pedido do Léo em 15/10/2026: "vamos usar o Silk na jornada dos treinamentos, preciso de uma auditoria na qualidade de jornada e designer e preciso aprofundar nos cursos, eles vão ter áreas: comercial = vendas, atendimento e designer; produção = PCP, acabamento, serralheria, letras caixa, máquinas CNC, impressão, montagem interna e montagem externa; adm = financeiro e RH; me ajude a lembrar o que falta para a Impresilk". Ramo `claude/silk-areas-20261015`, worktree em ~/Projetos/pops-escola-20261014.
+
+O pacote de 14/10 ainda não foi importado (só o curso de Ética existe em produção): os cursos são reorganizados e aprofundados no pacote, fora deste repositório. A prévia local (`scripts/revisao-educacao.mjs`) aceita `EDUCACAO_PACOTE` para mostrar a jornada com o pacote, sem dado real no repositório.
+
+Estado: auditoria em andamento. A vez é do Claude até a publicação; o Léo decide quem segue.
+
 ## Trabalho atual · Trilha do Mubisys, formações por função e auditoria da escola
 
 Agente: claude. Pedido de Léo em 14/10/2026: "usar a inteligência adquirida do Mubisys e colocar uma trilha de curso dele de todas as áreas, financeiro, RH, comercial; pegar materiais no site e rodar uma auditoria de melhoria no site; colocar tudo no sistema; na formação colocar adm, financeiro, designer, vinculado a todos os tipos de vagas e vinculado ao RH também; fazer isso como um reitor de cursos profissionalizantes". Decisões dele na mesma conversa: assumir a vez e criar este protocolo (o repositório não tinha); materiais do site e da ajuda do Mubisys mais o que já existe; auditoria do próprio sistema de POPs; publicar depois da revisão. Ramo `claude/escola-mubisys-20261014`, worktree em ~/Projetos/pops-escola-20261014.

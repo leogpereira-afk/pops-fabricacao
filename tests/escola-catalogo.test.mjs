@@ -371,3 +371,13 @@ test('mensagens do servidor falam curso e aula, sem jornada, formação nem etap
  await pedir(b,'registrar',{formacaoId:'inexistente',formacaoVersao:'1',etapaId:'aula1',evento:'leitura',mutationId:'inexistente'});
  for(const m of erros)assert.doesNotMatch(m,/jornada|forma[cç][aã]o|etapa/i,m);
 });
+
+test('salvar sem resumo e palavras-chave (editor que não os mostra) conserva os que o pacote gravou',async()=>{
+ const b=app();const cat={trilha:'mubisys',area:'Comercial',resumo:'Resumo fictício',palavrasChave:['cnc']};
+ let r=await cmd(b,'salvarFormacao',{formacao:formacao({catalogo:cat}),expectedRevision:0,mutationId:'cat-res-1'},admin);assert.equal(r.status,200);
+ r=await cmd(b,'salvarFormacao',{formacao:formacao({prazo:'2026-12-01',catalogo:{trilha:'mubisys',area:'Comercial'}}),expectedRevision:r.body.revision,mutationId:'cat-res-2'},admin);
+ assert.equal(r.status,200);assert.equal(r.body.registro.catalogo.resumo,'Resumo fictício');assert.deepEqual(r.body.registro.catalogo.palavrasChave,['cnc']);
+ // Mandar vazio de propósito apaga.
+ r=await cmd(b,'salvarFormacao',{formacao:formacao({prazo:'2026-12-01',catalogo:{trilha:'mubisys',area:'Comercial',resumo:'',palavrasChave:[]}}),expectedRevision:r.body.revision,mutationId:'cat-res-3'},admin);
+ assert.equal(r.status,200);assert.equal(r.body.registro.catalogo.resumo,undefined);assert.equal(r.body.registro.catalogo.palavrasChave,undefined);
+});

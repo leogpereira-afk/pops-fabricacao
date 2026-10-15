@@ -192,3 +192,10 @@ test('com a prática no validador, o Início diz isso em vez de mandar continuar
  const h=harness({data:snapshot([formation([pratica])],{aprendizagem:[{formacaoId:'f1',formacaoVersao:'1',atualizadoEm:'2026-10-15T10:00:00Z',etapas:{p1:{status:'aguardando_validacao'}}}]})});await h.route();
  assert.match(h.node('.edu-proximo').textContent,/Sua prática está com o validador/);assert.doesNotMatch(h.node('.edu-proximo').textContent,/Continuar de onde parei/);
 });
+test('curso de segurança não tem Silk, nem concluído nem no Início',async()=>{
+ const f=formation([makeStage({id:'s1',titulo:'Altura fictícia'})],{id:'f-seg',titulo:'Segurança na rua fictícia'});
+ const h=harness({data:snapshot([f],{aprendizagem:[{formacaoId:'f-seg',formacaoVersao:'1',atualizadoEm:'2026-10-15T10:00:00Z',etapas:{s1:{status:'concluida'}}}]})});
+ await h.route('formacao','f-seg');assert.match(h.text(),/Curso concluído/);assert.equal(h.node('.silk'),null);
+ const novo=formation([makeStage({id:'s1',titulo:'Altura fictícia'})],{id:'f-seg2',titulo:'Segurança na fábrica fictícia'});
+ const h2=harness({data:snapshot([novo])});await h2.route();assert.match(h2.text(),/SEU PRÓXIMO PASSO/);assert.equal(h2.node('.silk'),null);
+});

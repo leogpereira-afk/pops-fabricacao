@@ -549,10 +549,12 @@ function ligarTopo() {
 // usuário e senha da Central, para administração, gestão e instrutores.
 // Link pedido antes de entrar (por exemplo, um curso mandado pelo líder): depois de
 // entrar, a pessoa volta para ele. O renderApp continua barrando o que não é dela.
-let _rotaPedida='';
+let _rotaPedida='',_houveSessao=false;
 const rotaDepoisDeEntrar=()=>{const r=_rotaPedida;_rotaPedida='';return /^#\/[a-z]/.test(r)&&!/^#\/senha/.test(r)?r:'#/';};
 function renderLogin(app) {
-  if(location.hash&&location.hash!=='#/'&&location.hash!=='#')_rotaPedida=location.hash;
+  // Só o link aberto antes de qualquer sessão nesta aba: o da pessoa que saiu (ou
+  // cuja sessão venceu) não passa para a próxima pessoa do aparelho.
+  _rotaPedida=!_houveSessao&&location.hash&&location.hash!=='#/'&&location.hash!=='#'?location.hash:'';
   document.title="Escola Impresilk · Entrada";
   app.innerHTML='<div class="tela-login"><div class="login-layout"><section class="login-apresentacao"><img class="silk silk-entrada" src="./silk/silk-boas-vindas-g.webp" width="208" height="334" alt="" aria-hidden="true" decoding="async"><div class="login-texto"><div class="eyebrow">ESCOLA IMPRESILK</div><h1>O jeito certo de fazer.<br>Ao alcance da equipe.</h1><p>Cursos da sua área, prova e prática no posto, com os procedimentos da casa sempre à mão.</p><div class="login-beneficios"><p><b>01</b> Comece pelo curso que a escola indica.</p><p><b>02</b> Pratique no posto com quem valida.</p><p><b>03</b> Consulte os POPs da sua tarefa.</p></div></div></section><div class="cartao-login"><img src="./logo-impresilk.png" alt="Impresilk">'+
     '<div class="login-portas" role="tablist" aria-label="Como você entra"><button type="button" role="tab" id="lg-porta-aluno" aria-controls="lg-painel-aluno" aria-selected="true">Sou aluno</button><button type="button" role="tab" id="lg-porta-adm" aria-controls="lg-painel-adm" aria-selected="false" tabindex="-1">Administração</button></div>'+
@@ -1427,7 +1429,7 @@ function renderTrocarSenha(app) {
     STORE.setUser(Object.assign({}, SESSAO, { trocarSenha: false }));
     SESSAO = STORE.getUser();
     toast('Senha trocada ✓', 'sucesso');
-    location.hash = '#/';
+    location.hash = rotaDepoisDeEntrar();
   };
 }
 
@@ -1546,6 +1548,7 @@ function lerRota() {
 function renderApp() {
   const app = $('#app');
   if (!SESSAO) { renderLogin(app); return; }
+  _houveSessao = true;
   lerRota();
   document.title = 'Escola Impresilk · ' + (({biblioteca:'Biblioteca',videos:'Vídeos',material:'Material de estudo','material-editor':'Preparar material',nrs:'Normas Regulamentadoras',perfil:'Perfil e Desenvolvimento','perfil-editor':'Preparar instrumento','perfil-teste':'Autoconhecimento',alunos:'Acompanhamento',aluno:'Cursos do aluno',avaliacoes:'Avaliações',escola:'Gestão de cursos',formacao:'Curso','formacao-editor':'Preparar curso',conquistas:'Meu histórico',conhecimento:'Conhecimento',catalogo:'Catálogo',matriz:'Matriz de cargos',importar:'Importar pacote',inicio:'Início',pops:'POPs',pop:'POP',fab:'Fabricação',jornada:'Jornada de fabricação',etapa:'Etapa de fabricação',treinamento:'Treinamento',editor:'Editor',senha:'Trocar senha',pessoas:'Equipe',mapa:'Histórico anterior',meus:'Atribuições anteriores',menu:'Minha conta'})[ROTA.nome] || 'Início');
   // Enquanto a senha for a temporária, o app inteiro fica atrás desta tela.

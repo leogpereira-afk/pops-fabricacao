@@ -270,6 +270,9 @@ export async function escola(body: any, ctx: any) {
     const codigo=textoOpcional(c.codigo,40,'Código do curso inválido.');if(codigo)out.codigo=codigo;
     // Resumo do cartão e palavras que o chão usa para procurar (CNC, serralheria,
     // balcão). Não pedagógicos, como o resto do catálogo: mudar não pede versão nova.
+    // Tela que não conhece os campos (editor antigo) não os apaga: ausente conserva o anterior.
+    if(!Object.hasOwn(c,'resumo')&&typeof a.resumo==='string'&&a.resumo)out.resumo=a.resumo;
+    if(!Object.hasOwn(c,'palavrasChave')&&Array.isArray(a.palavrasChave)&&a.palavrasChave.length)out.palavrasChave=[...a.palavrasChave];
     const resumo=textoOpcional(c.resumo,200,'Resumo do curso com até 200 caracteres.');if(resumo)out.resumo=resumo;
     if(c.palavrasChave!=null){
       const pc=c.palavrasChave;

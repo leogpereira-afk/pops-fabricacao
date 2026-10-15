@@ -696,3 +696,12 @@ summary { cursor: pointer; font-weight: 700; min-height: 44px; padding: 6px 0 12
  body,.escola,.miolo{background:#fff!important;padding:0!important;max-width:none!important}
  .card,.edu-etapa,.cat-curso,.edu-jornada{box-shadow:none!important;break-inside:avoid}.edu-conteudo{display:block}
 }
+/* Cores das trilhas que ainda usam os ids de 14/10 e entrada entre 621 e 900 px
+   (o Silk de 208 px espremia o texto embaixo do cartão de entrada). */
+[data-trilha="administrativo"],[data-trilha="financeiro"],[data-trilha="rh-dp"]{--cor-area:var(--marca-amarelo)}
+[data-trilha="criacao-projetos"]{--cor-area:var(--marca-magenta)}
+[data-trilha="instalacao"]{--cor-area:var(--marca-ciano)}
+[data-trilha="gestao-lideranca"],[data-trilha="mubisys"]{--cor-area:var(--marca-marinho)}
+.cat-areas .chip[data-trilha]{border-left-color:var(--cor-area,var(--borda))}
+@media(max-width:900px){.login-apresentacao{flex-direction:column;align-items:flex-start;gap:8px}.login-apresentacao .silk-entrada{width:120px}}
+@media(max-width:620px){.login-apresentacao .silk-entrada{width:88px}}

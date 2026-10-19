@@ -6,7 +6,16 @@ Agente: claude. Pedido do Léo em 15/10/2026: "vamos usar o Silk na jornada dos 
 
 O pacote de 14/10 ainda não foi importado (só o curso de Ética existe em produção): os cursos são reorganizados e aprofundados no pacote, fora deste repositório. A prévia local (`scripts/revisao-educacao.mjs`) aceita `EDUCACAO_PACOTE` para mostrar a jornada com o pacote, sem dado real no repositório.
 
-Estado: auditoria em andamento. A vez é do Claude até a publicação; o Léo decide quem segue.
+Publicado e conferido em 15/10/2026, com a autorização do Léo ("publica depois da revisão"):
+- função pops-sync v60, do commit 73f02e2 (resumo e palavras-chave no catálogo do curso);
+- tela pelo merge 101ce8a (PR 6), Deploy verde: ESCOLA_TELA_VERSAO 2026.10.15-silk e sw pops-shell-v20-silk, com os arquivos do ar iguais aos do commit e as imagens do Silk respondendo;
+- revisão independente com 4 lentes e verificação adversarial: 11 achados confirmados, corrigidos em 73f02e2; 386 testes.
+
+Cursos (19/10/2026): o pacote v2 (111 cursos por área, 57 aprofundados e 54 novos, cada um com redação e revisão) fica fora deste repositório e entra pela tela, em Escola > Importar pacote. Conferido antes com a tela e o servidor deste commit em sandbox: prévia sem erro, 111 cursos e o catálogo gravados como rascunho, repetir sem gravar de novo. Ainda não importado: em produção só existe o curso de Ética.
+
+Fica com o dono: importar o pacote, aprovar as provas, conferir os documentos oficiais e responder as confirmações levantadas pelos cursos (quem valida a prática, cargos do RH, alçadas, nota mínima, entre outras).
+
+Vez: LIVRE. O Léo decide quem segue.
 
 ## Trabalho atual · Trilha do Mubisys, formações por função e auditoria da escola
 

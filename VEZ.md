@@ -1,5 +1,19 @@
 # Vez do Pops & Fabricação
 
+## Trabalho atual · Salas visuais e cards do topo
+
+Agente: codex. Pedido de Léo em 20/10/2026: usar a referência visual Gamefik/escolas nas salas de aprendizagem e destacar os cards superiores. Continuação no ramo `codex/jornada-silk-20261020`. Escopo: catálogo, capas dos cursos, indicadores pessoais e navegação responsiva. Preservar conteúdo, acessos e progresso confirmado. Sem publicação ou alteração de dados reais.
+
+Implementado e conferido localmente em 20/10/2026:
+- salas por área e capas de cursos, indicadores maiores no início e navegação direta aos resultados;
+- progresso calculado pelas aulas obrigatórias, estados de acesso preservados e filtros combináveis;
+- 444 testes aprovados, sintaxe JavaScript e pacote estático conferidos;
+- revisão em desktop e celular de 390 px, sem transbordamento; busca, entrada no curso e atualização para 33% após leitura conferidas no servidor fictício.
+
+Detalhes em `docs/superpowers/plans/2026-10-20-salas-visuais.md`. A prévia local não utiliza dados de alunos reais e não habilita o service worker de produção. Não publicado.
+
+Vez: codex (implementação local concluída; publicação pendente).
+
 ## Trabalho atual · Jornada pessoal por RH e equipe existente
 
 Agente: codex. Complemento autorizado por Léo em 20/10/2026: jornadas individuais, vídeos, habilidades de atendimento e situações difíceis, estudo flexível e incentivo visual com Silk. Equipe escolhida pelo dono: a equipe de trabalho já cadastrada. Mesmo ramo `codex/jornada-silk-20261020`, clone `/tmp/pops-jornada-20261020`.

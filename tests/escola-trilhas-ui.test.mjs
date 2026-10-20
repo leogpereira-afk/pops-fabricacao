@@ -457,3 +457,27 @@ test('catálogo por área: sub-áreas em ordem, filtro de área com o Silk dela 
  assert.deepEqual(buscar('vendas'),['Venda fictícia']);
  assert.deepEqual(buscar('serralheria'),[]);
 });
+
+test('salas contam apenas o catálogo recebido e progresso não inclui aula opcional nem curso sem acesso',async()=>{
+ const lib={pessoas:['rh1'],cargos:[],setores:[],todos:false};
+ const rows=[row('formacoes',curso('c-parcial',{liberacao:lib,catalogo:{trilha:'integracao-ficticia'},etapas:[aula('a1'),aula('a2'),aula('extra',{obrigatoria:false})]})),row('formacoes',curso('c-oculto',{liberacao:{pessoas:['rh2'],cargos:[],setores:[],todos:false},catalogo:{trilha:'integracao-ficticia'}})),row('formacoes',curso('c-rascunho',{publicada:false,liberacao:lib,catalogo:{trilha:'integracao-ficticia'}}))];
+ const s=servidor(rows);assert.equal((await s.b.call({action:'escola',operacao:'registrar',formacaoId:'c-parcial',etapaId:'a1',formacaoVersao:'1',evento:'leitura',mutationId:'sala-leitura-parcial'},{sub:'ana',papel:'equipe'})).status,200);
+ const t=tela(s);await t.route('catalogo');
+ assert.equal(t.app.querySelectorAll('.cat-sala').length,1);
+ assert.match(t.node('.cat-sala').textContent,/1 curso0 de 1 concluídos/);
+ assert.doesNotMatch(t.text(),/Curso c-oculto|Curso c-rascunho/);
+ const pr=t.node('.cat-progresso');assert.match(pr.textContent,/1 de 2 aulas obrigatórias50%/);assert.equal(pr.querySelector('progress').attributes.value,'50');
+ assert.equal(gravacoes(s),1,'A apresentação dos cards não grava progresso');
+});
+
+test('busca sem resultado permite limpar sala, estado e texto mantendo o catálogo completo',async()=>{
+ const lib={pessoas:['rh1'],cargos:[],setores:[],todos:false};
+ const s=servidor([row('formacoes',curso('c1',{liberacao:lib,catalogo:{trilha:'integracao-ficticia'}})),row('formacoes',curso('c2',{liberacao:lib,catalogo:{trilha:'sistema-ficticio'}}))]),t=tela(s);await t.route('catalogo');
+ t.app.querySelectorAll('.cat-sala')[0].onclick();t.node('#cat-busca').value='não encontrado';t.node('#cat-busca').oninput();t.node('#cat-estado').value='concluido';t.node('#cat-estado').onchange();
+ assert.equal(t.node('#cat-sem-resultados').hidden,false);
+ t.node('#cat-limpar').onclick();
+ assert.equal(t.node('#cat-busca').value,'');assert.equal(t.node('#cat-estado').value,'');assert.equal(t.node('#cat-sem-resultados').hidden,true);
+ assert.equal(t.app.querySelectorAll('.cat-curso').filter(c=>!c.hidden).length,2);
+ assert.equal(t.app.querySelectorAll('[data-area]').find(c=>c.dataset.area==='').attributes['aria-pressed'],'true');
+ assert.equal(gravacoes(s),0);
+});

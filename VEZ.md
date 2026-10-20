@@ -2,13 +2,17 @@
 
 ## Trabalho atual · Publicação das capas 3D e presença do Silk
 
-Agente: codex. Pedido de Léo em 20/10/2026: trocar as faixas rosas dos cursos por imagens 3D vivas e reforçar o Silk nas páginas. Escopo local: capas ilustradas por assunto, presença acolhedora nas aulas e revisão em celular. Preservar conteúdos, IDs, pontuação e acesso. Sem publicação ou alteração de dados reais.
+Agente: codex. Léo autorizou em 20/10/2026: "ficou bom pode subir essas melhorias da escola com as imagens 3d e o Silk". Escopo: capas ilustradas por assunto, atalhos acessíveis somente em cursos liberados e Silk nas áreas personalizadas, aulas e biblioteca/vídeos. Preservados conteúdos, IDs, pontuação e acesso. Nenhuma mudança de servidor ou de dados reais nesta publicação.
 
-Implementado e conferido localmente: capas 3D por assunto, atalhos acessíveis somente em cursos liberados, Silk nas áreas personalizadas, abertura de aulas e biblioteca/vídeos. 448 testes aprovados; pacote estático e referências do shell conferidos; desktop e celular de 390 px sem transbordamento. A capa abriu o curso pela tecla Enter; o guia inicial deu lugar ao incentivo após leitura confirmada no servidor fictício, mantendo um Silk. Nenhum dado real alterado. Não publicado.
+Publicado e conferido em 20/10/2026:
+- tela `2026.10.20-capas-3d`, shell `pops-shell-v25-capas-ilustradas`, commit `7534d17`;
+- Deploy [39494820545](https://github.com/leogpereira-afk/pops-fabricacao/actions/runs/39494820545) e Verificar [39494820555](https://github.com/leogpereira-afk/pops-fabricacao/actions/runs/39494820555) concluídos com sucesso;
+- 448 testes aprovados; pacote estático de 44 arquivos servido em produção idêntico byte a byte ao validado;
+- catálogo autenticado em produção com capas 3D e Silk carregados; navegação por área e celular de 390 px conferidos, sem transbordamento horizontal (375 px de conteúdo e de largura rolável);
+- no ensaio local, a capa abriu o curso por Enter e o guia inicial deu lugar ao incentivo após leitura confirmada no servidor fictício, mantendo um Silk. Nenhum progresso produtivo foi alterado no teste;
+- sessão existente atualizada por recarregamento normal após a troca do service worker. Evidências visuais guardadas fora do repositório público.
 
-Léo autorizou em 20/10/2026: "ficou bom pode subir essas melhorias da escola com as imagens 3d e o Silk". Publicar somente as melhorias visuais aprovadas, sem mudança no servidor ou em dados reais. Publicação em andamento.
-
-Vez: codex (publicação em andamento).
+Vez: codex (publicação concluída; o dono decide a próxima vez).
 
 ## Trabalho atual · Publicação das salas com Silk
 

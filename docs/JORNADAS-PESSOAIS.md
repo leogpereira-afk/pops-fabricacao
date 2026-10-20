@@ -86,3 +86,8 @@ A migração aditiva `0007_planos_aprendizagem.sql` estende `pops_gravar`, exige
 ## Verificação e limites
 
 A leitura dos contratos reais de PCP e RH foi verificada no código citado; a jornada foi exercitada com dados fictícios e o handler de servidor no ambiente isolado. A migração `pops_planos_aprendizagem_20261020` e a função `pops-sync` v61 foram aplicadas em 20/10/2026. Conferidos índice único, RLS e bloqueio sem sessão. Nenhuma pessoa real foi vinculada a um plano. A prévia reinicia seus registros ao reiniciar o servidor. Os modelos de habilidades precisam de revisão da gestão antes do uso; nenhum material foi publicado para funcionários nesta etapa.
+
+
+## Publicação verificada
+
+Em 20/10/2026, interface `2026.10.20-silk-salas-2` e shell v24 publicados pelo Deploy 39477017691 (commit c9081b3), após servidor v61. 445 testes aprovados, 41 arquivos públicos comparados e catálogo autenticado verificado em desktop e celular, incluindo Silk, imagens, filtros e ausência de transbordamento. Nenhum registro de aprendizagem real foi alterado durante a publicação.

@@ -6,7 +6,16 @@ Agente: codex. Léo autorizou em 20/10/2026: "otimo subir e colocar o silk". Pub
 
 Conferido em 20/10/2026: 444 testes, seleção por área, desktop e celular de 390 px sem transbordamento. Migração `pops_planos_aprendizagem_20261020` aplicada; função `pops-sync` v61 ativa, fonte fixa `feacd06`. SQL conferido: índice único presente, RLS mantida, gravação exclusiva do serviço; requisição sem sessão retorna 401. Nenhuma atribuição real criada. Interface aguardando Deploy.
 
-Vez: codex (publicação em andamento; registros anteriores de pendência são o histórico das etapas locais).
+Publicado e conferido em 20/10/2026:
+- tela `2026.10.20-silk-salas-2`, shell `pops-shell-v24-silk-salas`, commit `c9081b3`;
+- Deploy [39477017691](https://github.com/leogpereira-afk/pops-fabricacao/actions/runs/39477017691) concluído, 445 testes aprovados; 41 arquivos servidos iguais ao pacote;
+- catálogo autenticado conferido em produção: Silk visível no seletor, imagens carregadas, filtro por área e retorno para todas as salas; celular de 390 px sem transbordamento;
+- corrigidos o teste que contava voltas assíncronas em vez de aguardar o envio e a convivência do Silk do topo com a faixa da montagem externa. Um mascote por visualização;
+- nenhum curso importado, atribuição criada ou progresso de aluno alterado nesta publicação. As liberações existentes continuam valendo.
+
+Os registros de publicação pendente abaixo documentam as etapas locais anteriores. Esta publicação os encerra. A gestão continua responsável por revisar e liberar cursos e montar as jornadas pessoais.
+
+Vez: LIVRE. O Léo decide quem segue.
 
 ## Trabalho atual · Áreas ilustradas e coloridas
 

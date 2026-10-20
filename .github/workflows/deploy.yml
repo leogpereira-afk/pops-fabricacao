@@ -45,6 +45,7 @@ jobs:
           cp index.html app.js auth.js config.js store.js organizacao.js conhecimento.js treinamentos.js educacao.js academia.js escola-gestao.js escola-jornadas.js escola-catalogo.js styles.css sw.js manifest.webmanifest dist/
           cp logo-impresilk.png icone-192.png icone-512.png favicon.svg dist/
           mkdir -p dist/silk && cp silk/*.webp dist/silk/
+          mkdir -p dist/areas && cp areas/*.webp dist/areas/
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

@@ -53,7 +53,7 @@ window.ESCOLA_CATALOGO=(()=>{
  const temVan=(trilha,sub)=>norm(sub)==='montagem externa'||(trilha==='instalacao'&&!sub);
  function cartaoSala(g){
   const v=E().visualArea(g.id);
-  return '<button type="button" class="cat-sala" data-area="'+esc(g.id)+'" data-trilha="'+esc(g.id)+'" data-tema="'+v.tema+'" aria-pressed="false"><span class="cat-sala-arte" aria-hidden="true">'+E().iconeEscola(v.icone)+'<span class="cat-sala-seta">'+E().iconeEscola('seta')+'</span></span><span class="cat-sala-corpo"><strong>'+esc(g.nome)+'</strong><span class="cat-sala-meta">'+plural(g.cursos.length,'curso','cursos')+'</span><span class="cat-sala-escolha" aria-hidden="true">Escolher área</span></span></button>';
+  return '<button type="button" class="cat-sala" data-area="'+esc(g.id)+'" data-trilha="'+esc(g.id)+'" data-tema="'+v.tema+'" aria-pressed="false"><span class="cat-sala-arte" aria-hidden="true"><img class="cat-sala-imagem" src="'+v.imagem+'" width="384" height="384" alt="" decoding="async"><span class="cat-sala-seta">'+E().iconeEscola('seta')+'</span></span><span class="cat-sala-corpo"><strong>'+esc(g.nome)+'</strong><span class="cat-sala-meta">'+plural(g.cursos.length,'curso','cursos')+'</span><span class="cat-sala-escolha" aria-hidden="true">Escolher área</span></span></button>';
  }
  function progressoCartao(f,d,st){
   if(!['concluido','em_andamento','disponivel'].includes(st))return '';

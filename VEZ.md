@@ -1,5 +1,13 @@
 # Vez do Pops & Fabricação
 
+## Trabalho atual · Áreas ilustradas e coloridas
+
+Agente: codex. Pedido de Léo em 20/10/2026: substituir os ícones simples por imagens com cor e forma, mais chamativas. Escopo local: coleção de ilustrações próprias, seletor compacto por área, preparação dos arquivos públicos e revisão no celular. Preservar IDs, acesso e cursos; sem publicação.
+
+Implementado e conferido localmente: sete ilustrações 3D em WebP com transparência, cards coloridos e nomes preservados; imagens incluídas no pacote estático e no shell. Seleção pela imagem e tecla Enter conferidas; celular de 390 px com duas colunas, imagens carregadas e sem transbordamento. 444 testes aprovados; sintaxe e pacote estático de 41 arquivos conferidos. Prompts e origem em `areas/README.md`. Não publicado.
+
+Vez: codex (implementação local concluída; publicação pendente).
+
 ## Trabalho atual · Escolha das áreas por ícone e nome
 
 Agente: codex. Ajuste pedido por Léo em 20/10/2026: ícones das áreas com cada nome, clicáveis para escolher. Escopo local: simplificar o seletor das salas e ampliar os símbolos, usando os nomes e IDs do catálogo existente.

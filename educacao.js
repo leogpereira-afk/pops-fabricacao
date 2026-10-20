@@ -151,7 +151,10 @@ window.EDUCACAO = (() => {
   function visualArea(id=''){
     const temas={'nucleo-comum':['azul','equipe'],comercial:['rosa','conversa'],producao:['ciano','ferramenta'],adm:['ouro','pasta'],administrativo:['ouro','pasta'],financeiro:['ouro','pasta'],lideranca:['violeta','alvo'],'gestao-lideranca':['violeta','alvo'],carreira:['verde','medalha'],instalacao:['ciano','ferramenta']};
     const padrao=['azul','ciano','rosa','ouro','verde','violeta'];
-    const [tema,icone]=temas[id]||[padrao[Array.from(id).reduce((s,c)=>s+c.charCodeAt(0),0)%padrao.length],'livro'];return {tema,icone};
+    const [tema,icone]=temas[id]||[padrao[Array.from(id).reduce((s,c)=>s+c.charCodeAt(0),0)%padrao.length],'livro'];
+    const imagens={equipe:'boas-vindas',conversa:'comercial',ferramenta:'producao',pasta:'administrativo',alvo:'desenvolvimento',medalha:'desenvolvimento',livro:'aprendizagem'};
+    const imagem=['mubisys','sistema','sistemas','sistema-demo'].includes(id)?'sistemas':imagens[icone];
+    return {tema,icone,imagem:'./areas/'+imagem+'.webp'};
   }
   function arteCurso(f){const v=visualArea(f.catalogo?.trilha),es=f.etapas||[],pratica=es.some(e=>e.tipo==='pratica');return '<div class="edu-capa-curso" data-tema="'+v.tema+'" aria-hidden="true"><span class="edu-capa-orbita"></span><span class="edu-capa-detalhe"></span>'+iconeEscola(v.icone)+'<span>'+ (pratica?'Aprender e praticar':'Conhecimento em ação')+'</span><span class="edu-capa-sinal">'+iconeEscola(pratica?'check':'livro')+'</span></div>';}
   function incentivoHtml(f,e,p,r){

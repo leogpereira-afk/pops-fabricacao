@@ -1,6 +1,6 @@
 # Contrato de jornadas pessoais
 
-Implementação local de 20/10/2026. Publicação não autorizada nesta etapa.
+Implementação de 20/10/2026. Publicação autorizada por Léo após a aprovação da prévia, incluindo as salas ilustradas e o Silk.
 
 ## Origem da equipe de trabalho
 
@@ -64,7 +64,7 @@ Plano ativo é concessão adicional somente para os cursos referenciados e publi
 
 O motor de leitura, avaliação, prática, conquistas e pontos não muda. Desativar plano não exclui registros e não zera progresso. Alterações do plano não premiam o aluno.
 
-A migração aditiva `0007_planos_aprendizagem.sql` estende `pops_gravar`, exige revisão/mutação para plano, mantém trava transacional, rejeita repetição concorrente com conteúdo diferente e cria índice único por ficha. Mantém RLS e execução SQL exclusiva de `service_role`. Não executa atualização ou exclusão de dados existentes. Quando houver autorização de publicação: migração, servidor, depois tela.
+A migração aditiva `0007_planos_aprendizagem.sql` estende `pops_gravar`, exige revisão/mutação para plano, mantém trava transacional, rejeita repetição concorrente com conteúdo diferente e cria índice único por ficha. Mantém RLS e execução SQL exclusiva de `service_role`. Não executa atualização ou exclusão de dados existentes. Ordem de publicação: migração, servidor, depois tela.
 
 
 ## Como usar
@@ -83,6 +83,6 @@ A migração aditiva `0007_planos_aprendizagem.sql` estende `pops_gravar`, exige
 
 `silk/silk-celebrando-g.webp` e `silk/silk-celebrando-p.webp`: nova ilustração de incentivo, gerada em 20/10/2026 a partir da pose oficial `silk-confiante-g.webp`, preservando a identidade do mascote. Fundo transparente; derivados WebP de 240×360 e 120×180 para reduzir transferência. As outras poses existentes continuam sendo utilizadas. Imagens são decorativas, com texto equivalente do progresso disponível na interface.
 
-## Limites desta entrega local
+## Verificação e limites
 
-A leitura dos contratos reais de PCP e RH foi verificada no código citado; a jornada foi exercitada com dados fictícios e o handler de servidor no ambiente isolado. Ainda não foram aplicadas a migração nem a função em produção, nem vinculadas pessoas reais. A prévia reinicia seus registros ao reiniciar o servidor. Os modelos de habilidades precisam de revisão da gestão antes do uso; nenhum material foi publicado para funcionários nesta etapa.
+A leitura dos contratos reais de PCP e RH foi verificada no código citado; a jornada foi exercitada com dados fictícios e o handler de servidor no ambiente isolado. A migração `pops_planos_aprendizagem_20261020` e a função `pops-sync` v61 foram aplicadas em 20/10/2026. Conferidos índice único, RLS e bloqueio sem sessão. Nenhuma pessoa real foi vinculada a um plano. A prévia reinicia seus registros ao reiniciar o servidor. Os modelos de habilidades precisam de revisão da gestão antes do uso; nenhum material foi publicado para funcionários nesta etapa.

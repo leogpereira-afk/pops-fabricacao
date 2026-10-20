@@ -4,6 +4,8 @@
 
 Agente: codex. Léo autorizou em 20/10/2026: "otimo subir e colocar o silk". Publicar a implementação aprovada neste ramo, incluindo a jornada pessoal e as dependências aditivas no servidor. Silk acolhe no seletor; áreas mantêm imagens, nomes e seleção. Ordem: migração 0007, pops-sync, tela e conferência produtiva. Não importar cursos nem atribuir jornadas a pessoas reais nesta publicação.
 
+Conferido em 20/10/2026: 444 testes, seleção por área, desktop e celular de 390 px sem transbordamento. Migração `pops_planos_aprendizagem_20261020` aplicada; função `pops-sync` v61 ativa, fonte fixa `feacd06`. SQL conferido: índice único presente, RLS mantida, gravação exclusiva do serviço; requisição sem sessão retorna 401. Nenhuma atribuição real criada. Interface aguardando Deploy.
+
 Vez: codex (publicação em andamento; registros anteriores de pendência são o histórico das etapas locais).
 
 ## Trabalho atual · Áreas ilustradas e coloridas

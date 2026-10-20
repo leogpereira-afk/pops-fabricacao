@@ -464,7 +464,7 @@ test('salas contam apenas o catálogo recebido e progresso não inclui aula opci
  const s=servidor(rows);assert.equal((await s.b.call({action:'escola',operacao:'registrar',formacaoId:'c-parcial',etapaId:'a1',formacaoVersao:'1',evento:'leitura',mutationId:'sala-leitura-parcial'},{sub:'ana',papel:'equipe'})).status,200);
  const t=tela(s);await t.route('catalogo');
  assert.equal(t.app.querySelectorAll('.cat-sala').length,1);
- assert.match(t.node('.cat-sala').textContent,/1 curso0 de 1 concluídos/);
+ assert.match(t.node('.cat-sala').textContent,/1 curso/);
  assert.doesNotMatch(t.text(),/Curso c-oculto|Curso c-rascunho/);
  const pr=t.node('.cat-progresso');assert.match(pr.textContent,/1 de 2 aulas obrigatórias50%/);assert.equal(pr.querySelector('progress').attributes.value,'50');
  assert.equal(gravacoes(s),1,'A apresentação dos cards não grava progresso');

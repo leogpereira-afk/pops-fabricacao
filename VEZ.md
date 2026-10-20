@@ -1,5 +1,13 @@
 # Vez do Pops & Fabricação
 
+## Trabalho atual · Escolha das áreas por ícone e nome
+
+Agente: codex. Ajuste pedido por Léo em 20/10/2026: ícones das áreas com cada nome, clicáveis para escolher. Escopo local: simplificar o seletor das salas e ampliar os símbolos, usando os nomes e IDs do catálogo existente.
+
+Implementado e conferido localmente: ícone grande e nome da área, botão inteiro clicável, seleção destacada, duas colunas no celular e contraste do filtro geral corrigido. Seleção por ícone e teclado conferida no servidor fictício; 444 testes aprovados. Nenhum acesso, cadastro ou progresso real alterado. Não publicado.
+
+Vez: codex (implementação local concluída; publicação pendente).
+
 ## Trabalho atual · Salas visuais e cards do topo
 
 Agente: codex. Pedido de Léo em 20/10/2026: usar a referência visual Gamefik/escolas nas salas de aprendizagem e destacar os cards superiores. Continuação no ramo `codex/jornada-silk-20261020`. Escopo: catálogo, capas dos cursos, indicadores pessoais e navegação responsiva. Preservar conteúdo, acessos e progresso confirmado. Sem publicação ou alteração de dados reais.

@@ -108,8 +108,8 @@ window.EDUCACAO = (() => {
   }
   // Silk, o mascote (mesmas regras do Painel, 13 e 14/10): imagem decorativa
   // (alt vazio, fora do leitor de tela), sem clique, nunca sobre botão ou campo,
-  // uma por tela, com tamanho reservado, sem animação e fora da impressão. Nunca
-  // na prova, na gestão, em aviso de erro ou em curso de segurança.
+  // uma por tela, com tamanho reservado e fora da impressão. O guia fica antes
+  // do conteúdo, nunca entre questões, em erro ou em curso de segurança.
   const SILK_POSES={celebrando:[240,360],'boas-vindas':[224,360],apontando:[196,360],confiante:[167,360],rolo:[190,360],espatula:[200,360]};
   // Curso de segurança (altura, máquina, solda) não tem Silk: ele não usa o EPI certo.
   const semSilk=f=>!!f&&(f.catalogo?.seguranca===true||/seguranc/.test(norm(f.titulo||'')));
@@ -149,6 +149,8 @@ window.EDUCACAO = (() => {
   function planoPessoalHtml(){const plano=snapshot?.planoPessoal;if(!plano||plano.ativa===false)return '';const fs=(plano.itens||[]).flatMap(i=>{const f=snapshot.formacoes.find(f=>f.id===i.formacaoId&&f.publicada&&f.ativa!==false&&f.liberada!==false);return f?[{i,f}]:[];}),completos=fs.filter(({f})=>progresso(f,meuProgresso(f)).percentual===100).length;return '<section class="edu-plano-pessoal" aria-labelledby="edu-plano-titulo"><div class="secao-titulo"><div><span class="eyebrow">PREPARADO PARA VOCÊ</span><h2 id="edu-plano-titulo">'+esc(plano.titulo||'Minha jornada')+'</h2></div><span class="edu-plano-selo">'+iconeEscola('alvo')+completos+'/'+fs.length+' cursos</span></div>'+(plano.objetivo?'<p>'+esc(plano.objetivo)+'</p>':'')+'<ol class="edu-plano-caminho">'+fs.map(({i,f},n)=>{const pr=progresso(f,meuProgresso(f)),feito=pr.percentual===100;return '<li class="'+(feito?'feito':'')+'"><span class="edu-plano-num">'+(feito?iconeEscola('check'):n+1)+'</span><a href="'+rota(f.id)+'"><strong>'+esc(f.titulo)+'</strong><span>'+ (feito?'Concluído':pr.concluidas+'/'+pr.total+' aulas')+' · '+(i.contexto==='flexivel'?'Estudo flexível':'Na empresa')+(i.prazo?' · '+fmtData(i.prazo):'')+'</span></a></li>';}).join('')+'</ol>'+(fs.length<(plano.itens||[]).length?'<p class="dica">Há um curso indisponível. A gestão precisa conferir a liberação.</p>':'')+'</section>';}
   // Identidade visual por área. Não cria vínculos nem modifica a ordem do catálogo.
   function visualArea(id=''){
+    // Só apresentação: trilhas personalizadas conservam seu ID e sua liberação.
+    if(/financ/.test(norm(id)))id='financeiro';
     const temas={'nucleo-comum':['azul','equipe'],comercial:['rosa','conversa'],producao:['ciano','ferramenta'],adm:['ouro','pasta'],administrativo:['ouro','pasta'],financeiro:['ouro','pasta'],lideranca:['violeta','alvo'],'gestao-lideranca':['violeta','alvo'],carreira:['verde','medalha'],instalacao:['ciano','ferramenta']};
     const padrao=['azul','ciano','rosa','ouro','verde','violeta'];
     const [tema,icone]=temas[id]||[padrao[Array.from(id).reduce((s,c)=>s+c.charCodeAt(0),0)%padrao.length],'livro'];
@@ -156,7 +158,20 @@ window.EDUCACAO = (() => {
     const imagem=['mubisys','sistema','sistemas','sistema-demo'].includes(id)?'sistemas':imagens[icone];
     return {tema,icone,imagem:'./areas/'+imagem+'.webp'};
   }
-  function arteCurso(f){const v=visualArea(f.catalogo?.trilha),es=f.etapas||[],pratica=es.some(e=>e.tipo==='pratica');return '<div class="edu-capa-curso" data-tema="'+v.tema+'" aria-hidden="true"><span class="edu-capa-orbita"></span><span class="edu-capa-detalhe"></span>'+iconeEscola(v.icone)+'<span>'+ (pratica?'Aprender e praticar':'Conhecimento em ação')+'</span><span class="edu-capa-sinal">'+iconeEscola(pratica?'check':'livro')+'</span></div>';}
+  function visualCurso(f){
+    const v=visualArea(f.catalogo?.trilha),assunto=norm([f.titulo,f.catalogo?.area].filter(Boolean).join(' '));
+    // A ilustração ajuda a reconhecer o assunto; não classifica nem vincula dados.
+    const temas=[[/cobrar|cobranca/,'comercial','rosa','Conversar e resolver'],[/cadastro|cliente|fornecedor/,'cadastros','ciano','Conhecer e organizar'],[/banco|pagamento|pagar|receber|recebimento|salario|folha/,'pagamentos','azul','Conferir e agir'],[/analise|indicador|fechamento|fluxo de caixa|conciliacao|competencia/,'analise','violeta','Entender e decidir'],[/nota fiscal|faturamento|documento/,'administrativo','ouro','Organizar e conferir']];
+    const tema=temas.find(([re])=>re.test(assunto));
+    return tema?{imagem:'./areas/'+tema[1]+'.webp',tema:tema[2],chamada:tema[3]}:{...v,chamada:'Aprender e praticar'};
+  }
+  function arteCurso(f,href=''){
+    const v=visualCurso(f),tag=href?'a':'div';
+    return '<'+tag+' class="edu-capa-curso edu-capa-3d" data-tema="'+v.tema+'"'+(href?' href="'+esc(href)+'" aria-label="Abrir curso: '+esc(f.titulo)+'"':' aria-hidden="true"')+'><span class="edu-capa-texto" aria-hidden="true"><small>ESCOLA IMPRESILK</small><strong>'+v.chamada+'</strong><span>Conhecimento para a vida '+iconeEscola('seta')+'</span></span><img class="edu-capa-imagem" src="'+v.imagem+'" width="480" height="480" alt="" aria-hidden="true" loading="lazy" decoding="async"></'+tag+'>';
+  }
+  function guiaSilkHtml(titulo,texto,pose='apontando'){
+    return '<aside class="edu-silk-guia">'+silk(pose,120)+'<div><span class="eyebrow">JUNTOS COM O SILK</span><strong>'+esc(titulo)+'</strong><p>'+esc(texto)+'</p></div></aside>';
+  }
   function incentivoHtml(f,e,p,r){
     if(erro||mutacao||bloqueio(f,e,p))return '';
     const st=status(e,r),feito=st==='concluida',espera=st==='aguardando_validacao',lida=!!r.leituraEm;
@@ -242,7 +257,7 @@ window.EDUCACAO = (() => {
   function metaCurso(f,d=snapshot){const c=f.catalogo||{},t=c.trilha?catalogoCfg(d).trilhas[c.trilha]:null,area=c.area&&norm(c.area)!==norm(t?.nome||'')?c.area:'';return [t?.nome||'',area,niveis[c.nivel]||'',cargaTexto(c.cargaMinutos)].filter(Boolean);}
   // Cor da área no cartão (faixa de 4 px): Comercial, Produção, ADM e as transversais.
   const trilhaAttr=f=>f.catalogo?.trilha?' data-trilha="'+esc(f.catalogo.trilha)+'"':'';
-  function cartao(f){const p=meuProgresso(f),pr=progresso(f,p),e=proxima(f,p),meta=metaCurso(f),comecou=iniciado(f,p);return '<article class="edu-jornada edu-jornada-visual"'+trilhaAttr(f)+'>'+arteCurso(f)+(meta.length?'<span class="edu-meta">'+esc(meta.join(' · '))+'</span>':'')+'<h2>'+esc(f.titulo)+'</h2>'+(f.catalogo?.resumo?'<p class="edu-resumo-curso">'+esc(f.catalogo.resumo)+'</p>':'')+(comecou||pr.percentual?'<div class="edu-progresso"><progress max="100" value="'+pr.percentual+'" aria-label="Progresso de '+esc(f.titulo)+'"></progress><b>'+pr.percentual+'%</b></div><p class="dica">'+pr.concluidas+' de '+pr.total+' aulas obrigatórias concluídas</p>':'<p class="dica">Não iniciado · '+plural(pr.total,'aula obrigatória','aulas obrigatórias')+'</p>')+'<p class="edu-atual">'+(e?(comecou?'Aula atual: ':'Primeira aula: ')+esc(e.titulo):'Curso concluído')+'</p><a class="botao mini" href="'+rota(f.id)+'">'+(!e?'Rever curso':comecou?'Continuar':'Começar curso')+'</a></article>';}
+  function cartao(f){const p=meuProgresso(f),pr=progresso(f,p),e=proxima(f,p),meta=metaCurso(f),comecou=iniciado(f,p);return '<article class="edu-jornada edu-jornada-visual"'+trilhaAttr(f)+'>'+arteCurso(f,rota(f.id))+(meta.length?'<span class="edu-meta">'+esc(meta.join(' · '))+'</span>':'')+'<h2>'+esc(f.titulo)+'</h2>'+(f.catalogo?.resumo?'<p class="edu-resumo-curso">'+esc(f.catalogo.resumo)+'</p>':'')+(comecou||pr.percentual?'<div class="edu-progresso"><progress max="100" value="'+pr.percentual+'" aria-label="Progresso de '+esc(f.titulo)+'"></progress><b>'+pr.percentual+'%</b></div><p class="dica">'+pr.concluidas+' de '+pr.total+' aulas obrigatórias concluídas</p>':'<p class="dica">Não iniciado · '+plural(pr.total,'aula obrigatória','aulas obrigatórias')+'</p>')+'<p class="edu-atual">'+(e?(comecou?'Aula atual: ':'Primeira aula: ')+esc(e.titulo):'Curso concluído')+'</p><a class="botao mini" href="'+rota(f.id)+'">'+(!e?'Rever curso':comecou?'Continuar':'Começar curso')+'</a></article>';}
   // Os demais cursos da pessoa, por área e sub-área, recolhidos.
   function cursosPorArea(fs){
     const cat=catalogoCfg(),grupos=new Map();
@@ -317,9 +332,11 @@ window.EDUCACAO = (() => {
   function fonteHtml(e){return (e.fontes || []).map(f=>{const col=f.tipo==='pop'?'pops':'treinamentos',r=STORE.um(col,f.refId);return '<a class="edu-material" href="'+(f.tipo==='pop'?'#/pop/':'#/treinamento/')+encodeURIComponent(f.refId)+'">▤ '+esc(r?.titulo || f.refId)+' <small>Versão '+esc(f.versao)+'</small></a>';}).join('')+(e.documentos || []).filter(d=>window.POPS_TREINAMENTOS.urlSegura(d.url)).map(d=>'<a class="edu-material" href="'+esc(d.url)+'" target="_blank" rel="noopener noreferrer">↗ '+esc(d.titulo)+' <small>Versão '+esc(d.versao)+' · abre em outra aba</small></a>').join('');}
   function etapa(app,f,e){
     const p=meuProgresso(f),r=(p.formacaoVersao && p.formacaoVersao!==f.versao?{}:p.etapas?.[e.id]) || {},st=status(e,r),bloq=bloqueio(f,e,p),c=e.conteudo || {},chaveRascunho=f.id+'/'+e.id,rascunho=rascunhosPratica.get(chaveRascunho);
+    const incentivo=incentivoHtml(f,e,p,r);
+    const boasVindas=!incentivo&&!semSilk(f)&&!erro&&!mutacao&&!bloq?guiaSilkHtml('Vamos aprender, um passo de cada vez.','Leia com calma, observe os exemplos e leve esse conhecimento para a sua rotina.'):'';
     app.innerHTML=header()+intro(e.titulo,rotuloTipo(e)+' · '+f.titulo+' · '+(e.obrigatoria===false?'Complementar':'Obrigatória'),'<a class="botao suave mini" href="'+rota(f.id)+'">← Curso</a>')+aviso()+
       '<div class="edu-resumo">'+selo(st)+'<span>'+esc(pontosDaAula(f,e,p))+'</span>'+(e.duracaoMinutos?'<span>'+e.duracaoMinutos+' min estimados</span>':'')+'</div>'+(bloq?'<div class="aviso amarelo">🔒 '+esc(bloq)+'</div>':'')+
-      incentivoHtml(f,e,p,r)+contextoPlanoHtml(f.id)+((e.materiais||[]).length?'<section class="card"><h2>Estude os materiais completos</h2><p>Abra cada material, registre o estudo e retorne a esta aula.</p><div class="edu-atalhos">'+e.materiais.map(m=>'<a href="#/material/'+encodeURIComponent(m.id)+'">'+esc(m.titulo||'Material integral')+' · v'+esc(m.versao)+'</a>').join('')+'</div></section>':'')+
+      (incentivo||boasVindas)+contextoPlanoHtml(f.id)+((e.materiais||[]).length?'<section class="card"><h2>Estude os materiais completos</h2><p>Abra cada material, registre o estudo e retorne a esta aula.</p><div class="edu-atalhos">'+e.materiais.map(m=>'<a href="#/material/'+encodeURIComponent(m.id)+'">'+esc(m.titulo||'Material integral')+' · v'+esc(m.versao)+'</a>').join('')+'</div></section>':'')+
       '<nav class="edu-aula-roteiro" aria-label="Passos desta aula"><span>'+iconeEscola(r.leituraEm?'check':'livro')+'Estudar o conteúdo</span>'+((e.quiz||[]).length?'<a href="#edu-quiz" data-scroll="edu-quiz">'+iconeEscola('alvo')+'Responder à prova</a>':'')+(e.tipo==='pratica'?'<a href="#edu-pratica" data-scroll="edu-pratica">'+iconeEscola('pessoa')+'Demonstrar na prática</a>':'')+'</nav><div class="edu-conteudo"><section class="card"><h2>Vamos aprender</h2>'+[['aprender','O que vou aprender?'],['importancia','Por que isso importa?'],['comoFazer','Como fazer corretamente?'],['erros','Quais erros evitar?'],['evidencia','Como demonstrar que aprendi?']].map(([k,t])=>'<div class="edu-topico"><h3>'+iconeEscola(k==='aprender'?'alvo':k==='evidencia'?'check':'livro')+t+'</h3>'+(c[k]?textoAula(c[k]):'<p>Conteúdo aguardando preparação pela gestão.</p>')+'</div>').join('')+fonteHtml(e)+(!bloq && !r.leituraEm && st!=='concluida'?'<div class="edu-fim-leitura"><button class="botao" data-evento="leitura">Terminei de ler</button><p class="dica">Registra a leitura desta aula.</p></div>':'')+'</section><aside class="card edu-comprovar"><h2>Seu registro nesta aula</h2><details class="edu-registro-detalhes"><summary>Datas e confirmações</summary><ul class="edu-registros"><li>'+ (r.abertaEm?'✓ Aberta em '+fmtDataHora(r.abertaEm):'○ Abertura ainda não registrada')+'</li><li>'+(r.leituraEm?'✓ Leitura registrada em '+fmtDataHora(r.leituraEm):'○ Leitura não registrada')+'</li><li>'+(r.cienciaEm?'✓ Ciência registrada em '+fmtDataHora(r.cienciaEm):e.tipo==='etica'?'○ Ciência do Código pendente':'')+'</li><li>'+(r.concluidaEm?'✓ Critério concluído em '+fmtDataHora(r.concluidaEm):'○ Critério de conclusão pendente')+'</li></ul></details><p class="dica">'+esc(criterio(e))+'</p>'+
       '<div id="edu-retorno" role="status" aria-live="polite"></div>'+
       (!bloq && st!=='concluida'?'<div class="edu-acoes">'+(e.tipo==='etica'?'<label class="edu-check"><input type="checkbox" id="edu-ciencia"> Li o Código de Ética desta versão e registro minha ciência.</label><button class="botao" data-evento="ciencia">Registrar ciência</button>':'')+'</div>':'')+
@@ -622,7 +639,7 @@ window.EDUCACAO = (() => {
   }
   return {conferirIdentidade,executar,render,zerar,carregar,progresso,bloqueio,status,tipos,estadoEnvio,conferirEstado,podeAcompanhar,
     obterPainel,limparCacheAparelho,invalidar,htmlAtualizacaoPainel,aparelho,marcarRender,houveInteracao,htmlAtualizacao,concluirAtualizacao,assinatura,
-    iconeEscola,visualArea,arteCurso,contadorMutacoes:()=>mutacoes,identidadeAtual:pessoaKey,catalogoCfg,metaCurso,cargaTexto,niveis,rota,silk,emOrdem,textoAula,listaMarcar,marcados,ligarFiltros,alcance,
+    iconeEscola,visualArea,arteCurso,guiaSilkHtml,contadorMutacoes:()=>mutacoes,identidadeAtual:pessoaKey,catalogoCfg,metaCurso,cargaTexto,niveis,rota,silk,emOrdem,textoAula,listaMarcar,marcados,ligarFiltros,alcance,
     estadoGestao:()=>({podeGerir:!!snapshot?.gestao?.podeGerir,podeValidar:!!snapshot?.gestao?.podeValidar}),gestaoAtual:()=>snapshot?.gestao || null,
     // Sair do aluno: o envio que ficou guardado nesta aba sai junto (a pessoa confirmou).
     descartarEnvio:()=>{mutacao=null;erro='';limparEnvio();notificarEstado();}};

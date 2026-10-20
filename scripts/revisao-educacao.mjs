@@ -47,7 +47,7 @@ export function servidorRevisao(){
     const r=await b.call(body,{sub:user.usuario,nome:user.nome,papel:user.papel});send(r.body,r.status);return;
    }
    let name=url.pathname==='/'?'index.html':url.pathname.slice(1);
-   if(!['index.html','app.js','store.js','auth.js','config.js','organizacao.js','conhecimento.js','treinamentos.js','educacao.js','academia.js','escola-gestao.js','escola-jornadas.js','escola-catalogo.js','styles.css','logo-impresilk.png','manifest.webmanifest','favicon.svg','icone-192.png','icone-512.png'].includes(name)&&!/^silk\/silk-[a-z-]+-[gp]\.webp$/.test(name)&&!/^areas\/(?:aprendizagem|sistemas|boas-vindas|comercial|producao|administrativo|desenvolvimento)\.webp$/.test(name)){res.writeHead(404);res.end();return;}
+   if(!['index.html','app.js','store.js','auth.js','config.js','organizacao.js','conhecimento.js','treinamentos.js','educacao.js','academia.js','escola-gestao.js','escola-jornadas.js','escola-catalogo.js','styles.css','logo-impresilk.png','manifest.webmanifest','favicon.svg','icone-192.png','icone-512.png'].includes(name)&&!/^silk\/silk-[a-z-]+-[gp]\.webp$/.test(name)&&!/^areas\/(?:aprendizagem|sistemas|boas-vindas|comercial|producao|administrativo|desenvolvimento|cadastros|pagamentos|analise)\.webp$/.test(name)){res.writeHead(404);res.end();return;}
    let out=await fs.readFile(path.join(root,name));
    if(name==='config.js')out=Buffer.from(out.toString().replace('https://heveemylixartyijxewh.supabase.co/functions/v1',url.origin.replace('http://localhost','') || '/api').replace('window.API_BASE = ""','window.API_BASE = "/api"'));
    if(name==='config.js')out=Buffer.from('window.API_BASE="/api";window.API_FN={sync:"pops-sync"};window.CONHECIMENTO_VERSAO="2026.10.05";');

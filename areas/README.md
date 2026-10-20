@@ -34,3 +34,18 @@ Use case: stylized-concept. Asset type: one premium 3D illustrated area selector
 
 Use case: stylized-concept. Asset type: one premium 3D illustrated area selector for Escola Impresilk, an adult vocational learning app. Create a single square image, centered freestanding isometric miniature composition, strong playful solid shapes, saturated cyan, deep blue, magenta and warm yellow accents, beautifully rounded tactile plastic/clay materials with realistic soft studio lighting and dimensional highlights. Inviting, polished, vivid, sophisticated game-world collectible; no thin line icons. Objects occupy 82% of frame, complete silhouette, comfortable outer margin. Truly transparent background with alpha, soft contact shadow only. No lettering, words, logos, watermark, frame, UI, or surrounding scene. Same consistent camera: three-quarter front view looking down slightly, large clear shapes readable at 160px. Subject: a shiny golden star trophy on three ascending rounded blocks in blue, magenta and cyan, with an elegant upward cyan arrow and one small green leaf; represents career development, learning achievements and leadership.
 
+
+## Capas dos cursos, 20/10/2026
+
+Três imagens novas geradas com a ferramenta integrada `image_gen`, transparentes, empacotadas em WebP de 480 × 480: `cadastros.webp`, `pagamentos.webp`, `analise.webp`. São ilustrações didáticas, não retratam registros ou pessoas reais. As sete artes existentes continuam disponíveis. O Silk mantém as poses oficiais existentes.
+
+Prompt-base usado em cada chamada:
+
+> Create one premium 3D educational card illustration for Escola Impresilk, an adult professional learning platform. Single square asset, isolated on truly transparent background. Rich rounded tactile 3D plastic and clay forms, polished studio lighting, deep cobalt blue, electric cyan, vibrant magenta and warm golden yellow. Three-quarter frontal isometric view, large clear objects occupying 82% of frame with comfortable margins. Lively sophisticated collectible game-art quality, soft grounded shadow, no scene backdrop, no lettering, numbers, logos, currency symbols, watermark or UI. No people or mascot. Subject:
+
+Complementos individuais:
+- **cadastros:** a chunky cyan address-book folder with three abstract friendly profile silhouettes on cream cards, magenta tabs and a bold gold verification shield. Represents organized customer records and trust.
+- **pagamentos:** a beautiful royal-blue miniature bank with three pillars, a cyan bank card, two gold coin stacks and a curved magenta transfer arrow. Represents payments, receipts and bank reconciliation.
+- **analise:** a floating cyan dashboard panel with thick blue, magenta and gold bar-chart columns, a chunky blue magnifying glass and a cream ledger sheet. Represents financial review and understanding results.
+
+Padrão para evoluções: capas 3D com assunto reconhecível, cores vivas e títulos legíveis; cards compactos; Silk como guia contextual da aprendizagem. Movimento apenas breve no foco/ponteiro, respeitando redução de movimento. Ilustrações não significam aprovação ou pontos. Capas só abrem cursos já liberados. O guia não aparece sobre controles nem entre questões. Mantidas as restrições existentes de imagens em cursos de segurança, pois o mascote não usa os EPIs correspondentes.

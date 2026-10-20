@@ -39,3 +39,33 @@ test('modelo de atendimento é rascunho editável e não publica nem inventa ví
  assert.equal(t.app.querySelectorAll('[data-ee]').length,3);assert.match(t.text(),/Modelo editável/);
  assert.equal(t.calls.some(c=>c.operacao==='salvarFormacao'),false);assert.doesNotMatch(t.html,/youtube.com\/watch/);
 });
+
+test('Silk acolhe antes da primeira leitura sem anunciar pontos ou conclusão',async()=>{
+ const t=tela(data({formacoes:[curso('entrada')]}));
+ await t.route('formacao','entrada~a');
+ assert.match(t.node('.edu-silk-guia').textContent,/Vamos aprender/);
+ assert.equal(t.app.querySelectorAll('.silk').length,1);
+ assert.equal(t.node('.edu-incentivo'),null);
+ assert.doesNotMatch(t.node('.edu-silk-guia').textContent,/concluída|pontos|aprovado/);
+ assert.equal(t.calls.filter(c=>c.evento==='leitura').length,0);
+});
+
+test('capa é atalho do curso liberado, nunca abre curso restrito ou arquivado',async()=>{
+ const fs=[curso('aberto'),{...curso('restrito'),liberada:false},{...curso('arquivado'),ativa:false}];
+ const t=tela(data({formacoes:fs}));await t.route('catalogo');
+ const cards=t.app.querySelectorAll('.cat-curso');
+ assert.equal(cards[0].querySelector('.edu-capa-3d').attributes.href,'#/formacao/aberto');
+ for(const card of cards.slice(1))assert.equal(card.querySelector('.edu-capa-3d').attributes.href,undefined);
+ assert.equal(t.calls.some(c=>c.operacao==='registrar'),false);
+});
+
+test('área personalizada recebe Silk ao ser escolhida e mantém um único guia',async()=>{
+ const f={...curso('exemplo'),catalogo:{trilha:'financas-turma-ficticia'}};
+ const t=tela(data({formacoes:[f],catalogo:{trilhas:{'financas-turma-ficticia':{nome:'Finanças fictícias'}}}}));
+ await t.route('catalogo');
+ assert.equal(t.node('.cat-silk-guia').hidden,false);
+ t.app.querySelectorAll('[data-area]').find(n=>n.dataset.area==='financas-turma-ficticia').onclick();
+ assert.equal(t.node('.cat-silk-guia').hidden,true);
+ assert.equal(t.node('.cat-silk').hidden,false);
+ assert.equal(t.node('.cat-sala').attributes['aria-pressed'],'true');
+});

@@ -1,5 +1,15 @@
 # Vez do Pops & Fabricação
 
+## Trabalho atual · Publicação das capas 3D e presença do Silk
+
+Agente: codex. Pedido de Léo em 20/10/2026: trocar as faixas rosas dos cursos por imagens 3D vivas e reforçar o Silk nas páginas. Escopo local: capas ilustradas por assunto, presença acolhedora nas aulas e revisão em celular. Preservar conteúdos, IDs, pontuação e acesso. Sem publicação ou alteração de dados reais.
+
+Implementado e conferido localmente: capas 3D por assunto, atalhos acessíveis somente em cursos liberados, Silk nas áreas personalizadas, abertura de aulas e biblioteca/vídeos. 448 testes aprovados; pacote estático e referências do shell conferidos; desktop e celular de 390 px sem transbordamento. A capa abriu o curso pela tecla Enter; o guia inicial deu lugar ao incentivo após leitura confirmada no servidor fictício, mantendo um Silk. Nenhum dado real alterado. Não publicado.
+
+Léo autorizou em 20/10/2026: "ficou bom pode subir essas melhorias da escola com as imagens 3d e o Silk". Publicar somente as melhorias visuais aprovadas, sem mudança no servidor ou em dados reais. Publicação em andamento.
+
+Vez: codex (publicação em andamento).
+
 ## Trabalho atual · Publicação das salas com Silk
 
 Agente: codex. Léo autorizou em 20/10/2026: "otimo subir e colocar o silk". Publicar a implementação aprovada neste ramo, incluindo a jornada pessoal e as dependências aditivas no servidor. Silk acolhe no seletor; áreas mantêm imagens, nomes e seleção. Ordem: migração 0007, pops-sync, tela e conferência produtiva. Não importar cursos nem atribuir jornadas a pessoas reais nesta publicação.

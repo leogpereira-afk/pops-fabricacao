@@ -68,14 +68,16 @@ test('filtros não selecionam itens para envio e a revisão leva apenas aos rasc
  assert.equal(t.node('#imp-previa').hidden,true);
 });
 
-test('enquanto o servidor não responde, progresso mantém só o confirmado e impede trocar o plano',async()=>{
- const espera=adiado();let enviando=false;
+test('enquanto o servidor não responde, progresso mantém só o confirmado e impede trocar o plano',{timeout:10000},async()=>{
+ const espera=adiado(),iniciou=adiado();let enviando=false;
  const {t}=ambiente(async(p,action,chamar)=>{
-  if(p.operacao==='salvarFormacao'){enviando=true;await espera.p;}
+  if(p.operacao==='salvarFormacao'){enviando=true;iniciou.resolver();await espera.p;}
   return chamar(p,action);
  });
  await t.route('importar');await escolher(t,pacote());
- const envio=t.click('#imp-confirmar');await esperar(80);
+ // A consulta e a assinatura usam tarefas assíncronas; voltas do event loop
+ // não comprovam que o curso começou a ser enviado em outra máquina.
+ const envio=t.click('#imp-confirmar');await iniciou.p;
  assert.equal(enviando,true);assert.equal(passo(t),'3');
  assert.equal(t.node('#imp-confirmados').textContent,'1');
  assert.match(t.node('#imp-progresso').textContent,/1 de 2 itens conferidos no servidor/);

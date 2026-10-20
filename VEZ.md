@@ -1,5 +1,11 @@
 # Vez do Pops & Fabricação
 
+## Trabalho atual · Publicação das salas com Silk
+
+Agente: codex. Léo autorizou em 20/10/2026: "otimo subir e colocar o silk". Publicar a implementação aprovada neste ramo, incluindo a jornada pessoal e as dependências aditivas no servidor. Silk acolhe no seletor; áreas mantêm imagens, nomes e seleção. Ordem: migração 0007, pops-sync, tela e conferência produtiva. Não importar cursos nem atribuir jornadas a pessoas reais nesta publicação.
+
+Vez: codex (publicação em andamento; registros anteriores de pendência são o histórico das etapas locais).
+
 ## Trabalho atual · Áreas ilustradas e coloridas
 
 Agente: codex. Pedido de Léo em 20/10/2026: substituir os ícones simples por imagens com cor e forma, mais chamativas. Escopo local: coleção de ilustrações próprias, seletor compacto por área, preparação dos arquivos públicos e revisão no celular. Preservar IDs, acesso e cursos; sem publicação.

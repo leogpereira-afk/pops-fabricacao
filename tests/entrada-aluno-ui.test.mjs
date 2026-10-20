@@ -354,7 +354,7 @@ test('estilos: portas da entrada com alvos de 44 px; no celular a entrada vem pr
  assert.match(css,/\.login-portas button \{ min-height: 44px;/);assert.match(css,/\.entrada-aluno \.botao \{ min-height: 44px; \}/);
  const celular=[...css.matchAll(/@media \(max-width: 600px\) \{([\s\S]*?)\n\}/g)].map(m=>m[1]).join('\n');
  assert.match(celular,/\.login-layout \.cartao-login \{ order: -1; \}/);
- assert.match(ler('sw.js'),/const CACHE = 'pops-shell-v23-silk-salas';/);assert.match(ler('config.js'),/window\.ESCOLA_TELA_VERSAO = '2026\.10\.20-silk-salas';/);
+ assert.match(ler('sw.js'),/const CACHE = 'pops-shell-v24-silk-salas';/);assert.match(ler('config.js'),/window\.ESCOLA_TELA_VERSAO = '2026\.10\.20-silk-salas-2';/);
  // O Silk da entrada e do Início abre sem sinal: está no shell, na publicação e na prévia.
  for(const f of ['silk/silk-boas-vindas-g.webp','silk/silk-boas-vindas-p.webp','silk/silk-apontando-p.webp'])assert.ok(ler('sw.js').includes('./'+f),f);
  assert.match(ler('.github/workflows/deploy.yml'),/cp silk\/\*\.webp dist\/silk\//);

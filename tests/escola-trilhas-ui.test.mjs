@@ -481,3 +481,18 @@ test('busca sem resultado permite limpar sala, estado e texto mantendo o catálo
  assert.equal(t.app.querySelectorAll('[data-area]').find(c=>c.dataset.area==='').attributes['aria-pressed'],'true');
  assert.equal(gravacoes(s),0);
 });
+
+
+test('guia Silk aparece no seletor geral mesmo com montagem externa no catálogo',async()=>{
+ const cfg={educacao:{catalogo:{familias:{},trilhas:{producao:{nome:'Produção',ordem:10}}}}};
+ const rows=[row('formacoes',curso('c-externa',{liberacao:{pessoas:['rh1'],cargos:[],setores:[],todos:false},catalogo:{trilha:'producao',area:'Montagem externa'}}))];
+ const t=tela(servidor(rows,cfg));await t.route('catalogo');
+ assert.equal(t.node('.cat-silk-guia').hidden,false);
+ assert.equal(t.node('.silk-faixa').hidden,true);
+ t.app.querySelectorAll('[data-area]').find(b=>b.dataset.area==='producao').onclick();
+ assert.equal(t.node('.cat-silk-guia').hidden,true);
+ assert.equal(t.node('.silk-faixa').hidden,false);
+ t.app.querySelectorAll('[data-area]').find(b=>b.dataset.area==='').onclick();
+ assert.equal(t.node('.cat-silk-guia').hidden,false);
+ assert.equal(t.node('.silk-faixa').hidden,true);
+});

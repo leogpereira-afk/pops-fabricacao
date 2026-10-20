@@ -959,5 +959,5 @@ summary { cursor: pointer; font-weight: 700; min-height: 44px; padding: 6px 0 12
 @media(max-width:340px){.cat-salas-grade{grid-template-columns:repeat(2,minmax(0,1fr))}}
 
 /* Silk acolhe na escolha das salas, sem ocupar os controles. */
-.cat-salas-convite{display:flex;align-items:center;gap:16px;min-width:0}.cat-silk-guia{flex:0 0 auto;line-height:0}.cat-silk-guia[hidden]{display:none}.cat-salas-convite>div{min-width:0}.cat-silk-guia .silk{height:128px;width:auto;max-width:none}
+.cat-salas-convite{display:flex;align-items:center;gap:16px;min-width:0}.cat-silk-guia{flex:0 0 auto;line-height:0}.cat-silk-guia[hidden],.silk-faixa[hidden]{display:none}.cat-salas-convite>div{min-width:0}.cat-silk-guia .silk{height:128px;width:auto;max-width:none}
 @media(max-width:620px){.cat-salas-cab{flex-wrap:wrap;align-items:center}.cat-salas-convite{gap:12px;flex:1 1 100%}.cat-silk-guia .silk{height:96px}.cat-todas{margin-left:auto}.cat-salas-convite .dica{max-width:32ch}}

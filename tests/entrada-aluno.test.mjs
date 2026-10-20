@@ -228,7 +228,7 @@ test('aluno vê a visão de aluno do painel e registra só o próprio aprendizad
  const b=app({config:{gestores:{'aluno:rh1':['Produção']},educacao:{instrutores:{'aluno:rh1':['Produção']}}}});
  const p=await comoAluno(b,{action:'escola',operacao:'painel'});
  assert.equal(p.status,200);assert.equal(p.body.pessoa.colaboradorId,'rh1');assert.equal(p.body.pessoa.nome,'Ana Exemplo Fictícia');assert.equal(p.body.pessoa.funcao,'Montadora');
- assert.deepEqual(p.body.gestao,{podeGerir:false,podeValidar:false,pessoas:[],registros:[]});
+ assert.deepEqual(p.body.gestao,{planos:[],equipesTrabalho:[],podeMontarJornada:false,podeGerir:false,podeValidar:false,pessoas:[],registros:[]});
  assert.deepEqual(p.body.formacoes.map(f=>f.id),['f1']);assert.equal(p.body.formacoes[0].liberacao,undefined);
  assert.equal(b.queries.some(q=>q.table==='acesso_conta'||q.table==='acesso_papel'),false,'o aluno não passa pela Central nem lê contas');
  const r=await comoAluno(b,{action:'escola',operacao:'registrar',formacaoId:'f1',etapaId:'e1',evento:'leitura',formacaoVersao:'1',mutationId:'m-aluno-1',colaboradorId:'rh2'});

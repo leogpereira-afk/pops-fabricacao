@@ -9,7 +9,7 @@ const T_REG = "pops_registros", T_CFG = "pops_config_global", T_META = "pops_met
 const COLS = new Set(["pops", "jornadas", "treinamentos", "pessoas", "atribuicoes", "leituras", "progresso"]);
 // Coleções da escola: só a ação "escola" lê e grava. Entram na listagem completa
 // apenas para o backup do Hub (x-token de serviço), nunca para a tela.
-const COLS_ESCOLA = ["formacoes", "aprendizagem", "materiais", "estudos", "instrumentos", "perfis", "capacitacoes"];
+const COLS_ESCOLA = ["formacoes", "aprendizagem", "materiais", "estudos", "instrumentos", "perfis", "capacitacoes", "planos_aprendizagem"];
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-token", "Access-Control-Allow-Methods": "POST, OPTIONS" };
 const resp = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { ...CORS, "Content-Type": "application/json" } });
 const norm = (s: unknown) => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();

@@ -41,7 +41,7 @@ export function indexedDBFicticio(){
     entradas(){return [...(bancos.get('impresilk-escola-cache')?.get('consultas')?.entries()||[])];}};
 }
 // sessao: {usuario,nome,papel,pessoaRH}; api(payload,acao,tempo) ou backend b.
-export function telaEscola({sessao={},api,backend:b,storage=new Map(),idb,arquivos=['treinamentos.js','educacao.js','academia.js','escola-gestao.js','escola-catalogo.js'],cfgSetores=['Produção'],versaoTela='teste-1'}={}){
+export function telaEscola({sessao={},api,backend:b,storage=new Map(),idb,arquivos=['treinamentos.js','educacao.js','academia.js','escola-gestao.js','escola-catalogo.js','escola-jornadas.js'],cfgSetores=['Produção'],versaoTela='teste-1'}={}){
   const app=new Element('main',{id:'app'}),calls=[],toasts=[],ouvintes=[];
   const SESSAO={usuario:'ana',nome:'Ana Fictícia',papel:'equipe',pessoaRH:{colaboradorId:'rh1'},...sessao};
   const node=(s,root=app)=>s==='#app'?app:root.querySelector(s);
@@ -59,7 +59,7 @@ export function telaEscola({sessao={},api,backend:b,storage=new Map(),idb,arquiv
   }));
   for(const f of arquivos)vm.runInContext(fs.readFileSync(new URL('../'+f,import.meta.url),'utf8'),ctx);
   const rotear=(nome,arg='')=>{ctx.ROTA={nome,arg};ctx.location.hash='#/'+nome+(arg?'/'+arg:'');};
-  const route=async(nome='inicio',arg='')=>{rotear(nome,arg);const mod=['catalogo','matriz','importar'].includes(nome)?ctx.window.ESCOLA_CATALOGO:['biblioteca','videos','material','material-editor'].includes(nome)?ctx.window.ACADEMIA:['alunos','aluno','avaliacoes','nrs','perfil'].includes(nome)?ctx.window.ESCOLA_GESTAO:ctx.window.EDUCACAO;await mod.render(app);await esperar();};
+  const route=async(nome='inicio',arg='')=>{rotear(nome,arg);const mod=nome==='jornada-editor'?ctx.window.ESCOLA_JORNADAS:['catalogo','matriz','importar'].includes(nome)?ctx.window.ESCOLA_CATALOGO:['biblioteca','videos','material','material-editor'].includes(nome)?ctx.window.ACADEMIA:['alunos','aluno','avaliacoes','nrs','perfil'].includes(nome)?ctx.window.ESCOLA_GESTAO:ctx.window.EDUCACAO;await mod.render(app);await esperar();};
   const click=async s=>{const n=typeof s==='string'?node(s):s;if(!n||typeof n.onclick!=='function')throw new Error('Ação ausente '+s);await n.onclick({preventDefault(){},target:n});await esperar();};
   const submit=async s=>{const n=node(s);if(!n||typeof n.onsubmit!=='function')throw new Error('Formulário ausente '+s);await n.onsubmit({preventDefault(){},target:n});await esperar();};
   const marcar=(fieldset,valor,sim=true)=>{const box=node('#'+fieldset);const x=box?.querySelectorAll('input[type=checkbox]').find(i=>i.value===valor);if(!x)throw new Error('Opção ausente '+fieldset+':'+valor);x.checked=sim;x.onchange?.();return x;};

@@ -275,13 +275,13 @@ test('biblioteca e vídeos usam a cópia do aparelho e conferem com o servidor',
  resposta.resolver(bib('Material guardado fictício'));await indo;
 });
 
-test('telas da escola falam curso, aula e trilha, sem jornada nem formação',async()=>{
+test('cursos mantêm vocabulário de aula e trilha; jornada pessoal tem ação própria',async()=>{
  const s=servidor([row('formacoes',curso('c-voc',{titulo:'Curso de vocabulário',liberacao:{pessoas:['rh1'],cargos:[],setores:[],todos:false},catalogo:{trilha:'integracao-ficticia'},etapas:[aula('v1'),aula('v2',{tipo:'pratica',checklist:['Conferir'],validadores:['bruno'],prerequisitos:['v1']})]}))]);
  const aluno=tela(s);
  for(const [rota,arg] of [['inicio',''],['formacao','c-voc'],['formacao','c-voc~v1'],['conquistas',''],['catalogo',''],['avaliacoes','']]){await aluno.route(rota,arg);assert.doesNotMatch(aluno.text(),/jornada|forma[cç][aã]o|forma[cç][oõ]es/i,rota+' '+arg);}
  await aluno.route('formacao','c-voc');assert.match(aluno.text(),/aulas obrigatórias/);assert.match(aluno.text(),/Atividade prática/);
  const gestao=tela(s,admin);
- for(const [rota,arg] of [['escola',''],['formacao-editor','c-voc'],['formacao-editor','novo'],['alunos',''],['matriz','']]){await gestao.route(rota,arg);assert.doesNotMatch(gestao.text(),/jornada|forma[cç][aã]o|forma[cç][oõ]es/i,rota+' '+arg);}
+ for(const [rota,arg] of [['escola',''],['formacao-editor','c-voc'],['formacao-editor','novo'],['alunos',''],['matriz','']]){await gestao.route(rota,arg);assert.doesNotMatch(gestao.text().replaceAll('Montar jornada',''),/jornada|forma[cç][aã]o|forma[cç][oõ]es/i,rota+' '+arg);}
 });
 
 test('avaliações mostram à gestão as provas que esperam aprovação, sem aprovar por ali',async()=>{

@@ -1,5 +1,24 @@
 # Vez do Pops & Fabricação
 
+## Trabalho atual · Jornada pessoal por RH e equipe existente
+
+Agente: codex. Complemento autorizado por Léo em 20/10/2026: jornadas individuais, vídeos, habilidades de atendimento e situações difíceis, estudo flexível e incentivo visual com Silk. Equipe escolhida pelo dono: a equipe de trabalho já cadastrada. Mesmo ramo `codex/jornada-silk-20261020`, clone `/tmp/pops-jornada-20261020`.
+
+Implementado e conferido localmente em 20/10/2026:
+- plano individual pela ficha do RH e equipe de origem conferida por ID, sem cadastro paralelo;
+- montagem administrativa com cursos, ordem, prazos, orientações e contexto;
+- experiência do aluno com objetivo, próximo passo, equipe e incentivo após avanço confirmado;
+- modelos editáveis de habilidades para a vida e o trabalho e atalhos para os editores de curso/vídeo;
+- proteção de dados por perfil, revisão concorrente, reenvio idempotente e histórico preservado;
+- 442 testes aprovados, sintaxe JavaScript, pacote estático de 34 arquivos, revisão independente e navegação em desktop e celular;
+- abertura direta do editor e salvamento conferidos depois da confirmação do vínculo RH.
+
+Contrato e uso em `docs/JORNADAS-PESSOAIS.md`; execução em `docs/superpowers/plans/2026-10-20-jornada-pessoal.md`. Prévia usa somente dados fictícios.
+
+Não publicado. Para publicar, após autorização e nova leitura do protocolo remoto: migração aditiva `0007_planos_aprendizagem.sql`, função `pops-sync`, tela e conferência produtiva. Nenhuma pessoa real recebeu curso nesta etapa.
+
+Vez: codex (implementação local concluída; publicação pendente).
+
 ## Trabalho atual · Jornada, conquistas e importação com Silk
 
 Agente: codex. Léo aprovou em 20/10/2026 implementar as três etapas da proposta: jornada do aluno, conquistas e importação guiada, com cards compactos e celular. Ramo `codex/jornada-silk-20261020`, clone `/tmp/pops-jornada-20261020`. Preservar regras de dados e servidor. Publicação não autorizada nesta etapa.

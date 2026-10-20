@@ -38,8 +38,9 @@ test('destino aceso segue a rota, inclusive Alunos, NRs, Vídeos e editores',()=
  const t=topo({papel:'admin'});
  for(const [rota,arg,esperado,extra] of [['inicio','','Início'],['formacao','f1','Início'],['avaliacoes','','Início'],['catalogo','','Catálogo'],['pop','p1','POPs e Fabricação'],['fab','','POPs e Fabricação'],['nrs','','Conhecimento'],['videos','','Conhecimento'],['biblioteca','','Conhecimento'],['editor','t1','Conhecimento',{tipoEditor:'treinamento'}],['editor','p1','POPs e Fabricação',{tipoEditor:'pop'}]])
   assert.deepEqual(ativo(t(rota,arg,extra)),[esperado],rota);
- for(const rota of ['alunos','escola','matriz','importar','formacao-editor']){const el=t(rota);assert.deepEqual(ativo(el),[],rota);assert.ok(Object.hasOwn(el.querySelector('.nav-escola').querySelector('summary').attributes,'aria-current'),rota);}
+ for(const rota of ['alunos','escola','matriz','importar','formacao-editor','jornada-editor']){const el=t(rota);assert.deepEqual(ativo(el),[],rota);assert.ok(Object.hasOwn(el.querySelector('.nav-escola').querySelector('summary').attributes,'aria-current'),rota);}
  assert.ok(Object.hasOwn(t('alunos').querySelector('.nav-escola').querySelectorAll('a').find(a=>a.attributes.href==='#/alunos').attributes,'aria-current'));
+ assert.ok(Object.hasOwn(t('jornada-editor','rh-ficticio').querySelector('.nav-escola').querySelectorAll('a').find(a=>a.attributes.href==='#/alunos').attributes,'aria-current'));
  assert.ok(Object.hasOwn(t('menu').querySelector('.tit').attributes,'aria-current'));
 });
 

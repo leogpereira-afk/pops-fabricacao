@@ -173,6 +173,78 @@ export async function escola(body: any, ctx: any) {
   const getF = async (fid:any) => { const r=await registro('formacoes',id(fid));if(!r||r.apagado)fail('Curso não disponível.',404);return {...copy(r.registro),_serverRevision:r.revision}; };
   const getP = async (pid:any) => { const ps=await pessoasRH();const p=ps.find(x=>x.colaboradorId===id(pid));if(!p)fail('Pessoa não disponível no RH.',404);return p; };
   const idApr = async (pid:string,fid:string) => 'ap-'+Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(pid+'\n'+fid)))).map(n=>n.toString(16).padStart(2,'0')).join('');
+  const idPlano = async (pid:string) => 'plano-'+(await idApr(pid,'plano-pessoal')).slice(3);
+  const planoSeguro = (r:any) => r ? Object.fromEntries(['id','colaboradorId','titulo','objetivo','equipeId','itens','ativa','_serverRevision','atualizadoEm','atualizadoPor'].filter(k=>Object.hasOwn(r,k)).map(k=>[k,copy(r[k])])) : null;
+  const planosPermitidos = () => lembrar('planosPermitidos',async()=>{
+    if(admin)return todos('planos_aprendizagem');
+    const out:any[]=[];
+    if(pessoa){
+      const r=await registro('planos_aprendizagem',await idPlano(pessoa.colaboradorId));
+      if(r&&!r.apagado&&r.registro.colaboradorId===pessoa.colaboradorId)out.push({...r.registro,_serverRevision:r.revision});
+    }
+    // Acompanhamento do gestor inclui quem recebeu o curso mas ainda não abriu
+    // nenhuma aula. Consulta apenas suas fichas RH e reduz a resposta a concessões:
+    // título, objetivo, autoria e histórico de planos alheios nunca são carregados.
+    if(gestor&&(body.operacao||'painel')==='painel'){
+      const ids=(await pessoasRH()).filter(p=>p.colaboradorId!==pessoa?.colaboradorId&&corresponde(p,setores)).map(p=>p.colaboradorId);
+      for(let ini=0;ini<ids.length;ini+=100){
+        const lote=ids.slice(ini,ini+100);
+        for(let de=0;;de+=500){
+          const rows=conferir(await sb.from('pops_registros').select('colaboradorId:registro->>colaboradorId,ativa:registro->>ativa,itens:registro->itens').eq('colecao','planos_aprendizagem').eq('apagado',false).in('registro->>colaboradorId',lote).order('id').range(de,de+499));
+          for(const row of rows){
+            const r=row.registro||row;
+            if(lote.includes(r.colaboradorId)&&(r.ativa===true||r.ativa==='true'))out.push({colaboradorId:r.colaboradorId,ativa:true,itens:(Array.isArray(r.itens)?r.itens:[]).filter((i:any)=>idFormato(i?.formacaoId)).map((i:any)=>({formacaoId:i.formacaoId}))});
+          }
+          if(rows.length<500)break;
+        }
+      }
+    }
+    return out;
+  });
+  const planos=await planosPermitidos();
+  // Concessão adicional só para CURSOS, nunca para material com o mesmo id.
+  const liberadaCurso=(f:any,p:any)=>liberada(f,p,cfg)||!!p&&f.publicada===true&&f.ativa!==false&&planos.some((r:any)=>r.ativa===true&&r.colaboradorId===p.colaboradorId&&r.itens.some((i:any)=>i.formacaoId===f.id));
+  // Origem confirmada no PCP: config.performancePCP.equipes[].membros[].chave.
+  // Sem CPF, nomes ou inferência. IDs antigos só quando explícitos no RH.
+  const equipesRH = () => lembrar('equipesRH',async()=>{
+    try {
+      const cfgPCP=conferir(await sb.from('pcp_config_global').select('equipes:config->performancePCP->equipes').eq('id',true).maybeSingle());
+      if(!cfgPCP)return {disponivel:false,equipes:[]};
+      const equipes=cfgPCP?.equipes??cfgPCP?.config?.performancePCP?.equipes??[];
+      if(!Array.isArray(equipes))throw new Error('Equipes indisponíveis');
+      if(!equipes.some((e:any)=>objeto(e)&&e.ativo!==false))return {disponivel:true,equipes:[]};
+      const fichas:any[]=[];
+      for(let de=0;;de+=500){
+        const rs=conferir(await sb.from('registros').select('id,idPessoa:registro->>idPessoa,idPessoaAnteriores:registro->idPessoaAnteriores,idPessoaBloqueado:registro->>idPessoaBloqueado,statusId:registro->>statusId,dataDesligamento:registro->>dataDesligamento').eq('colecao','colaboradores').eq('apagado',false).order('id').range(de,de+499));
+        fichas.push(...rs.map((r:any)=>({id:r.id,...Object.fromEntries(['idPessoa','idPessoaAnteriores','idPessoaBloqueado','statusId','dataDesligamento'].map(k=>[k,r[k]??r.registro?.[k]]))})));
+        if(rs.length<500)break;
+      }
+      const chaves=new Map<string,Set<string>>(),ativas=new Set<string>();
+      for(const f of fichas){
+        const bloqueado=!!f.idPessoaBloqueado&&f.idPessoaBloqueado!=='false';
+        if(!String(f.dataDesligamento||'').trim()&&!['inativo','abandono'].includes(f.statusId)&&!bloqueado)ativas.add(f.id);
+        let anteriores=f.idPessoaAnteriores;
+        if(typeof anteriores==='string'){const t=anteriores.trim();try{anteriores=t.startsWith('[')?JSON.parse(t):t.split(/[\s,;]+/);}catch{anteriores=[];}}
+        const ids=[f.id,...[f.idPessoa,...(Array.isArray(anteriores)?anteriores.slice(0,20):[])].map(x=>String(x??'').trim()).filter(x=>/^\d{6}$/.test(x))];
+        for(const k of ids){if(!chaves.has(k))chaves.set(k,new Set());chaves.get(k)!.add(f.id);}
+      }
+      const unicas=equipes.filter((e:any)=>objeto(e)&&idFormato(e.id)&&texto(e.nome,120)&&e.ativo!==false);
+      return {disponivel:true,equipes:unicas.filter((e:any)=>unicas.filter((o:any)=>o.id===e.id).length===1).map((e:any)=>({
+        id:e.id,nome:texto(e.nome,120),colaboradorIds:[...new Set((Array.isArray(e.membros)?e.membros:[]).flatMap((m:any)=>{
+          const k=typeof m?.chave==='string'?m.chave.trim():'',ids=chaves.get(k);if(ids?.size!==1)return [];
+          const pid=[...ids][0];return ativas.has(pid)?[pid]:[];
+        }))],
+      }))};
+    }catch{return {disponivel:false,equipes:[]};}
+  });
+  const equipeDaPessoa=(p:any,origem:any,plano:any=null)=>{
+    if(!p)return {estado:'sem_vinculo'};
+    if(!origem.disponivel)return {estado:'indisponivel'};
+    const es=origem.equipes.filter((e:any)=>e.colaboradorIds.includes(p.colaboradorId));
+    const selecionada=plano?.equipeId?es.find((e:any)=>e.id===plano.equipeId):null;
+    if(selecionada||es.length===1){const e=selecionada||es[0];return {estado:'vinculada',id:e.id,nome:e.nome};}
+    return {estado:es.length?'multipla':'sem_equipe'};
+  };
   const gravar = async (col:string,r:any,revision:number,mutation:string) => {
     if(JSON.stringify(r).length>500_000)fail('O histórico atingiu o limite. A gestão deve preparar um curso novo; nenhum registro foi apagado.',409);
     const res=await sb.rpc('pops_gravar',{p_colecao:col,p_id:r.id,p_registro:r,p_acao:'upsert',p_expected:revision,p_mutation:mutation});
@@ -220,14 +292,14 @@ export async function escola(body: any, ctx: any) {
     if(!privado){delete res.liberacao;delete res.versoesAnteriores;delete res.atribuicoesAnteriores;if(res.atribuicao)delete res.atribuicao.liberacao;}
     else {
       const escopoPessoas=ps.filter(p=>admin||corresponde(p,setores));
-      res.pessoasLiberadas=escopoPessoas.filter(p=>liberada(f,p,cfg)).map(p=>p.colaboradorId);
+      res.pessoasLiberadas=escopoPessoas.filter(p=>liberadaCurso(f,p)).map(p=>p.colaboradorId);
       if(res.liberacao?.cargosGestor) {
         const antes=res.liberacao.cargosSetores||[],atuais=cfg.gestores?.[res.liberacao.cargosGestor]||[];
         res.liberacao.cargosSetoresEfetivos=[...new Set([...antes.filter((s:any)=>atuais.map(norm).includes(norm(s))),...escopoPessoas.filter(p=>corresponde(p,antes)&&corresponde(p,atuais)).map(p=>p.setor||p.area||p.areaId).filter(Boolean)])];
       }
     }
     res.progresso={concluidas,total:obrigatorias.length,percentual:obrigatorias.length?Math.round(concluidas/obrigatorias.length*100):0,etapaAtual:res.etapas.find((e:any)=>e.obrigatoria!==false&&e.status!=='concluida')?.id||null};
-    res.revisaoNecessaria=novaVersao;res.liberada=liberada(f,pessoa,cfg);res.liberadaParaMim=res.liberada;
+    res.revisaoNecessaria=novaVersao;res.liberada=liberadaCurso(f,pessoa);res.liberadaParaMim=res.liberada;
     return res;
   };
   // Público por família: só a administração escolhe (como "todos"). Quem não é
@@ -302,7 +374,51 @@ export async function escola(body: any, ctx: any) {
     return Object.keys(out).length?out:null;
   };
   const op=String(body.operacao || 'painel');
-  if(op.startsWith('academia.'))return academia(body,{sb,usuario,admin,gestor,aluno,setores,pessoa,cfg,gerencia,registro,todos,pessoasRH,idApr,gravar,fail,id,aplicarFamilias});
+  if(op.startsWith('academia.'))return academia(body,{sb,usuario,admin,gestor,aluno,setores,pessoa,cfg,gerencia,registro,todos,pessoasRH,idApr,gravar,fail,id,aplicarFamilias,liberadaCurso});
+  if(op==='salvarPlano'){
+    if(!admin)fail('Somente a administração monta jornadas pessoais.',403);
+    const raw=body.plano;
+    const campos=['id','colaboradorId','titulo','objetivo','equipeId','itens','ativa','_serverRevision'];
+    if(!objeto(raw)||Object.keys(raw).some(k=>!campos.includes(k)))fail('Campos do plano inválidos.');
+    const pid=id(raw.colaboradorId),rid=await idPlano(pid),mutation=id(body.mutationId);
+    if(raw.id!=null&&raw.id!==rid)fail('Este plano pertence a outra pessoa.',409);
+    if(!Number.isSafeInteger(body.expectedRevision)||body.expectedRevision<0)fail('Revisão do plano obrigatória.');
+    const titulo=texto(raw.titulo,160),objetivo=texto(raw.objetivo,2000);
+    if(!titulo||typeof raw.objetivo!=='string'||raw.objetivo.trim().length>2000||typeof raw.ativa!=='boolean'||(raw.equipeId!==''&&!idFormato(raw.equipeId)))fail('Título, objetivo, equipe ou estado do plano inválido.');
+    if(!Array.isArray(raw.itens)||!raw.itens.length||raw.itens.length>100)fail('Escolha de 1 a 100 cursos.');
+    const vistos=new Set<string>();
+    const itens=raw.itens.map((i:any)=>{
+      if(!objeto(i)||Object.keys(i).some(k=>!['formacaoId','prazo','contexto','orientacao'].includes(k)))fail('Campos do curso no plano inválidos.');
+      const fid=id(i.formacaoId);if(vistos.has(fid))fail('O mesmo curso não pode aparecer duas vezes.');vistos.add(fid);
+      if(!['empresa','flexivel'].includes(i.contexto)||typeof i.orientacao!=='string'||i.orientacao.trim().length>2000)fail('Contexto ou orientação do curso inválidos.');
+      if(typeof i.prazo!=='string'||i.prazo!==''&&(!/^\d{4}-\d{2}-\d{2}$/.test(i.prazo)||!Number.isFinite(Date.parse(i.prazo+'T00:00:00Z'))||new Date(i.prazo+'T00:00:00Z').toISOString().slice(0,10)!==i.prazo||i.prazo<'1900-01-01'))fail('Prazo inválido. Use uma data real.');
+      return {formacaoId:fid,prazo:i.prazo,contexto:i.contexto,orientacao:i.orientacao.trim()};
+    });
+    const limpo={id:rid,colaboradorId:pid,titulo,objetivo,equipeId:raw.equipeId,itens,ativa:raw.ativa};
+    const anterior=await registro('planos_aprendizagem',rid);
+    if(anterior?.apagado)fail('Plano arquivado. Consulte a administração.',409);
+    const assinatura=estavel({plano:limpo,expectedRevision:body.expectedRevision});
+    const evento=anterior?.registro?.alteracoes?.find((e:any)=>e.id===mutation);
+    if(evento){
+      if(evento.por!==usuario||evento.assinatura!==assinatura)fail('Este identificador já foi usado em outro envio.',409);
+      // Reenvio antigo nunca informa como salvo um conteúdo substituído depois.
+      if(anterior.mutation_id!==mutation)fail('O plano mudou depois deste envio. Atualize antes de continuar.',409);
+      return {ok:true,registro:planoSeguro(anterior.registro),revision:anterior.revision,repetido:true};
+    }
+    if(body.expectedRevision!==(anterior?.revision||0))fail('O plano mudou. Atualize antes de salvar.',409);
+    // Escrita consulta o RH vivo, sem o cache de 60 s usado na listagem.
+    const ficha=conferir(await sb.from('registros').select('id,statusId:registro->>statusId,dataDesligamento:registro->>dataDesligamento').eq('colecao','colaboradores').eq('id',pid).eq('apagado',false).maybeSingle());
+    const rh=ficha?.registro||ficha;
+    if(!rh||rh.dataDesligamento||['inativo','abandono'].includes(rh.statusId))fail('Pessoa não disponível no RH.',409);
+    // Revogar o plano não pode depender da equipe ou do curso que saiu do ar.
+    // Só conserva referências anteriores; novas referências continuam conferidas.
+    if(limpo.equipeId&&(limpo.ativa||limpo.equipeId!==anterior?.registro?.equipeId)){const es=await equipesRH();if(!es.disponivel)fail('Não foi possível consultar a equipe no PCP. Tente novamente.',409);if(!es.equipes.some((e:any)=>e.id===limpo.equipeId&&e.colaboradorIds.includes(pid)))fail('A pessoa não pertence a esta equipe ativa do PCP.',409);}
+    for(const i of itens){if(!limpo.ativa&&anterior?.registro?.itens?.some((a:any)=>a.formacaoId===i.formacaoId))continue;const f=await registro('formacoes',i.formacaoId);if(!f||f.apagado||f.registro.publicada!==true||f.registro.ativa===false)fail('Escolha somente cursos existentes, ativos e publicados.',409);}
+    const agora=new Date().toISOString();
+    const alteracoes=[...(anterior?.registro?.alteracoes||[]),{id:mutation,assinatura,por:usuario,em:agora,...(anterior?{anterior:planoSeguro({...anterior.registro,_serverRevision:anterior.revision})}:{})}];
+    const r=await gravar('planos_aprendizagem',{...limpo,alteracoes,atualizadoEm:agora,atualizadoPor:usuario},body.expectedRevision,mutation);
+    return {...r,registro:planoSeguro(r.registro)};
+  }
   // Entrada do aluno (ID do RH e primeiro nome): ligada por padrão. Só a
   // administração liga, desliga e muda a validade do crachá do aluno (1 a 30 dias).
   // Patch só em educacao, levando o resto (instrutores, catálogo), com o valor
@@ -401,12 +517,13 @@ export async function escola(body: any, ctx: any) {
     const gere=admin||gestor;
     // O aluno não paga nem recebe a lista de pessoas: a visão dele não a usa.
     const [fs,rs,ps,cargos,vagas]=await Promise.all([todos('formacoes'),todos('aprendizagem'),aluno?[]:pessoasRH(),gere?cargosRH():null,gere?vagasRH():null]);
+    const planoPessoal=planoSeguro(planos.find((r:any)=>r.ativa===true&&r.colaboradorId===pessoa?.colaboradorId)),origemEquipes=await equipesRH(),equipeTrabalho=equipeDaPessoa(pessoa,origemEquipes,planoPessoal);
     const pessoais=rs.filter(r=>pessoa && r.colaboradorId===pessoa.colaboradorId);
-    const visiveis=fs.filter(f=>gerencia(f)||liberada(f,pessoa,cfg)||pessoais.some(r=>r.formacaoId===f.id)||(pessoa&&(cfg.educacao?.instrutores?.[usuario]||[]).map(norm).includes(norm(f.setor))&&f.etapas?.some((e:any)=>(e.validadores||[]).map(norm).includes(usuario))));
+    const visiveis=fs.filter(f=>gerencia(f)||liberadaCurso(f,pessoa)||pessoais.some(r=>r.formacaoId===f.id)||(pessoa&&(cfg.educacao?.instrutores?.[usuario]||[]).map(norm).includes(norm(f.setor))&&f.etapas?.some((e:any)=>(e.validadores||[]).map(norm).includes(usuario))));
     const formacoes:any[]=await Promise.all(visiveis.map(async(f:any)=>{
       const pessoal=pessoais.find(r=>r.formacaoId===f.id);
       const instrutor=!!pessoa&&(cfg.educacao?.instrutores?.[usuario]||[]).map(norm).includes(norm(f.setor))&&f.etapas.some((e:any)=>(e.validadores||[]).map(norm).includes(usuario));
-      if(!gerencia(f)&&!liberada(f,pessoa,cfg)&&!instrutor) {
+      if(!gerencia(f)&&!liberadaCurso(f,pessoa)&&!instrutor) {
         const antiga=f.versoesAnteriores?.find((v:any)=>v.versao===pessoal?.formacaoVersao);
         // Só a trilha (e a ordem) do catálogo: o curso fica na trilha certa do
         // catálogo da pessoa, sem levar cursos recomendados nem outro metadado.
@@ -423,7 +540,7 @@ export async function escola(body: any, ctx: any) {
       if(f.somenteHistorico||!Array.isArray(f.catalogo?.preRequisitos))continue;
       const lista=f.catalogo.preRequisitos.flatMap((rid:string)=>{
         const pre:any=porId.get(rid);if(!pre)return [];
-        const libera=liberada(pre,pessoa,cfg);
+        const libera=liberadaCurso(pre,pessoa);
         if(!libera&&!gerencia(pre)&&(pre.publicada!==true||pre.ativa===false))return [];
         const meu=pessoais.find(r=>r.formacaoId===rid);
         return [{id:rid,titulo:pre.titulo,concluida:!!meu?.concluidaEm&&meu.formacaoVersao===pre.versao,liberada:libera}];
@@ -440,14 +557,14 @@ export async function escola(body: any, ctx: any) {
     const catalogo=copy(catalogoCfg(cfg));
     // Aluno: visão de aluno, nunca dados de gestão (nem pessoas, nem registros de
     // outros, nem cargos e vagas do RH, nem configuração).
-    if(aluno)return {ok:true,pessoa,motivoVinculo:identidade.motivo||null,formacoes,aprendizagem:pessoais,catalogo,gestao:{podeGerir:false,podeValidar:false,pessoas:[],registros:[]},atualizadoEm:new Date().toISOString()};
+    if(aluno)return {ok:true,pessoa,planoPessoal,equipeTrabalho,motivoVinculo:identidade.motivo||null,formacoes,aprendizagem:pessoais,catalogo,gestao:{planos:[],equipesTrabalho:[],podeMontarJornada:false,podeGerir:false,podeValidar:false,pessoas:[],registros:[]},atualizadoEm:new Date().toISOString()};
     const gestaoReg=rs.filter(r=>{const f=fs.find(f=>f.id===r.formacaoId),p=ps.find(p=>p.colaboradorId===r.colaboradorId);return f&&p&&(admin ||(gerencia(f)&&corresponde(p,setores))||f.etapas.some((e:any)=>validar(f,e,p)));});
     const ids=new Set(gestaoReg.map(r=>r.colaboradorId));
     // Administração: quantos bloqueios da entrada do aluno valem agora. Sem a
     // contagem (banco fora), o cartão segue sem ela; o painel não cai por isso.
     let bloqueiosAluno:number|null=null;
     if(admin){try{const b=await sb.rpc('pops_entrada_aluno_bloqueios',{p_liberar:false});if(!b.error&&Number.isInteger(b.data?.bloqueios))bloqueiosAluno=b.data.bloqueios;}catch{/* sem contagem */}}
-    return {ok:true,pessoa,motivoVinculo:identidade.motivo||null,formacoes,aprendizagem:pessoais,catalogo,gestao:{instrutores:admin?(cfg.educacao?.instrutores||{}):undefined,...(admin?{entradaAluno:{...entradaAlunoCfg(cfg),...(bloqueiosAluno===null?{}:{bloqueios:bloqueiosAluno})}}:{}),...(gere?{cargosRH:cargos,vagasRH:vagas,catalogo}:{}),podeGerir:admin||gestor,podeValidar:!!pessoa&&(admin||gestor||fs.some(f=>f.etapas.some((e:any)=>(e.validadores||[]).map(norm).includes(usuario)))),pessoas:ps.filter(p=>admin||(gestor&&corresponde(p,setores))||ids.has(p.colaboradorId)),registros:gestaoReg.map(r=>registroGestao(r,fs.find(f=>f.id===r.formacaoId),ps.find(p=>p.colaboradorId===r.colaboradorId)))},atualizadoEm:new Date().toISOString()};
+    return {ok:true,pessoa,planoPessoal,equipeTrabalho,motivoVinculo:identidade.motivo||null,formacoes,aprendizagem:pessoais,catalogo,gestao:{planos:admin?planos.map(planoSeguro):[],equipesTrabalho:admin?origemEquipes.equipes:[],estadoEquipesTrabalho:origemEquipes.disponivel?'disponivel':'indisponivel',podeMontarJornada:admin,instrutores:admin?(cfg.educacao?.instrutores||{}):undefined,...(admin?{entradaAluno:{...entradaAlunoCfg(cfg),...(bloqueiosAluno===null?{}:{bloqueios:bloqueiosAluno})}}:{}),...(gere?{cargosRH:cargos,vagasRH:vagas,catalogo}:{}),podeGerir:admin||gestor,podeValidar:!!pessoa&&(admin||gestor||fs.some(f=>f.etapas.some((e:any)=>(e.validadores||[]).map(norm).includes(usuario)))),pessoas:ps.filter(p=>admin||(gestor&&corresponde(p,setores))||ids.has(p.colaboradorId)),registros:gestaoReg.map(r=>registroGestao(r,fs.find(f=>f.id===r.formacaoId),ps.find(p=>p.colaboradorId===r.colaboradorId)))},atualizadoEm:new Date().toISOString()};
   }
   if(op==='aprovarAvaliacao') {
     const f=await getF(body.formacaoId);if(!gerencia(f))fail('Somente a gestão responsável aprova avaliações.',403);
@@ -560,7 +677,7 @@ export async function escola(body: any, ctx: any) {
   const assinatura=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(estavel({operacao:op,formacaoVersao:body.formacaoVersao||null,etapaId:body.etapaId||null,evento:body.evento||null,respostas:body.respostas||null,evidencia:body.evidencia||null,checklist:body.checklist||null,aceite:body.aceite||false,aprovado:body.aprovado??null,feedback:body.feedback||null,motivo:body.motivo||null,por:usuario}))))).map(n=>n.toString(16).padStart(2,'0')).join('');
   let r=atual?.registro?copy(atual.registro):{id:rid,colaboradorId:alvo.colaboradorId,pessoaId:'p-'+alvo.colaboradorId,nome:alvo.nome,formacaoId:f.id,formacaoVersao:f.versao,etapas:{},pontos:0,conquistas:[],historico:[],eventos:[],iniciadaEm:agora};
   const e=f.etapas.find((e:any)=>e.id===body.etapaId);
-  if(op==='registrar'&&!liberada(f,pessoa,cfg))fail('Este curso não está liberado para você.',403);
+  if(op==='registrar'&&!liberadaCurso(f,pessoa))fail('Este curso não está liberado para você.',403);
   if(op==='validar'&&(!e||!validar(f,e,alvo)))fail('A prática exige outro responsável autorizado para este setor.',403);
   if(op==='reciclar'&&(!gerencia(f)||(!admin&&!corresponde(alvo,setores))))fail('Seu acesso não permite liberar esta reciclagem.',403);
   const repetido=r.eventos.find((ev:any)=>ev.id===mutation);
@@ -640,14 +757,14 @@ export async function escola(body: any, ctx: any) {
 
 // Biblioteca e registros pessoais separados das evidências de domínio da função.
 async function academia(body:any,c:any) {
-  const {sb,usuario,admin,gestor,aluno,setores,pessoa,cfg,gerencia,registro,todos,pessoasRH,idApr,gravar,fail,id,aplicarFamilias}=c;
+  const {sb,usuario,admin,gestor,aluno,setores,pessoa,cfg,gerencia,registro,todos,pessoasRH,idApr,gravar,fail,id,aplicarFamilias,liberadaCurso}=c;
   const op=body.operacao.slice(9),agora=new Date().toISOString();
   // Cópia integral: o registro lido fica no cache da requisição.
   const obter=async(col:string,key:any)=>{const r=await registro(col,id(key));if(!r||r.apagado)fail('Registro não disponível.',404);return {...copy(r.registro),_serverRevision:r.revision};};
   // O aluno nunca é instrutor nem responsável por NR: só o que é dele.
   const escopoInstrutor=aluno?[]:cfg.educacao?.instrutores?.[usuario]||[];
   const instrutorNR=(m:any)=>!aluno&&m.tipo==='nr'&&norm(m.nr?.responsavel)===usuario&&escopoInstrutor.map(norm).includes(norm(m.setor));
-  const acessoMaterial=async(m:any)=>gerencia(m)||instrutorNR(m)||liberada(m,pessoa,cfg)||m.publicada===true&&m.ativa!==false&&(await todos('formacoes')).some((f:any)=>liberada(f,pessoa,cfg)&&f.etapas.some((e:any)=>(e.materiais||[]).some((ref:any)=>ref.id===m.id&&ref.versao===m.versao)));
+  const acessoMaterial=async(m:any)=>gerencia(m)||instrutorNR(m)||liberada(m,pessoa,cfg)||m.publicada===true&&m.ativa!==false&&(await todos('formacoes')).some((f:any)=>liberadaCurso(f,pessoa)&&f.etapas.some((e:any)=>(e.materiais||[]).some((ref:any)=>ref.id===m.id&&ref.versao===m.versao)));
   const seguro=(m:any,integral=false)=>{const r=copy(m);if(!gerencia(m)){delete r.liberacao;delete r.versoesAnteriores;}if(!integral)delete r.paginas;r.temPDF=!!m.arquivoPath;delete r.arquivoPath;if(m.youtubeId)r.embed='https://www.youtube-nocookie.com/embed/'+m.youtubeId;return r;};
   const audiencia=async(r:any,anterior:any)=>{
     r.liberacao=r.liberacao||{};if(!objeto(r.liberacao))fail('Público inválido.');
@@ -712,7 +829,7 @@ async function academia(body:any,c:any) {
     const m=await obter('materiais',body.materialId);if(!await acessoMaterial(m))fail('Material não liberado para sua conta.',403);
     if(op==='abrirMaterial')return {ok:true,material:seguro(m,true)};
     if(!pessoa)fail('Vincule sua conta ao RH para registrar o estudo.',403);
-    if(!liberada(m,pessoa,cfg)&&!((await todos('formacoes')).some((f:any)=>liberada(f,pessoa,cfg)&&f.etapas.some((e:any)=>(e.materiais||[]).some((r:any)=>r.id===m.id&&r.versao===m.versao)))))fail('Estudo não liberado para você.',403);
+    if(!liberada(m,pessoa,cfg)&&!((await todos('formacoes')).some((f:any)=>liberadaCurso(f,pessoa)&&f.etapas.some((e:any)=>(e.materiais||[]).some((r:any)=>r.id===m.id&&r.versao===m.versao)))))fail('Estudo não liberado para você.',403);
     if(body.versao!==m.versao)fail('O material mudou. Abra a versão atual.',409);
     const key=await idApr(pessoa.colaboradorId,'material:'+m.id+':'+m.versao),ant=await registro('estudos',key),mutation=id(body.mutationId);
     const r=ant?copy(ant.registro):{id:key,colaboradorId:pessoa.colaboradorId,nome:pessoa.nome,materialId:m.id,titulo:m.titulo,versao:m.versao,eventos:[]};

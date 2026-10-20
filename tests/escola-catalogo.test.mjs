@@ -215,7 +215,7 @@ test('gestão recebe todos os cargos e as vagas vivas do RH, sem pessoa, salári
 });
 
 test('painel lê cada material, fonte e cadastro do RH uma vez por chamada',async()=>{
- // Mesmo cenário medido no servidor anterior (14/10): 39 consultas por painel; agora 18.
+ // Limite anterior 18; duas consultas adicionais são plano pessoal e equipes do PCP.
  const fonte={tipo:'treinamento',refId:'t1',versao:'1',oficialConfirmado:true,conferidoPor:'admin',conferidoEm:'2026-10-01T00:00:00Z'};
  const passo=i=>etapa('e'+i,'cultura',{materiais:[{id:'m1',versao:'1'}],fontes:[fonte]});
  const tables=tabelas();tables.acesso_conta.push({id:'acc0',usuario:'admin',ativo:true,colaborador_id:'rh4'});tables.acesso_papel.push({conta_id:'acc0',sistema:'pops',login:'admin',ativo:true,papel:'admin'});
@@ -223,7 +223,7 @@ test('painel lê cada material, fonte e cadastro do RH uma vez por chamada',asyn
  const b=app({tables,rows});
  const r=await cmd(b,'painel',{},admin);assert.equal(r.status,200);assert.equal(r.body.formacoes.length,4);
  assert.equal(r.body.formacoes.every(f=>f.etapas.every(e=>e.statusFonte==='disponivel')),true);
- assert.ok(b.queries.length<=18,'consultas: '+b.queries.length);
+ assert.ok(b.queries.length<=20,'consultas: '+b.queries.length);
  for(const c of ['colaboradores','areas','cargos','vagas'])assert.equal(lidoRH(b,c),1,c);
  const porId=id=>b.queries.filter(q=>q.table==='pops_registros'&&q.eqs.some(([k,v])=>k==='id'&&v===id)).length;
  assert.equal(porId('m1'),1);assert.equal(porId('t1'),1);

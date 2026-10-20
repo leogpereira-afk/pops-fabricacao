@@ -124,7 +124,7 @@ test('acompanhamento calcula progresso do aluno sem usar o progresso pessoal do 
  const h=harness({papel:'gestor',data:snapshot([f],{gestao:{podeGerir:true,podeValidar:true,pessoas:[],registros:[registro]}})});await h.route('escola');assert.match(h.node('#edu-registros').textContent,/1\/1 aulas/);assert.match(h.node('#edu-registros').textContent,/Concluída/);
 });
 test('gestor vê catálogo de gestão sem contabilizar jornadas não atribuídas como pessoais',async()=>{
- const f=formation([makeStage()],{liberada:false});const h=harness({papel:'gestor',data:snapshot([f],{gestao:{podeGerir:true,podeValidar:true,pessoas:[],registros:[]}})});await h.route();const resumo=h.app.querySelectorAll('span').find(n=>n.textContent.includes('cursos liberados'));assert.equal(resumo.querySelector('strong').textContent,'0');assert.match(h.text(),/Nenhum curso liberado ainda/);assert.doesNotMatch(h.text(),/Aula atual: Etapa inicial/);
+ const f=formation([makeStage()],{liberada:false});const h=harness({papel:'gestor',data:snapshot([f],{gestao:{podeGerir:true,podeValidar:true,pessoas:[],registros:[]}})});await h.route();const resumo=h.node('.edu-metricas').querySelectorAll('a').find(n=>n.textContent.includes('cursos concluídos'));assert.equal(resumo.querySelector('strong').textContent,'0/0');assert.match(h.text(),/Nenhum curso liberado ainda/);assert.doesNotMatch(h.text(),/Aula atual: Etapa inicial/);
 });
 test('responsável analisa prática na tela e servidor libera próximo passo do aluno',async()=>{
  const f=formation([makeStage({tipo:'pratica',checklist:['Conferir a execução'],validadores:['bruno']}),makeStage({id:'e2',titulo:'Educação contínua',tipo:'continua',prerequisitos:['e1']})]);const b=backendApp(f,[],{educacao:{instrutores:{bruno:['Produção']}}});

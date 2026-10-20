@@ -1,5 +1,20 @@
 # Vez do Pops & Fabricação
 
+## Trabalho atual · Jornada, conquistas e importação com Silk
+
+Agente: codex. Léo aprovou em 20/10/2026 implementar as três etapas da proposta: jornada do aluno, conquistas e importação guiada, com cards compactos e celular. Ramo `codex/jornada-silk-20261020`, clone `/tmp/pops-jornada-20261020`. Preservar regras de dados e servidor. Publicação não autorizada nesta etapa.
+
+Implementado e conferido localmente em 20/10/2026:
+- jornada com próxima aula elegível, mapa vertical e uma ação para registrar leitura;
+- conquistas com pontos, data e versão confirmados, sem promessa de pontos duplicados em reciclagens;
+- importação em quatro passos, conferência filtrável e links somente para rascunhos confirmados;
+- cards compactos, ações da gestão e conferência no desktop e no celular;
+- 400 testes aprovados, sintaxe JavaScript e pacote estático conferidos. Detalhes em `docs/superpowers/plans/2026-10-20-jornada-silk.md`.
+
+Não publicado. A prévia usa pessoas e registros fictícios. A publicação ainda requer autorização explícita e nova conferência do estado remoto.
+
+Vez: codex (implementação local concluída; publicação pendente).
+
 ## Trabalho atual · Silk na jornada, cursos por área e auditoria de jornada e design
 
 Agente: claude. Pedido do Léo em 15/10/2026: "vamos usar o Silk na jornada dos treinamentos, preciso de uma auditoria na qualidade de jornada e designer e preciso aprofundar nos cursos, eles vão ter áreas: comercial = vendas, atendimento e designer; produção = PCP, acabamento, serralheria, letras caixa, máquinas CNC, impressão, montagem interna e montagem externa; adm = financeiro e RH; me ajude a lembrar o que falta para a Impresilk". Ramo `claude/silk-areas-20261015`, worktree em ~/Projetos/pops-escola-20261014.

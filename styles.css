@@ -705,3 +705,176 @@ summary { cursor: pointer; font-weight: 700; min-height: 44px; padding: 6px 0 12
 .cat-areas .chip[data-trilha]{border-left-color:var(--cor-area,var(--borda))}
 @media(max-width:900px){.login-apresentacao{flex-direction:column;align-items:flex-start;gap:8px}.login-apresentacao .silk-entrada{width:120px}}
 @media(max-width:620px){.login-apresentacao .silk-entrada{width:88px}}
+/* Escola · percurso pessoal, reconhecimento confirmado e leitura compacta. */
+.edu-icone{display:inline-block;vertical-align:middle;width:22px;height:22px;flex:none}
+.edu-atalhos a{display:inline-flex;align-items:center;gap:8px}
+.edu-atalhos .edu-icone{width:18px;height:18px}
+.edu-metricas{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:18px 0 24px}
+.edu-metrica{display:flex;align-items:center;gap:12px;border:1px solid #dce4eb;background:#fff;border-radius:14px;padding:14px 16px;text-decoration:none;color:#203956;min-width:0}
+.edu-metrica>.edu-icone{width:38px;height:38px;padding:9px;border-radius:11px;background:#eef5fa;color:#23688b;box-sizing:border-box}
+.edu-metrica>span{display:flex;flex-direction:column;gap:2px;min-width:0}
+.edu-metrica strong{font-size:1.45rem;line-height:1.15;font-variant-numeric:tabular-nums;letter-spacing:-.03em}
+.edu-metrica span span{font-size:.78rem;color:#526274}
+.edu-metrica:hover{border-color:#5c8ca8;background:#f8fbfe}
+.edu-proximo-bloco{position:relative;background:#eef5fa;border:1px solid #d5e5ed;border-radius:20px;padding:16px 20px;align-items:center}
+.edu-proximo-bloco .edu-proximo{border-radius:14px;box-shadow:none}
+.edu-ola{margin-top:0}
+.edu-jornada{display:flex;flex-direction:column}
+.edu-jornada>.botao{align-self:flex-start;margin-top:auto}
+.edu-missao{display:flex;align-items:center;gap:24px;padding:24px 28px;border:1px solid #253d5d;border-radius:20px;background:#142d4b;color:#fff;margin:0 0 20px}
+.edu-missao .silk{height:144px;width:auto}
+.edu-missao-conteudo{flex:1;min-width:0}
+.edu-missao h2{margin:6px 0 8px;color:#fff;font-size:1.4rem;line-height:1.3;overflow-wrap:anywhere}
+.edu-missao p{font-size:.9rem;color:#d8e5f2;margin:0 0 12px;line-height:1.6}
+.edu-missao .eyebrow{color:#ffd574}
+.edu-missao .edu-progresso{color:#fff;max-width:640px;margin:16px 0 6px}
+.edu-missao progress::-webkit-progress-value{background:#f8c446}
+.edu-missao progress::-moz-progress-bar{background:#f8c446}
+.edu-missao .acoes{gap:12px 18px;flex-wrap:wrap;margin-top:16px}
+.edu-missao .botao{background:#f7c443;border-color:#f7c443;color:#142d4b;font-weight:800}
+.edu-missao .botao:hover{background:#ffda77}
+.edu-missao-historico{font-size:.82rem;color:#d8e5f2;min-height:44px;display:inline-flex;align-items:center;text-underline-offset:4px}
+.edu-curso-contexto{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:14px}
+.edu-curso-contexto>.card{margin-bottom:16px}
+.edu-curso-contexto p{margin:8px 0;line-height:1.55;font-size:.88rem}
+.edu-mapa{position:relative;display:grid;gap:10px;margin:12px 0 20px}
+.edu-mapa:before{content:"";position:absolute;left:32px;top:24px;bottom:24px;width:2px;background:#cbdce6}
+.edu-mapa .edu-etapa,.edu-complementares .edu-etapa{position:relative;margin:0;padding:0;overflow:hidden;border:1px solid #dbe3ec;border-radius:14px;box-shadow:none}
+.edu-mapa .edu-etapa-atual,.edu-complementares .edu-etapa-atual{border-color:#367eac;box-shadow:0 0 0 2px #e3f1f9}
+.edu-etapa>summary{display:flex;align-items:center;gap:14px;list-style:none;padding:16px;cursor:pointer;min-height:80px;box-sizing:border-box}
+.edu-etapa>summary::-webkit-details-marker{display:none}
+.edu-etapa>summary .edu-numero{position:relative;margin:0;width:34px;height:34px;border-radius:50%;background:#eff3f7;color:#415a75;z-index:1;border:1px solid #d6e0e9}
+.edu-etapa.concluida>summary .edu-numero{background:#e5f4eb;color:#276347;border-color:#c5e3d1}
+.edu-etapa.aguardando_validacao>summary .edu-numero{background:#fff5da;color:#866010}
+.edu-etapa-atual>summary .edu-numero{background:#163958;color:#fff;border-color:#163958}
+.edu-etapa-texto{display:flex;flex-direction:column;gap:3px;flex:1;min-width:0}
+.edu-etapa-texto>strong{font-size:.98rem;line-height:1.4;color:#19354f;overflow-wrap:anywhere}
+.edu-etapa .edu-etapa-texto>.dica{font-size:.76rem;margin:0}
+.edu-etapa-texto>.ac-kicker{font-size:.65rem}
+.edu-expandir{font-size:1.1rem;color:#526274}
+.edu-etapa[open] .edu-expandir{transform:rotate(180deg)}
+.edu-etapa-detalhe{padding:0 18px 16px 64px;font-size:.86rem;line-height:1.6;color:#4a5f70}
+.edu-etapa-detalhe>p{margin:0 0 12px;max-width:80ch}
+.edu-etapa-rodape{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.edu-etapa-rodape>.dica{margin:0}
+.edu-complementares{margin-top:14px}
+.edu-complementares .edu-etapa{margin-top:10px}
+.edu-regras-pontos summary,.edu-historico-completo>summary{display:flex;gap:10px;align-items:center;cursor:pointer;min-height:44px;font-size:.9rem}
+.edu-regras-pontos p,.edu-regras-pontos li{font-size:.85rem;line-height:1.65}
+.edu-aula-roteiro{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:16px 0}
+.edu-aula-roteiro>span,.edu-aula-roteiro>a{display:inline-flex;align-items:center;gap:8px;background:#fff;border:1px solid #dae3eb;border-radius:10px;padding:10px 12px;color:#284961;text-decoration:none;font-size:.82rem;min-height:44px;box-sizing:border-box}
+.edu-aula-roteiro>a:hover{background:#edf5fa}
+.edu-topico h3{display:flex;align-items:center;gap:8px;color:#214c65}
+.edu-topico h3>.edu-icone{width:20px;height:20px}
+.edu-conteudo{align-items:start}
+.edu-comprovar{background:#f6f9fc}
+.edu-registro-detalhes summary{cursor:pointer;font-size:.85rem;padding:10px 0;min-height:44px;box-sizing:border-box}
+.edu-comprovar .dica{line-height:1.65}
+.edu-seguir{border:1px solid #bcded1;background:#f0faf6;padding:16px 20px;border-radius:16px}
+.edu-seguir>div{flex:1;min-width:180px}.edu-seguir .dica{font-weight:400;line-height:1.5;margin-top:5px}
+.edu-marco-proximo{display:flex;gap:18px;align-items:center;padding:18px 22px;border:1px solid #ebd391;background:#fffbef;border-radius:16px;margin:18px 0 24px}
+.edu-marco-proximo>div{flex:1;min-width:0}
+.edu-marco-proximo .eyebrow{color:#755112}
+.edu-marco-proximo h2{font-size:1.13rem;margin:4px 0 6px;line-height:1.35}
+.edu-marco-proximo p{font-size:.88rem;margin:4px 0;line-height:1.5}
+.edu-marco-proximo .dica{font-size:.79rem}
+.edu-marco-proximo>.botao{flex-shrink:0}
+.edu-marcos{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:12px 0 20px}
+.edu-conquista{display:flex;align-items:flex-start;gap:12px;background:#fff;border:1px solid #dce3eb;border-radius:14px;padding:16px;min-width:0}
+.edu-conquista-simbolo{display:grid;place-items:center;width:40px;height:40px;background:#fff5d6;color:#805815;border-radius:12px;flex:none}
+.edu-conquista-corpo{flex:1;min-width:0}
+.edu-conquista h3{font-size:1rem;line-height:1.4;margin:5px 0;overflow-wrap:anywhere}
+.edu-conquista p{font-size:.84rem;margin:5px 0;color:#516579;line-height:1.5}
+.edu-conquista .dica{font-size:.75rem}
+.edu-conquista details{font-size:.8rem;margin-top:8px}
+.edu-conquista summary{cursor:pointer;min-height:36px;align-content:center}
+.edu-conquista-pontos{font-size:1.25rem;white-space:nowrap;color:#21425e;text-align:center;font-variant-numeric:tabular-nums}
+.edu-conquista-pontos small{display:block;font-size:.65rem;line-height:1.5;font-weight:600;color:#617082}
+.edu-historico-completo details{padding:12px 0;border-top:1px solid #e0e6ed;margin-top:8px}
+.escola a:focus-visible,.edu-etapa>summary:focus-visible,.escola details>summary:focus-visible{outline:3px solid #1472b6;outline-offset:3px;border-radius:7px}
+@media(max-width:700px){
+ .edu-metricas{gap:8px}.edu-metrica{padding:12px;gap:8px;flex-direction:column;align-items:flex-start}.edu-metrica>.edu-icone{width:30px;height:30px;padding:6px}.edu-metrica strong{font-size:1.3rem}.edu-metrica span span{font-size:.72rem;line-height:1.35}
+ .edu-marcos{grid-template-columns:1fr}
+ .edu-missao{gap:16px;padding:20px}.edu-missao .silk{height:110px}
+ .edu-marco-proximo{flex-wrap:wrap;padding:16px;gap:12px}.edu-marco-proximo>.botao{width:100%}
+ .edu-marco-proximo .silk{height:88px;width:auto}
+}
+@media(max-width:620px){
+ .edu-proximo-bloco{padding:16px;display:grid;grid-template-columns:58px minmax(0,1fr);gap:12px;align-items:center}
+ .edu-proximo-bloco .silk{height:104px;width:auto;max-width:100%}
+ .edu-proximo-col{min-width:0}.edu-proximo-bloco:not(:has(>.silk)){grid-template-columns:1fr}
+ .edu-proximo-bloco .edu-proximo{background:transparent;color:#18364e;padding:0;border:0;border-radius:0;gap:12px}
+ .edu-proximo h2{color:#17344f;font-size:1.13rem}.edu-proximo p{color:#526274;font-size:.82rem;line-height:1.5}.edu-proximo .eyebrow{color:#466780}
+ .edu-ola{font-size:.75rem;margin-bottom:8px;line-height:1.5}
+ .edu-atalhos{gap:8px;margin:14px 0}.edu-atalhos a{padding:9px 10px;font-size:.76rem}
+ .edu-missao{align-items:flex-start;padding:18px 16px;gap:12px;flex-wrap:wrap}
+ .edu-missao .silk{height:90px;width:auto}
+ .edu-missao-conteudo{flex-basis:220px}.edu-missao h2{font-size:1.15rem}.edu-missao p{font-size:.83rem}
+ .edu-missao .acoes{gap:6px;margin-top:12px}.edu-missao .acoes>.botao{min-height:44px}
+ .edu-missao .eyebrow{font-size:.6rem;letter-spacing:.08em}
+ .edu-mapa:before{left:28px}
+ .edu-etapa>summary{display:grid;grid-template-columns:30px minmax(0,1fr) 16px;gap:6px 10px;padding:14px}
+ .edu-etapa>summary .edu-numero{width:30px;height:30px;grid-row:span 2}
+ .edu-etapa-texto{grid-column:2}.edu-etapa-texto>strong{font-size:.89rem}
+ .edu-etapa>summary .edu-status{grid-column:2;grid-row:2;justify-self:start;font-size:.66rem}
+ .edu-etapa>summary .edu-expandir{grid-column:3;grid-row:1/span 2}
+ .edu-etapa-detalhe{padding:0 14px 14px 54px;font-size:.8rem}
+ .edu-etapa-rodape{display:block}.edu-etapa-rodape>.dica{display:block;margin:0 0 8px;font-size:.72rem}
+ .edu-etapa-rodape .botao{width:100%;text-align:center}
+ .edu-aula-roteiro{gap:6px}.edu-aula-roteiro>a,.edu-aula-roteiro>span{font-size:.75rem;padding:8px 10px}
+ .edu-conquista{padding:14px;gap:10px}.edu-conquista-simbolo{width:32px;height:32px}.edu-conquista h3{font-size:.9rem}
+ .edu-conquista summary{min-height:44px}
+ .edu-seguir{padding:14px}.edu-seguir>.botao{width:100%;text-align:center}
+}
+@media print{
+ .edu-missao,.edu-marco-proximo{background:#fff;color:#172b43;border:1px solid #aaa;box-shadow:none}
+ .edu-missao h2,.edu-missao p,.edu-missao .eyebrow,.edu-missao .edu-progresso{color:#172b43}
+ .edu-metricas,.edu-aula-roteiro,.edu-missao .acoes{display:none}
+ .edu-etapa,.edu-conquista{break-inside:avoid}
+}
+
+/* Importação guiada: etapas e filtros visuais preservam o plano de envio. */
+.imp-etapas{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;list-style:none;padding:0;margin:0 0 16px}
+.imp-etapas li{display:grid;grid-template-columns:26px minmax(0,1fr);align-items:center;gap:2px 8px;border:1px solid #dce3eb;border-radius:10px;padding:10px;background:#f5f7fa;color:#566174;min-width:0}
+.imp-etapas li>span{grid-row:span 2;display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:#e4e9f0;font-size:.8rem;font-weight:800}
+.imp-etapas b{font-size:.84rem;overflow-wrap:anywhere}.imp-etapas small{font-size:.7rem}
+.imp-etapas .imp-passo-atual{border-color:#376abd;background:#edf3ff;color:#244f96}.imp-passo-atual>span{background:#285ba6!important;color:#fff}
+.imp-etapas .imp-passo-feito{background:#f0f7f3;color:#2c6143}.imp-passo-feito>span{background:#deeee3!important}
+.imp-cabecalho{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px}.imp-cabecalho h2{margin:2px 0 0}
+.imp-selecao,.imp-previa,.imp-resultado{min-width:0}.imp-selecao .dica,.imp-previa .dica,.imp-resultado .dica{overflow-wrap:anywhere}
+.imp-arquivo{padding:12px;border:1px dashed #aebdd1;border-radius:10px;background:#f6f8fc}
+.imp-arquivo label{font-weight:700}.imp-arquivo input{max-width:100%;min-width:0;width:100%;font-size:.84rem}
+.imp-arquivo input::file-selector-button{border:1px solid #bccbdf;background:#fff;color:#244f96;border-radius:7px;padding:10px 12px;margin-right:10px;cursor:pointer;font:inherit;font-weight:700}
+.imp-arquivo .dica{margin:8px 0 0}.imp-formato{font-size:.84rem}.imp-formato summary{padding:6px 0;cursor:pointer}
+.imp-resumo{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:12px 0}
+.imp-resumo>div{display:flex;flex-direction:column;gap:3px;padding:10px 12px;background:#f3f6fa;border:1px solid #e1e7ef;border-radius:10px;min-width:0}
+.imp-resumo strong{font-size:1.3rem;line-height:1.15;color:#263e61}.imp-resumo span{font-size:.76rem;line-height:1.35;color:#526177}
+.imp-resumo-envio{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
+.imp-filtros{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:16px}
+.imp-filtros .campo{min-width:0;margin:0}.imp-filtros select{min-width:0;width:100%;min-height:44px}
+.imp-selecao[hidden],.imp-item[hidden],#imp-previa[hidden],#imp-vazio[hidden]{display:none}
+.imp-detalhes,.imp-revisar{grid-column:1/-1}.imp-detalhes{font-size:.78rem;color:#526177}
+.imp-detalhes summary{padding:6px 0;cursor:pointer;min-height:32px;display:list-item}
+.imp-detalhes dl{margin:4px 0 0;padding:8px 10px;border-radius:7px;background:#f3f6fa}
+.imp-detalhes dl>div{display:flex;gap:8px;padding:3px 0}.imp-detalhes dt{font-weight:700;flex:0 0 110px}.imp-detalhes dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.imp-item>.imp-revisar{margin-top:4px}.imp-resultado .imp-lista{margin-top:14px}
+.imp-barra{display:block;width:100%;height:10px;accent-color:#327052;margin:8px 0 14px}
+.imp-previa .acoes,.imp-resultado .acoes{flex-wrap:wrap;gap:8px}
+.imp-selecao input:focus-visible,.imp-filtros select:focus-visible,.imp-formato summary:focus-visible,.imp-detalhes summary:focus-visible{outline:3px solid #376abd;outline-offset:3px}
+.imp-previa h2:focus,.imp-resultado h2:focus{outline:2px solid #376abd;outline-offset:4px;border-radius:2px}
+@media(max-width:700px){
+ .imp-etapas{gap:5px}.imp-etapas li{grid-template-columns:1fr;justify-items:center;text-align:center;padding:8px 3px;gap:5px}.imp-etapas li>span{grid-row:auto}.imp-etapas b{font-size:.74rem}.imp-etapas small{display:none}
+ .imp-resumo{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.imp-resumo>div{padding:9px}.imp-resumo strong{font-size:1.15rem}
+ .imp-resumo-envio{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .imp-filtros{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.imp-filtros .campo:last-child{grid-column:1/-1}
+ .imp-cabecalho{align-items:flex-start}.imp-cabecalho>.imp-situacao{white-space:normal;max-width:110px;text-align:center}
+ .imp-detalhes summary{min-height:44px;align-content:center}.imp-detalhes dl>div{display:block}.imp-detalhes dt{margin-bottom:2px}
+ .imp-previa>.acoes .botao,.imp-resultado>.acoes .botao{flex:1 1 180px;text-align:center;min-height:44px}
+}
+@media print{
+ .imp-etapas,.imp-arquivo,.imp-formato,.imp-filtros,.imp-previa>.acoes,.imp-resultado .acoes{display:none!important}
+ .imp-item,.imp-resumo>div{break-inside:avoid;box-shadow:none}.imp-previa,.imp-resultado{border:0}
+}
+
+.edu-metricas:has(>.edu-metrica:nth-child(4)){grid-template-columns:repeat(4,minmax(0,1fr))}
+@media(max-width:700px){.edu-metricas:has(>.edu-metrica:nth-child(4)){grid-template-columns:repeat(2,minmax(0,1fr))}}

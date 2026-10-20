@@ -411,24 +411,48 @@ window.ESCOLA_CATALOGO=(()=>{
  const assinaturaPlano=p=>estavel({e:p.erros,c:p.catalogo.itens.map(i=>[i.id,i.acao,i.erros]),m:p.materiais.map(i=>[i.id,i.situacao,i.expectedRevision,i.erros]),k:p.cursos.map(i=>[i.id,i.situacao,i.expectedRevision,i.erros])});
  const SITUACOES={novo:'Novo',versao_nova:'Versão nova',mesma_versao:'Mesma versão',erro:'Com erro'};
  const ESTADO_ENVIO={gravado:'Gravado',repetido:'Já estava gravado',sem_mudanca:'Sem mudança',erro:'Erro',nao_enviado:'Não enviado'};
- function itemPrevia(i){return '<li class="imp-item'+(i.erros.length?' imp-erro':'')+'"><div><b>'+esc(i.titulo||i.id||'Sem identificador')+'</b><small>'+esc([i.id,i.versao?'versão '+i.versao:''].filter(Boolean).join(' · '))+'</small></div><span class="imp-situacao">'+esc(i.erros.length?'Com erro':SITUACOES[i.situacao]||i.acao||'')+'</span>'+(i.erros.length?'<ul class="imp-msgs">'+i.erros.map(m=>'<li>'+esc(m)+'</li>').join('')+'</ul>':'')+((i.avisos||[]).length?'<ul class="imp-msgs imp-avisos">'+i.avisos.map(m=>'<li>'+esc(m)+'</li>').join('')+'</ul>':'')+'</li>';}
+ const TIPOS_PREVIA={catalogo:'Catálogo',material:'Material',curso:'Curso'};
+ function etapasImportacao(atual){
+  return '<ol class="imp-etapas" id="imp-etapas" aria-label="Etapas da importação">'+['Selecionar','Conferir','Importar','Revisar'].map((titulo,i)=>'<li data-passo="'+(i+1)+'" class="'+(i+1===atual?'imp-passo-atual':i+1<atual?'imp-passo-feito':'')+'"'+(i+1===atual?' aria-current="step"':'')+'><span aria-hidden="true">'+(i+1<atual?'✓':i+1)+'</span><b>'+titulo+'</b><small>'+(i+1===atual?'Etapa atual':i+1<atual?'Etapa anterior':'A seguir')+'</small></li>').join('')+'</ol>';
+ }
+ // Cópias só para apresentação: ordenar e filtrar a prévia nunca muda o plano
+ // nem a ordem de envio (catálogo, materiais e cursos com suas dependências).
+ function itensPrevia(p){
+  const area=i=>[i.payload?.catalogo?.area,p.catalogo.mesclado.trilhas[i.payload?.catalogo?.trilha]?.nome,i.payload?.setor].find(v=>typeof v==='string'&&v.trim())||'Sem área';
+  return [
+   ...p.catalogo.itens.map(i=>({...i,grupo:'catalogo',titulo:(i.tipo==='familia'?'Família: ':'Trilha: ')+i.nome,area:i.tipo==='trilha'?i.nome:'Sem área',situacao:i.acao==='nova'?'novo':i.acao==='atualizada'?'atualizado':'sem_mudanca',rotulo:i.acao==='nova'?'Nova':i.acao==='atualizada'?'Atualizada':'Sem mudança'})),
+   ...p.materiais.map(i=>({...i,grupo:'material',area:area(i)})),
+   ...p.cursos.map(i=>({...i,grupo:'curso',area:area(i)}))
+  ].map(i=>({...i,situacaoFiltro:i.erros.length?'erro':i.situacao}))
+   .sort((a,b)=>Number(!!b.erros.length)-Number(!!a.erros.length));
+ }
+ function detalhesImportacao(i){
+  const materiais=[...new Set((i.payload?.etapas||[]).flatMap(e=>(e.materiais||[]).map(m=>m.id)))];
+  return '<details class="imp-detalhes"><summary>Identificação e referências</summary><dl><div><dt>Identificador</dt><dd>'+esc(i.id||'Não informado')+'</dd></div>'+(i.versao?'<div><dt>Versão</dt><dd>'+esc(i.versao)+'</dd></div>':'')+(i.pre?.length?'<div><dt>Cursos recomendados antes</dt><dd>'+i.pre.map(esc).join(', ')+'</dd></div>':'')+(materiais.length?'<div><dt>Materiais das aulas</dt><dd>'+materiais.map(esc).join(', ')+'</dd></div>':'')+'</dl></details>';
+ }
+ function itemPrevia(i){
+  return '<li class="imp-item'+(i.erros.length?' imp-erro':'')+'" data-tipo="'+i.grupo+'" data-area="'+esc(i.area)+'" data-situacao="'+i.situacaoFiltro+'"><div><b>'+esc(i.titulo||i.id||'Sem identificador')+'</b><small>'+TIPOS_PREVIA[i.grupo]+' · '+esc(i.area)+'</small></div><span class="imp-situacao">'+esc(i.erros.length?'Com erro':i.rotulo||SITUACOES[i.situacao]||'')+'</span>'+(i.erros.length?'<ul class="imp-msgs" aria-label="Erros deste item">'+i.erros.map(m=>'<li>'+esc(m)+'</li>').join('')+'</ul>':'')+((i.avisos||[]).length?'<ul class="imp-msgs imp-avisos" aria-label="Avisos deste item">'+i.avisos.map(m=>'<li>'+esc(m)+'</li>').join('')+'</ul>':'')+detalhesImportacao(i)+'</li>';
+ }
  function previaHtml(p,arquivo=''){
-  const contar=(l,s)=>l.filter(i=>!i.erros.length&&i.situacao===s).length,erros=p.erros.length+p.catalogo.itens.filter(i=>i.erros.length).length+p.materiais.filter(i=>i.erros.length).length+p.cursos.filter(i=>i.erros.length).length;
-  return '<section class="card" id="imp-previa"><h2>Prévia da importação</h2>'+(arquivo?'<p class="dica">Arquivo lido: '+esc(arquivo)+'</p>':'')+'<div class="edu-resumo"><span><strong>'+p.materiais.length+'</strong> '+(p.materiais.length===1?'material':'materiais')+' ('+plural(contar(p.materiais,'novo'),'novo','novos')+', '+plural(contar(p.materiais,'versao_nova'),'versão nova','versões novas')+')</span><span><strong>'+p.cursos.length+'</strong> '+(p.cursos.length===1?'curso':'cursos')+' ('+plural(contar(p.cursos,'novo'),'novo','novos')+', '+plural(contar(p.cursos,'versao_nova'),'versão nova','versões novas')+')</span><span><strong>'+erros+'</strong> '+(erros===1?'item com erro':'itens com erro')+'</span></div>'+
+  const itens=itensPrevia(p),contar=(...situacoes)=>itens.filter(i=>situacoes.includes(i.situacaoFiltro)).length,areas=[...new Set(itens.map(i=>i.area))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  const resumo=(id,n,t)=>'<div><strong id="imp-total-'+id+'">'+n+'</strong><span>'+t+'</span></div>';
+  return '<section class="card imp-previa" id="imp-previa"><div class="imp-cabecalho"><div><span class="ac-kicker">Etapa 2 de 4</span><h2 tabindex="-1" id="imp-previa-titulo">Confira as alterações</h2></div><span class="imp-situacao">'+(p.bloqueado?'Requer correção':'Pronto para importar')+'</span></div>'+(arquivo?'<p class="dica">Arquivo lido: '+esc(arquivo)+'</p>':'')+'<div class="imp-resumo" aria-label="Totais do pacote">'+resumo('novos',contar('novo'),'Novos')+resumo('versoes',contar('versao_nova'),'Versões novas')+resumo('catalogo',contar('atualizado'),'Catálogo atualizado')+resumo('iguais',contar('mesma_versao','sem_mudanca'),'Mesma versão / sem mudança')+resumo('erros',contar('erro'),'Com erro')+'</div>'+
    (p.erros.length?'<div class="aviso amarelo" role="alert"><ul>'+p.erros.map(m=>'<li>'+esc(m)+'</li>').join('')+'</ul></div>':'')+
-   (p.catalogo.presente?'<h3>Famílias e trilhas</h3><p class="dica">'+(p.catalogo.muda?'O catálogo será atualizado. Nada do que existe é excluído; cargos são somados às famílias.':'O catálogo já tem estas famílias e trilhas.')+'</p><ul class="imp-lista">'+p.catalogo.itens.map(i=>itemPrevia({...i,titulo:(i.tipo==='familia'?'Família: ':'Trilha: ')+i.nome,situacao:'',acao:i.acao==='nova'?'Nova':i.acao==='atualizada'?'Atualizada':'Sem mudança'})).join('')+'</ul>':'')+
-   '<h3>Materiais</h3>'+(p.materiais.length?'<ul class="imp-lista">'+p.materiais.map(itemPrevia).join('')+'</ul>':'<p class="dica">Nenhum material no pacote.</p>')+
-   '<h3>Cursos, na ordem de gravação</h3>'+(p.cursos.length?'<ul class="imp-lista">'+p.cursos.map(itemPrevia).join('')+'</ul>':'<p class="dica">Nenhum curso no pacote.</p>')+
+   (p.catalogo.presente?'<p class="dica">'+(p.catalogo.muda?'O catálogo será atualizado. Nada do que existe é excluído; cargos são somados às famílias.':'O catálogo já tem estas famílias e trilhas.')+'</p>':'')+
+   '<div class="imp-filtros"><div class="campo"><label for="imp-filtro-tipo">Tipo</label><select id="imp-filtro-tipo"><option value="">Todos os tipos</option>'+Object.entries(TIPOS_PREVIA).map(([k,v])=>'<option value="'+k+'">'+v+'</option>').join('')+'</select></div><div class="campo"><label for="imp-filtro-area">Área ou setor</label><select id="imp-filtro-area"><option value="">Todas as áreas</option>'+areas.map(a=>'<option value="'+esc(a)+'">'+esc(a)+'</option>').join('')+'</select></div><div class="campo"><label for="imp-filtro-situacao">Situação</label><select id="imp-filtro-situacao"><option value="">Todas as situações</option>'+Object.entries({...SITUACOES,atualizado:'Catálogo atualizado',sem_mudanca:'Sem mudança'}).map(([k,v])=>'<option value="'+k+'">'+v+'</option>').join('')+'</select></div></div>'+
+   '<p class="dica" id="imp-contagem" role="status"></p><p class="dica">Os filtros mudam apenas esta lista. A confirmação importa todo o pacote. Itens com erro aparecem primeiro.</p><ul class="imp-lista" id="imp-lista-previa">'+itens.map(itemPrevia).join('')+'</ul><p class="dica" id="imp-vazio" hidden>Nenhum item corresponde aos filtros escolhidos.</p>'+
    '<div class="aviso azul">Tudo entra como rascunho: nada é liberado aos alunos, nenhuma prova é aprovada e nada é apagado. Depois de importar, revise cada curso, aprove as provas e libere pela tela.</div>'+
    '<div class="acoes"><button type="button" class="botao" id="imp-confirmar"'+(p.bloqueado?' disabled':'')+'>Confirmar importação</button><button type="button" class="botao suave" id="imp-outro">Escolher outro arquivo</button></div>'+(p.bloqueado?'<p class="dica" role="status">Corrija os erros do pacote e escolha o arquivo de novo para importar.</p>':'')+'</section>';
  }
  function importar(app){
   if(!souAdmin()){A().layout(app,'Importação restrita','Somente a administração importa pacotes de cursos e materiais.');return;}
   const el=A().layout(app,'Importar pacote','Traga cursos e materiais preparados fora do sistema. Tudo entra como rascunho para revisão.','<a class="botao mini suave" href="#/escola">← Gestão de cursos</a>');
-  let plano=null,pacote=null,rodando=false,nomeArquivo='';
-  el.innerHTML='<section class="card"><h2>1. Escolha o arquivo do pacote</h2><div class="campo"><label for="imp-arquivo">Arquivo .json do seu computador</label><input id="imp-arquivo" type="file" accept=".json,application/json"></div><p class="dica">O arquivo é lido somente neste navegador e enviado item a item, pelas mesmas regras da tela. Não guarde pacotes com conteúdo da empresa em pastas públicas.</p>'+
-   '<details><summary>Formato do pacote</summary><p>Um objeto JSON com <b>versao</b> (do pacote), <b>materiais</b> (lista), <b>cursos</b> (lista) e, se quiser, <b>catalogo</b> com <b>familias</b> e <b>trilhas</b>. Os campos de cada material e curso são os mesmos das telas de edição: o curso tem <b>etapas</b> (as aulas) e pode ter <b>catalogo</b> (trilha, área, nível, carga em minutos, ordem, famílias, cursos recomendados e código).</p><pre class="imp-exemplo">'+esc(JSON.stringify({versao:'2026.10.14',catalogo:{familias:{'familia-exemplo':{nome:'Família de exemplo',cargos:['cargo-exemplo']}},trilhas:{'trilha-exemplo':{nome:'Trilha de exemplo',ordem:1}}},materiais:[{id:'material-exemplo',tipo:'texto',titulo:'Material de exemplo',versao:'1.0',setor:'Setor de exemplo',objetivo:'Objetivo de exemplo',paginas:['Texto fictício']}],cursos:[{id:'curso-exemplo',titulo:'Curso de exemplo',versao:'1.0',setor:'Setor de exemplo',catalogo:{trilha:'trilha-exemplo',nivel:'essencial',cargaMinutos:30},etapas:[{id:'aula-1',titulo:'Aula de exemplo',tipo:'aula',conteudo:{aprender:'…',importancia:'…',comoFazer:'…',erros:'…',evidencia:'…'},materiais:[{id:'material-exemplo'}]}]}]},null,2))+'</pre></details></section><div id="imp-area"></div><section id="imp-resultado" aria-live="polite"></section>';
+  let plano=null,pacote=null,rodando=false,nomeArquivo='',leitura=0;
+  el.innerHTML='<div id="imp-guia">'+etapasImportacao(1)+'</div><section class="card imp-selecao"><div class="imp-cabecalho"><div><span class="ac-kicker">Etapa 1 de 4</span><h2>Escolha o pacote</h2></div><span class="imp-situacao">Até 20 MB</span></div><div class="campo imp-arquivo"><label for="imp-arquivo">Selecionar arquivo .json</label><input id="imp-arquivo" type="file" accept=".json,application/json" aria-describedby="imp-arquivo-ajuda"><p class="dica" id="imp-arquivo-ajuda">Selecione o pacote preparado no seu computador. Você confere as alterações antes de importar.</p></div><p class="dica" id="imp-arquivo-estado" role="status">Nenhum pacote selecionado.</p>'+
+   '<details class="imp-formato"><summary>Como preparar o arquivo</summary><p>O arquivo é lido somente neste navegador e enviado item a item, pelas mesmas regras da tela. Não guarde pacotes com conteúdo da empresa em pastas públicas.</p><p>Um objeto JSON com <b>versao</b> (do pacote), <b>materiais</b> (lista), <b>cursos</b> (lista) e, se quiser, <b>catalogo</b> com <b>familias</b> e <b>trilhas</b>. Os campos de cada material e curso são os mesmos das telas de edição: o curso tem <b>etapas</b> (as aulas) e pode ter <b>catalogo</b> (trilha, área, nível, carga em minutos, ordem, famílias, cursos recomendados e código).</p><pre class="imp-exemplo">'+esc(JSON.stringify({versao:'2026.10.14',catalogo:{familias:{'familia-exemplo':{nome:'Família de exemplo',cargos:['cargo-exemplo']}},trilhas:{'trilha-exemplo':{nome:'Trilha de exemplo',ordem:1}}},materiais:[{id:'material-exemplo',tipo:'texto',titulo:'Material de exemplo',versao:'1.0',setor:'Setor de exemplo',objetivo:'Objetivo de exemplo',paginas:['Texto fictício']}],cursos:[{id:'curso-exemplo',titulo:'Curso de exemplo',versao:'1.0',setor:'Setor de exemplo',catalogo:{trilha:'trilha-exemplo',nivel:'essencial',cargaMinutos:30},etapas:[{id:'aula-1',titulo:'Aula de exemplo',tipo:'aula',conteudo:{aprender:'…',importancia:'…',comoFazer:'…',erros:'…',evidencia:'…'},materiais:[{id:'material-exemplo'}]}]}]},null,2))+'</pre></details></section><div id="imp-area"></div><section id="imp-resultado"></section>';
   const area=$('#imp-area'),resultado=$('#imp-resultado'),input=$('#imp-arquivo');
+  const etapa=n=>{$('#imp-guia').innerHTML=etapasImportacao(n);$('.imp-selecao').hidden=n!==1;};
+  const limpar=()=>{if(rodando)return;leitura++;input.value='';plano=null;pacote=null;nomeArquivo='';area.innerHTML='';resultado.innerHTML='';etapa(1);$('#imp-arquivo-estado').textContent='Nenhum pacote selecionado.';input.focus?.();input.scrollIntoView?.({block:'center'});};
   // A lista da biblioteca vem sem as páginas. Para o material do pacote que já
   // existe na mesma versão, abre o material inteiro e confere o conteúdo.
   const contexto=async pac=>{const [p,b]=await Promise.all([E().obterPainel({forcar:true}),A().obterBiblioteca({forcar:true})]);
@@ -436,33 +460,59 @@ window.ESCOLA_CATALOGO=(()=>{
    const mesmos=(Array.isArray(pac?.materiais)?pac.materiais:[]).filter(m=>objeto(m)&&typeof m.id==='string'&&materiais.some(x=>x.id===m.id&&x.versao===m.versao));
    for(const m of mesmos){const r=await A().api('abrirMaterial',{materialId:m.id});if(r?.material)integrais.set(m.id,r.material);}
    return {formacoes:p.formacoes||[],materiais,materiaisIntegrais:integrais,catalogo:E().catalogoCfg(p),cargosRH:Array.isArray(p.gestao?.cargosRH)?p.gestao.cargosRH:null};};
-  const mostrar=()=>{area.innerHTML=previaHtml(plano,nomeArquivo);$('#imp-outro').onclick=()=>{input.value='';plano=null;pacote=null;area.innerHTML='';resultado.innerHTML='';input.focus?.();};$('#imp-confirmar').onclick=confirmar;};
+  const mostrar=()=>{
+   etapa(2);area.innerHTML=previaHtml(plano,nomeArquivo);$('#imp-outro').onclick=limpar;$('#imp-confirmar').onclick=confirmar;
+   const filtrar=()=>{const tipo=$('#imp-filtro-tipo').value,areaEscolhida=$('#imp-filtro-area').value,situacao=$('#imp-filtro-situacao').value,itens=$$('.imp-item',area);let n=0;
+    itens.forEach(i=>{const ok=(!tipo||i.dataset.tipo===tipo)&&(!areaEscolhida||i.dataset.area===areaEscolhida)&&(!situacao||i.dataset.situacao===situacao);i.hidden=!ok;if(ok)n++;});
+    $('#imp-contagem').textContent=n+' de '+itens.length+' itens nesta lista.';$('#imp-vazio').hidden=!!n;
+   };
+   for(const id of ['#imp-filtro-tipo','#imp-filtro-area','#imp-filtro-situacao'])$(id).onchange=filtrar;
+   filtrar();$('#imp-previa-titulo').focus?.();
+  };
+  const reconferir=async()=>{
+   if(rodando||!pacote)return;const rodada=++leitura;
+   resultado.innerHTML='';area.innerHTML='<p class="dica" role="status">Conferindo o pacote com o que já existe na escola…</p>';etapa(2);
+   try{const novo=await planejar(pacote,await contexto(pacote));if(rodada!==leitura)return;plano=novo;mostrar();}
+   catch(e){if(rodada!==leitura)return;plano=null;area.innerHTML='<div class="aviso amarelo" role="alert">'+esc(e.message||'Não foi possível conferir o pacote.')+' Selecione o arquivo para tentar novamente.</div>';etapa(1);}
+  };
   input.onchange=async()=>{
-   const file=input.files?.[0];resultado.innerHTML='';plano=null;if(!file)return;
+   if(rodando)return;const file=input.files?.[0];if(!file)return;
+   const rodada=++leitura;resultado.innerHTML='';plano=null;pacote=null;input.value='';etapa(1);
+   $('#imp-arquivo-estado').textContent='Arquivo selecionado: '+(file.name||'pacote.json');
    if(file.size>20*1024*1024){area.innerHTML='<div class="aviso amarelo" role="alert">O arquivo passa de 20 MB. Divida o pacote em partes menores.</div>';return;}
    area.innerHTML='<p class="dica" role="status">Conferindo o pacote com o que já existe na escola…</p>';
-   // O campo é limpo depois de ler: escolher de novo o mesmo arquivo, já
-   // corrigido, dispara a leitura outra vez (sem isso o navegador não avisa).
-   try{const texto=await file.text();input.value='';nomeArquivo=file.name||'';try{pacote=JSON.parse(texto);}catch{throw new Error('O arquivo não é um JSON válido. Confira vírgulas, aspas e chaves.');}
-    plano=await planejar(pacote,await contexto(pacote));mostrar();
-   }catch(e){area.innerHTML='<div class="aviso amarelo" role="alert">'+esc(e.message||'Não foi possível ler o pacote.')+'</div>';}
+   // Limpar o input permite escolher novamente o arquivo corrigido. A rodada
+   // impede que uma leitura antiga substitua outro pacote escolhido depois.
+   try{const texto=await file.text();if(rodada!==leitura)return;let lido;try{lido=JSON.parse(texto);}catch{throw new Error('O arquivo não é um JSON válido. Confira vírgulas, aspas e chaves.');}
+    const novo=await planejar(lido,await contexto(lido));if(rodada!==leitura)return;
+    pacote=lido;nomeArquivo=file.name||'';plano=novo;mostrar();
+   }catch(e){if(rodada!==leitura)return;area.innerHTML='<div class="aviso amarelo" role="alert">'+esc(e.message||'Não foi possível ler o pacote.')+'</div>';}
   };
   async function confirmar(){
-   if(rodando||!plano||plano.bloqueado)return;rodando=true;const bt=$('#imp-confirmar');bt.disabled=true;input.disabled=true;
+   if(rodando||!plano||plano.bloqueado)return;rodando=true;const bt=$('#imp-confirmar');bt.disabled=true;input.disabled=true;$('#imp-outro').disabled=true;etapa(3);
    const sair=ev=>{ev.preventDefault();ev.returnValue='';};if(typeof window.addEventListener==='function')window.addEventListener('beforeunload',sair);
    try{
     // Confere de novo antes de gravar: se a escola mudou desde a prévia, mostra a nova.
-    resultado.innerHTML='<p class="dica">Conferindo a escola antes de gravar…</p>';
+    resultado.innerHTML='<p class="dica" role="status">Conferindo a escola antes de gravar…</p>';
     const novo=await planejar(pacote,await contexto(pacote));
     if(assinaturaPlano(novo)!==assinaturaPlano(plano)){plano=novo;mostrar();resultado.innerHTML='<div class="aviso amarelo" role="alert">A escola mudou desde a prévia. Confira a prévia atualizada e confirme de novo.</div>';return;}
-    plano=novo;const total=(plano.catalogo.presente?1:0)+plano.materiais.length+plano.cursos.length;
-    const pintar=(res,final)=>{const ok=res.filter(r=>['gravado','repetido','sem_mudanca'].includes(r.estado)).length;
-     resultado.innerHTML='<section class="card"><h2>'+(final?'Resultado da importação':'Gravando')+'</h2><p id="imp-progresso" class="dica">'+(final?ok+' de '+total+' itens conferidos no servidor'+(ok<total?'; '+(total-ok)+' com erro ou não enviados.':'.'):res.length+' de '+total)+'</p><ul class="imp-lista" id="imp-itens">'+res.map(r=>'<li class="imp-item imp-'+r.estado+'"><div><b>'+esc(r.titulo||r.id)+'</b><small>'+esc(r.id)+'</small></div><span class="imp-situacao">'+ESTADO_ENVIO[r.estado]+'</span><p class="dica">'+esc(r.mensagem)+'</p></li>').join('')+'</ul>'+(final?'<div class="acoes"><a class="botao" href="#/escola">Ir para a gestão de cursos</a></div>':'')+'</section>';};
+    plano=novo;const total=(plano.catalogo.presente?1:0)+plano.materiais.length+plano.cursos.length;$('#imp-previa').hidden=true;
+    let enviados=[],emProcessamento='';
+    const confirmado=r=>['gravado','repetido','sem_mudanca'].includes(r.estado);
+    const pintar=(res,final)=>{const ok=res.filter(confirmado).length,erros=res.filter(r=>r.estado==='erro').length,naoEnviados=res.filter(r=>r.estado==='nao_enviado').length;
+     const item=r=>{const rota=r.tipo==='curso'?'formacao-editor':r.tipo==='material'?'material-editor':r.tipo==='catalogo'?'matriz':'',revisar=final&&confirmado(r)&&rota;
+      return '<li class="imp-item imp-'+r.estado+'"><div><b>'+esc(r.titulo||r.id)+'</b><small>'+esc(TIPOS_PREVIA[r.tipo]||'Catálogo')+'</small></div><span class="imp-situacao">'+ESTADO_ENVIO[r.estado]+'</span><p class="dica">'+esc(r.mensagem)+'</p>'+detalhesImportacao(r)+(revisar?'<div class="acoes imp-revisar"><a class="botao mini suave" href="#/'+rota+(r.tipo==='catalogo'?'':'/'+encodeURIComponent(r.id))+'">'+(r.tipo==='curso'?'Revisar curso':r.tipo==='material'?'Revisar material':'Revisar matriz')+'</a></div>':'')+'</li>';
+     };
+     resultado.innerHTML='<section class="card imp-resultado"><span class="ac-kicker">Etapa '+(final?'4':'3')+' de 4</span><h2 id="imp-resultado-titulo" tabindex="-1">'+(final?'Revise o resultado da importação':'Importando rascunhos')+'</h2><p id="imp-progresso" class="dica" role="status">'+ok+' de '+total+' itens conferidos no servidor'+(final?(ok<total?'; '+(total-ok)+' com erro ou não enviados.':'.'):'. Aguarde a confirmação de cada item.')+'</p><progress class="imp-barra" max="'+Math.max(1,total)+'" value="'+ok+'" aria-label="Itens conferidos no servidor"></progress><div class="imp-resumo imp-resumo-envio"><div><strong id="imp-confirmados">'+ok+'</strong><span>Confirmados</span></div><div><strong id="imp-falhas">'+erros+'</strong><span>Com erro</span></div><div><strong id="imp-nao-enviados">'+naoEnviados+'</strong><span>Não enviados</span></div>'+(!final?'<div><strong>'+(total-res.length)+'</strong><span>Aguardando resposta ou envio</span></div>':'')+'</div>'+
+      (!final?'<p id="imp-em-processamento" class="dica" role="status">'+(emProcessamento?'Enviando: '+esc(emProcessamento):'Preparando o próximo item…')+'</p>':'<p class="dica">'+(ok?'Revise os rascunhos confirmados abaixo. Provas e liberação aos alunos continuam pendentes de revisão.':'Nenhum item foi confirmado nesta tentativa.')+'</p>')+
+      '<ul class="imp-lista" id="imp-itens">'+res.map(item).join('')+'</ul>'+(final?'<div class="acoes"><a class="botao" href="#/escola">Ir para a gestão de cursos</a>'+(ok<total?'<button type="button" class="botao suave" id="imp-reconferir">Conferir pacote novamente</button>':'')+'<button type="button" class="botao fantasma" id="imp-novo">Escolher outro arquivo</button></div>':'')+'</section>';
+     if(final){etapa(4);$('#imp-novo').onclick=limpar;const repetir=$('#imp-reconferir');if(repetir)repetir.onclick=reconferir;$('#imp-resultado-titulo').focus?.();}
+    };
     pintar([],false);
-    const res=await executarPlano(plano,{api:(acao,corpo,tempo)=>STORE.api(acao,corpo,tempo),aoProgresso:(r,todos)=>pintar(todos,false)});
+    const res=await executarPlano(plano,{api:(acao,corpo,tempo)=>{emProcessamento=corpo.formacao?.titulo||corpo.material?.titulo||'Famílias e trilhas';pintar(enviados,false);return STORE.api(acao,corpo,tempo);},aoProgresso:(r,todos)=>{enviados=todos;emProcessamento='';pintar(todos,false);}});
     E().invalidar?.();pintar(res,true);
-   }catch(e){resultado.innerHTML='<div class="aviso amarelo" role="alert">'+esc(e.message||'A importação não foi concluída.')+' Repita a importação: o mesmo pacote não duplica registros.</div>';}
-   finally{rodando=false;input.disabled=false;if(typeof window.removeEventListener==='function')window.removeEventListener('beforeunload',sair);const b=$('#imp-confirmar');if(b)b.disabled=!!plano?.bloqueado;}
+   }catch(e){etapa(2);const previa=$('#imp-previa');if(previa)previa.hidden=false;resultado.innerHTML='<div class="aviso amarelo" role="alert">'+esc(e.message||'A importação não foi concluída.')+' Repita a importação: o mesmo pacote não duplica registros.</div>';}
+   finally{rodando=false;input.disabled=false;if(typeof window.removeEventListener==='function')window.removeEventListener('beforeunload',sair);const b=$('#imp-confirmar');if(b)b.disabled=!!plano?.bloqueado;const outro=$('#imp-outro');if(outro)outro.disabled=false;}
   }
  }
 

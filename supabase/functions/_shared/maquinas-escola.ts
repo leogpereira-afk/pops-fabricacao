@@ -3,7 +3,7 @@ const MP_BASE='https://leogpereira-afk.github.io/painel-impresilk/patrimonio';
 const MP_STORAGE='https://heveemylixartyijxewh.supabase.co/storage/v1/object/public/painel-arquivos/';
 const mpCopy=(v:any)=>JSON.parse(JSON.stringify(v));
 const mpId=(v:any)=>typeof v==='string'&&/^[a-zA-Z0-9._:-]{1,180}$/.test(v);
-const mpUrl=(s:any)=>{try{const u=new URL(s);return u.protocol==='https:'&&!u.username&&!u.password&&!u.search&&!u.hash&&!/^(localhost|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|\[)/i.test(u.hostname)?u.href:'';}catch{return '';}};
+const mpUrl=(s:any)=>{try{const u=new URL(s);return u.protocol==='https:'&&!u.username&&!u.password&&[...u.searchParams].every(([k,v])=>['rev','hash'].includes(k)&&/^[a-zA-Z0-9-]{1,128}$/.test(v))&&!u.hash&&!/^(localhost|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|\[)/i.test(u.hostname)?u.href:'';}catch{return '';}};
 const mpLink=(r:any)=>MP_BASE+'?aba=maquinas&manual='+encodeURIComponent(r.tipo==='bem'?'bem:'+r.id:r.id);
 const mpFoto=(m:any)=>{const fs=[m.conteudo?.foto,...(m.conteudo?.galeria||[])];for(const f of fs){if(!f?.usoConfirmado)continue;const u=mpUrl(f.url);if(!u)continue;if(u.startsWith(MP_STORAGE)){const raiz=`manuais/${m.referencia?.tipo}/${m.referencia?.id}/livre/`;if(!u.slice(MP_STORAGE.length).startsWith(raiz))continue;}else if(u.includes('/storage/v1/'))continue;return u;}return '';};
 const mpPendencias=(m:any)=>[...(m.estado!=='aprovado'?['Manual aguarda aprovação técnica.']:[]),...(m.conteudo?.consumiveis||[]).some((x:any)=>x.compatibilidade==='pendente')?['Há consumíveis com compatibilidade pendente.']:[],...(m.conteudo?.fontes||[]).some((x:any)=>x.situacao!=='verificado')?['Há fontes ainda não verificadas.']:[]];

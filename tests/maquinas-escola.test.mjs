@@ -48,3 +48,8 @@ test('cursos por nomes iguais permanecem distintos por ID',async()=>{
  const um=await cmd(b,'maquinas.gerar',{manualId:a.id,revisaoManual:1,mutationId:'a'}),dois=await cmd(b,'maquinas.gerar',{manualId:outro.id,revisaoManual:1,mutationId:'b'});assert.equal(um.status,200);assert.equal(dois.status,200);assert.notEqual(um.body.registro.id,dois.body.registro.id);
 });
 test('origem inacessível não gera conteúdo nem escrita parcial',async()=>{const b=backend({persistWrites:true,painel:async()=>{throw Error('Falha simulada');}});const x=await cmd(b,'maquinas.gerar',{manualId:'ativo:demo',revisaoManual:1,mutationId:'g'});assert.equal(x.status,503);assert.equal(b.writes.length,0);});
+test('foto pública aceita revisão de CDN mas recusa credenciais na URL',async()=>{
+ const b=app();b.manual.conteudo.foto.url='https://example.org/maquina.jpg?rev=abc123&hash=def456';
+ let x=await cmd(b,'maquinas.catalogo');assert.equal(x.body.itens[0].foto,b.manual.conteudo.foto.url);
+ b.manual.conteudo.foto.url='https://example.org/maquina.jpg?token=privado';x=await cmd(b,'maquinas.catalogo');assert.equal(x.body.itens[0].foto,'');
+});

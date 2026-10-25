@@ -4,7 +4,9 @@
 
 Estrutura aprovada por Léo. Em 25/10/2026, publicação e vinculação dos manuais reais autorizadas. Criar cursos em rascunho, sem atribuir pessoas nem aprovar tecnicamente. Publicar servidor antes da interface e verificar persistência produtiva. Clone /tmp/pops-manuais-20261024, ramo codex/manuais-escola-20261024. Vínculo por ID/revisão, cursos em rascunho, vídeos da biblioteca, atribuição individual RH/equipe existente, pontos e Silk existentes. Preservar permissões, históricos e dados reais.
 
-Prévia implementada e conferida: 463 testes aprovados; fluxo administrativo e aluno em viewport de 390 px; salvar curso, jornada por RH/equipe e avanço com Silk e 10 pontos confirmados. Nenhum dado produtivo alterado. Servidor e interface ainda não publicados. Ver docs/MANUAIS-ESCOLA.md.
+Publicado e conferido em 25/10/2026: servidor pops-sync v65, interface 2026.10.24-manuais-escola e shell v26, commits 38502e7 e 0b644cd. Deploy 40163563948 e 40163785707 concluídos. 464 testes aprovados; 45 arquivos públicos idênticos ao pacote. Catálogo real consultado e cursos vinculados pelo caminho autenticado, todos em rascunho; IDs/revisões e oito etapas conferidos no servidor. Salvamento do editor, reabertura em outra aba e acesso ao manual no Painel conferidos. Comparação das assinaturas dos registros anteriores confirma preservação integral. Nenhum aluno recebeu atribuição ou pontos. Fotos restritas do Inventário não são propagadas; vídeos, revisão técnica, avaliação e instrutores permanecem pendentes. Evidências reais mantidas fora do repositório público. Ver docs/MANUAIS-ESCOLA.md.
+
+Vez: codex (publicação concluída; o dono decide a próxima vez).
 
 ## Trabalho atual · Publicação das capas 3D e presença do Silk
 

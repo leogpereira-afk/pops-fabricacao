@@ -21,7 +21,7 @@ Publicação autorizada em 25/10/2026. Cursos vinculados são criados somente em
 
 ## Verificado
 
-Suite Node 24: 463 testes aprovados, incluindo 15 casos específicos da ponte e tela. Cobertura: administração/origem, criação idempotente, revisão, histórico, fontes indisponíveis, máquina retirada, vídeo obrigatório, fotos restritas, nomes iguais com IDs distintos, pontos sem duplicação e rotas administrativas bloqueadas ao aluno. Regressões existentes de RH, equipes, biblioteca, avaliações, práticas, armazenamento e sincronização também passaram.
+Suite Node 24: 464 testes aprovados, incluindo 16 casos específicos da ponte e tela. Cobertura: administração/origem, criação idempotente, revisão, histórico, fontes indisponíveis, máquina retirada, vídeo obrigatório, fotos restritas, nomes iguais com IDs distintos, pontos sem duplicação e rotas administrativas bloqueadas ao aluno. Regressões existentes de RH, equipes, biblioteca, avaliações, práticas, armazenamento e sincronização também passaram.
 
 Navegador: criação de rascunhos, editor com oito etapas, salvar curso, seleção RH/equipe, salvar jornada, primeira aula, 10 pontos e incentivo do Silk. Conferência visual em desktop e iframe com viewport real de 390 px, sem aparelho físico. Imagens da prévia são ilustrações e os registros são fictícios.
 
@@ -35,6 +35,14 @@ Navegador: criação de rascunhos, editor com oito etapas, salvar curso, seleç�
 
 A prévia usa servidor e banco simulados em memória: reiniciar restaura fixtures. Não acessa o Supabase produtivo. O service worker fica desabilitado na prévia para não guardar fixtures.
 
-## Próxima fase, ainda não executada
+## Publicação e conferência — 25/10/2026
 
-Após autorização de publicação: atualizar a base remota, integrar a revisão, publicar `pops-sync` com `_shared/maquinas-escola.ts` antes da interface, conferir o catálogo autenticado real e preparar os rascunhos autorizados. Revisar cada manual, fornecer vídeos reais de cada modelo, preparar avaliações e definir instrutores antes de liberar alunos. Confirmar a sincronização em sessões independentes produtivas. Nenhum curso real foi criado ou atribuído nesta entrega.
+Servidor `pops-sync` v65 publicado antes da tela. Interface `2026.10.24-manuais-escola`, shell `pops-shell-v26-manuais-escola`. Deploys 40163563948 e 40163785707 concluídos; pacote público de 45 arquivos conferido byte a byte.
+
+Importação real feita pela aplicação autenticada, com vínculo único por ID/revisão do manual. Cursos mantidos em rascunho, oito etapas, vídeo obrigatório pendente e sem público liberado. Persistência conferida por nova consulta, reabertura do editor e leitura independente no servidor. Salvamento de um rascunho pelo editor confirmado sem liberação. Registros anteriores comparados por assinatura e preservados. Nenhuma atribuição a aluno criada.
+
+Foto pública com parâmetros de revisão do fabricante é aceita; parâmetros de credenciais e fotos do Inventário restrito continuam bloqueados. Onde só existe foto restrita, a tela indica fotografia autorizada a conferir.
+
+## Para liberar o treinamento
+
+Revisar tecnicamente cada manual, incluir vídeo real do modelo, preparar e aprovar a avaliação e definir os responsáveis pela prática. Depois escolher público ou jornada pelo RH/equipe. O curso não autoriza operar o equipamento. Conferência móvel desta implementação foi feita em viewport de 390 px na prévia; não houve teste em aparelho físico.

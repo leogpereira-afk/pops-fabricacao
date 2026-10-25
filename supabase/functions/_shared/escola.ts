@@ -253,6 +253,7 @@ export async function escola(body: any, ctx: any) {
     if(res.error?.code==='40001')fail('O registro mudou em outro aparelho. Atualize e tente novamente; sua resposta continua disponível.',409);
     return conferir(res);
   };
+  const maquinas=ctx.criarMaquinasEscola({sb,admin,usuario,registro,todos,gravar,conferir,fail,painelToken:ctx.painelToken});
   const pendenciaFonte = async (e:any) => {
     if(e.preparacaoPendente) return 'Conteúdo em preparação pela gestão.';
     if(!e.conteudo || ['aprender','importancia','comoFazer','erros','evidencia'].some(k=>!texto(e.conteudo[k],20000)))return 'A orientação desta aula ainda precisa ser preparada.';
@@ -261,6 +262,7 @@ export async function escola(body: any, ctx: any) {
     // requisição); as conferências abaixo seguem na mesma ordem de antes.
     await Promise.all([...(e.materiais||[]).map((ref:any)=>registro('materiais',ref.id)),...(e.fontes||[]).map((fonte:any)=>registro(fonte.tipo==='pop'?'pops':'treinamentos',fonte.refId))]);
     for(const ref of e.materiais||[]){const m=await registro('materiais',ref.id);if(!m||m.apagado||m.registro.versao!==ref.versao||m.registro.publicada!==true||m.registro.ativa===false)return 'Um material integral vinculado mudou ou ainda não foi liberado. Revise a aula.';}
+    if(e.requerVideo){let video=false;for(const ref of e.materiais||[]){const m=await registro('materiais',ref.id);if(m?.registro.tipo==='video')video=true;}if(!video)return 'Vincule um vídeo revisado da biblioteca antes de liberar esta aula.';}
     for(const d of e.documentos || []) if(d.oficialConfirmado!==true || !d.conferidoPor || !d.conferidoEm)return 'A gestão precisa conferir a versão oficial deste documento.';
     for(const fonte of e.fontes || []) {
       const col=fonte.tipo==='pop'?'pops':'treinamentos',r=await registro(col,fonte.refId);
@@ -274,12 +276,12 @@ export async function escola(body: any, ctx: any) {
     return '';
   };
   const decorar = async (f:any,r:any,privado:boolean,ps:any[]=[]) => {
-    const res=copy(f),novaVersao=!!r && r.formacaoVersao!==f.versao;
+    const res=copy(f),pendenciaManual=await maquinas.pendencia(f),novaVersao=!!r && r.formacaoVersao!==f.versao;
     let concluidas=0;const obrigatorias=f.etapas.filter((e:any)=>e.obrigatoria!==false);
     const fontesPendentes=new Map<string,string>(),pendencias=await Promise.all(f.etapas.map((e:any)=>pendenciaFonte(e)));f.etapas.forEach((e:any,i:number)=>fontesPendentes.set(e.id,pendencias[i]));
     for(const e of res.etapas) {
       const a=!novaVersao?r?.etapas?.[e.id]:null;
-      const falta=fontesPendentes.get(e.id)||'', prereq=(e.prerequisitos||[]).find((pid:string)=>novaVersao||r?.etapas?.[pid]?.status!=='concluida'||fontesPendentes.get(pid));
+      const falta=pendenciaManual||fontesPendentes.get(e.id)||'', prereq=(e.prerequisitos||[]).find((pid:string)=>novaVersao||r?.etapas?.[pid]?.status!=='concluida'||fontesPendentes.get(pid));
       e.status=a?.status || (novaVersao?'revisar':'nao_iniciada');
       e.statusFonte=falta?'pendente':'disponivel';
       e.motivoBloqueio=falta || (prereq?'Conclua primeiro: '+(f.etapas.find((x:any)=>x.id===prereq)?.titulo||prereq):'');
@@ -298,6 +300,9 @@ export async function escola(body: any, ctx: any) {
         res.liberacao.cargosSetoresEfetivos=[...new Set([...antes.filter((s:any)=>atuais.map(norm).includes(norm(s))),...escopoPessoas.filter(p=>corresponde(p,antes)&&corresponde(p,atuais)).map(p=>p.setor||p.area||p.areaId).filter(Boolean)])];
       }
     }
+    res.maquina=await maquinas.decorar(f);
+    delete res.origemMaquina;
+    if(privado&&f.origemMaquina)res.origemMaquina=copy(f.origemMaquina);
     res.progresso={concluidas,total:obrigatorias.length,percentual:obrigatorias.length?Math.round(concluidas/obrigatorias.length*100):0,etapaAtual:res.etapas.find((e:any)=>e.obrigatoria!==false&&e.status!=='concluida')?.id||null};
     res.revisaoNecessaria=novaVersao;res.liberada=liberadaCurso(f,pessoa);res.liberadaParaMim=res.liberada;
     return res;
@@ -374,6 +379,7 @@ export async function escola(body: any, ctx: any) {
     return Object.keys(out).length?out:null;
   };
   const op=String(body.operacao || 'painel');
+  if(op.startsWith('maquinas.'))return maquinas.operar(body);
   if(op.startsWith('academia.'))return academia(body,{sb,usuario,admin,gestor,aluno,setores,pessoa,cfg,gerencia,registro,todos,pessoasRH,idApr,gravar,fail,id,aplicarFamilias,liberadaCurso});
   if(op==='salvarPlano'){
     if(!admin)fail('Somente a administração monta jornadas pessoais.',403);
@@ -413,7 +419,7 @@ export async function escola(body: any, ctx: any) {
     // Revogar o plano não pode depender da equipe ou do curso que saiu do ar.
     // Só conserva referências anteriores; novas referências continuam conferidas.
     if(limpo.equipeId&&(limpo.ativa||limpo.equipeId!==anterior?.registro?.equipeId)){const es=await equipesRH();if(!es.disponivel)fail('Não foi possível consultar a equipe no PCP. Tente novamente.',409);if(!es.equipes.some((e:any)=>e.id===limpo.equipeId&&e.colaboradorIds.includes(pid)))fail('A pessoa não pertence a esta equipe ativa do PCP.',409);}
-    for(const i of itens){if(!limpo.ativa&&anterior?.registro?.itens?.some((a:any)=>a.formacaoId===i.formacaoId))continue;const f=await registro('formacoes',i.formacaoId);if(!f||f.apagado||f.registro.publicada!==true||f.registro.ativa===false)fail('Escolha somente cursos existentes, ativos e publicados.',409);}
+    for(const i of itens){if(!limpo.ativa&&anterior?.registro?.itens?.some((a:any)=>a.formacaoId===i.formacaoId))continue;const f=await registro('formacoes',i.formacaoId);if(!f||f.apagado||f.registro.publicada!==true||f.registro.ativa===false)fail('Escolha somente cursos existentes, ativos e publicados.',409);const pendente=await maquinas.pendencia(f.registro);if(pendente)fail(pendente,409);}
     const agora=new Date().toISOString();
     const alteracoes=[...(anterior?.registro?.alteracoes||[]),{id:mutation,assinatura,por:usuario,em:agora,...(anterior?{anterior:planoSeguro({...anterior.registro,_serverRevision:anterior.revision})}:{})}];
     const r=await gravar('planos_aprendizagem',{...limpo,alteracoes,atualizadoEm:agora,atualizadoPor:usuario},body.expectedRevision,mutation);
@@ -567,7 +573,7 @@ export async function escola(body: any, ctx: any) {
     return {ok:true,pessoa,planoPessoal,equipeTrabalho,motivoVinculo:identidade.motivo||null,formacoes,aprendizagem:pessoais,catalogo,gestao:{planos:admin?planos.map(planoSeguro):[],equipesTrabalho:admin?origemEquipes.equipes:[],estadoEquipesTrabalho:origemEquipes.disponivel?'disponivel':'indisponivel',podeMontarJornada:admin,instrutores:admin?(cfg.educacao?.instrutores||{}):undefined,...(admin?{entradaAluno:{...entradaAlunoCfg(cfg),...(bloqueiosAluno===null?{}:{bloqueios:bloqueiosAluno})}}:{}),...(gere?{cargosRH:cargos,vagasRH:vagas,catalogo}:{}),podeGerir:admin||gestor,podeValidar:!!pessoa&&(admin||gestor||fs.some(f=>f.etapas.some((e:any)=>(e.validadores||[]).map(norm).includes(usuario)))),pessoas:ps.filter(p=>admin||(gestor&&corresponde(p,setores))||ids.has(p.colaboradorId)),registros:gestaoReg.map(r=>registroGestao(r,fs.find(f=>f.id===r.formacaoId),ps.find(p=>p.colaboradorId===r.colaboradorId)))},atualizadoEm:new Date().toISOString()};
   }
   if(op==='aprovarAvaliacao') {
-    const f=await getF(body.formacaoId);if(!gerencia(f))fail('Somente a gestão responsável aprova avaliações.',403);
+    const f=await getF(body.formacaoId);if(!gerencia(f))fail('Somente a gestão responsável aprova avaliações.',403);const pendM=await maquinas.pendencia(f);if(pendM)fail(pendM,409);
     const e=f.etapas.find((e:any)=>e.id===body.etapaId);if(!e?.quiz?.length)fail('Prepare as questões antes da aprovação.');
     if(!texto(body.parecer,4000))fail('Registre o parecer da revisão pedagógica.');
     const mutation=id(body.mutationId);if(e.aprovacao?.mutationId===mutation&&e.aprovacao.por===usuario)return {ok:true,registro:f,revision:f._serverRevision};
@@ -580,6 +586,7 @@ export async function escola(body: any, ctx: any) {
     const f=copy(body.formacao||{});id(f.id);
     const anterior=await registro('formacoes',f.id);
     if(!gerencia(f)||(anterior&&!gerencia(anterior.registro)))fail('Seu acesso não permite gerenciar este curso.',403);
+    await maquinas.validarEdicao(f,anterior?.registro);
     const mutation=id(body.mutationId);
     if(anterior?.mutation_id===mutation){
       if(anterior.registro.atualizadoPor!==usuario)fail('Este envio pertence a outra pessoa. Atualize antes de salvar.',409);
@@ -657,7 +664,7 @@ export async function escola(body: any, ctx: any) {
     f.versoesAnteriores=copy(anterior?.registro.versoesAnteriores||[]);
     if(anterior&&f.versao!==anterior.registro.versao){
       if(f.versoesAnteriores.some((v:any)=>v.versao===f.versao))fail('Esta versão já foi usada. Escolha uma versão nova para preservar o histórico.',409);
-      f.versoesAnteriores.push({versao:anterior.registro.versao,titulo:anterior.registro.titulo,etapas:copy(anterior.registro.etapas),arquivadaEm:new Date().toISOString(),por:usuario});
+      f.versoesAnteriores.push({versao:anterior.registro.versao,titulo:anterior.registro.titulo,etapas:copy(anterior.registro.etapas),...(anterior.registro.origemMaquina?{origemMaquina:copy(anterior.registro.origemMaquina)}:{}),arquivadaEm:new Date().toISOString(),por:usuario});
     }
     if(anterior && body.expectedRevision!==anterior.revision)fail('O curso mudou. Atualize antes de salvar.',409);
     delete f._serverRevision;delete f.progresso;delete f.revisaoNecessaria;delete f.liberada;delete f.liberadaParaMim;delete f.somenteHistorico;delete f.historica;delete f.recomendadas;
@@ -680,6 +687,7 @@ export async function escola(body: any, ctx: any) {
   if(op==='registrar'&&!liberadaCurso(f,pessoa))fail('Este curso não está liberado para você.',403);
   if(op==='validar'&&(!e||!validar(f,e,alvo)))fail('A prática exige outro responsável autorizado para este setor.',403);
   if(op==='reciclar'&&(!gerencia(f)||(!admin&&!corresponde(alvo,setores))))fail('Seu acesso não permite liberar esta reciclagem.',403);
+  const pendM=await maquinas.pendencia(f);if(pendM)fail(pendM,409);
   const repetido=r.eventos.find((ev:any)=>ev.id===mutation);
   if(repetido) {
     if(repetido.assinatura!==assinatura||repetido.por!==usuario||repetido.operacao!==op||repetido.etapaId!==(e?.id||null))fail('Este identificador de envio pertence a outra atividade. Atualize e tente novamente.',409);

@@ -405,7 +405,7 @@ STORE.on('sync', st => {
 // fora não redesenha por cima. O catálogo entra aqui: ele não usa nada do pull
 // (vem do painel da escola, que se confere sozinho), e redesenhar a cada 90 s
 // apagava a busca e o filtro e voltava a página para o topo.
-const ROTAS_DE_EDICAO = ['editor','formacao-editor','jornada-editor','formacao','material-editor','material','perfil-editor','perfil-teste','importar','matriz','catalogo'];
+const ROTAS_DE_EDICAO = ['editor','formacao-editor','jornada-editor','formacao','material-editor','material','perfil-editor','perfil-teste','importar','matriz','catalogo','maquinas-escola'];
 STORE.on('pull', () => { if(STORE.getConhecimento().versao===window.CONHECIMENTO_VERSAO) _avisoConhecimento=''; if (!document.querySelector('dialog[open], .nav-escola[open], textarea:focus, input:focus, select:focus') && !ROTAS_DE_EDICAO.includes(ROTA.nome)) renderApp(); });
 STORE.on('escopoGestor', () => {if(SESSAO?.papel==='gestor' && ['pessoas','mapa','meus'].includes(ROTA.nome))renderApp();});
 STORE.on('pullErro', msg => { _ultimoSync = { status: 'erro' }; const chip = $('#chip-sync'); if (chip) { chip.textContent = 'Atualização pendente'; chip.title = msg; } });
@@ -453,7 +453,7 @@ STORE.on('quota', () => { _ultimoSync=STORE.resumoSync(); const chip=$('#chip-sy
 const GRUPO_DA_ROTA = { inicio:'inicio', '':'inicio', formacao:'inicio', conquistas:'inicio', avaliacoes:'inicio', perfil:'inicio', 'perfil-teste':'inicio', meus:'inicio',
   catalogo:'catalogo', pops:'pops', pop:'pops', fab:'pops', jornada:'pops', etapa:'pops',
   conhecimento:'conhecimento', treinamento:'conhecimento', biblioteca:'conhecimento', videos:'conhecimento', material:'conhecimento', nrs:'conhecimento',
-  escola:'escola', 'formacao-editor':'escola', alunos:'escola', aluno:'escola', 'jornada-editor':'escola', matriz:'escola', importar:'escola', 'material-editor':'escola', 'perfil-editor':'escola', pessoas:'escola', mapa:'escola',
+  escola:'escola', 'formacao-editor':'escola', alunos:'escola', aluno:'escola', 'jornada-editor':'escola', 'maquinas-escola':'escola', matriz:'escola', importar:'escola', 'material-editor':'escola', 'perfil-editor':'escola', pessoas:'escola', mapa:'escola',
   menu:'conta', senha:'conta' };
 function grupoDaRota(r) {
   r = r || (typeof ROTA !== 'undefined' ? ROTA : { nome: 'inicio' });
@@ -1550,7 +1550,7 @@ function renderApp() {
   if (!SESSAO) { renderLogin(app); return; }
   _houveSessao = true;
   lerRota();
-  document.title = 'Escola Impresilk · ' + (({biblioteca:'Biblioteca',videos:'Vídeos',material:'Material de estudo','material-editor':'Preparar material',nrs:'Normas Regulamentadoras',perfil:'Perfil e Desenvolvimento','perfil-editor':'Preparar instrumento','perfil-teste':'Autoconhecimento',alunos:'Acompanhamento',aluno:'Cursos do aluno','jornada-editor':'Jornada pessoal',avaliacoes:'Avaliações',escola:'Gestão de cursos',formacao:'Curso','formacao-editor':'Preparar curso',conquistas:'Meu histórico',conhecimento:'Conhecimento',catalogo:'Catálogo',matriz:'Matriz de cargos',importar:'Importar pacote',inicio:'Início',pops:'POPs',pop:'POP',fab:'Fabricação',jornada:'Jornada de fabricação',etapa:'Etapa de fabricação',treinamento:'Treinamento',editor:'Editor',senha:'Trocar senha',pessoas:'Equipe',mapa:'Histórico anterior',meus:'Atribuições anteriores',menu:'Minha conta'})[ROTA.nome] || 'Início');
+  document.title = 'Escola Impresilk · ' + (({biblioteca:'Biblioteca',videos:'Vídeos',material:'Material de estudo','material-editor':'Preparar material',nrs:'Normas Regulamentadoras',perfil:'Perfil e Desenvolvimento','perfil-editor':'Preparar instrumento','perfil-teste':'Autoconhecimento',alunos:'Acompanhamento',aluno:'Cursos do aluno','jornada-editor':'Jornada pessoal','maquinas-escola':'Treinamentos por máquina',avaliacoes:'Avaliações',escola:'Gestão de cursos',formacao:'Curso','formacao-editor':'Preparar curso',conquistas:'Meu histórico',conhecimento:'Conhecimento',catalogo:'Catálogo',matriz:'Matriz de cargos',importar:'Importar pacote',inicio:'Início',pops:'POPs',pop:'POP',fab:'Fabricação',jornada:'Jornada de fabricação',etapa:'Etapa de fabricação',treinamento:'Treinamento',editor:'Editor',senha:'Trocar senha',pessoas:'Equipe',mapa:'Histórico anterior',meus:'Atribuições anteriores',menu:'Minha conta'})[ROTA.nome] || 'Início');
   // Enquanto a senha for a temporária, o app inteiro fica atrás desta tela.
   if (SESSAO.trocarSenha && ROTA.nome !== 'senha') { location.hash = '#/senha'; return; }
   // Aluno: Início, Catálogo, POPs e Fabricação e Conhecimento (e o que mora neles).
@@ -1570,6 +1570,7 @@ function renderApp() {
     'material': a => ACADEMIA.render(a),
     'material-editor': a => ACADEMIA.render(a),
     'jornada-editor': a => ESCOLA_JORNADAS.render(a),
+    'maquinas-escola': a => ESCOLA_MAQUINAS.render(a),
     'pops': (a) => renderPops(a),
     'pop': renderPop,
     'fab': renderFab,

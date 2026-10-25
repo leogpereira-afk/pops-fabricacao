@@ -1,5 +1,11 @@
 # Vez do Pops & Fabricação
 
+## Trabalho atual · Manuais e treinamento por máquina · codex · 24/10/2026
+
+Estrutura aprovada por Léo. Em 25/10/2026, publicação e vinculação dos manuais reais autorizadas. Criar cursos em rascunho, sem atribuir pessoas nem aprovar tecnicamente. Publicar servidor antes da interface e verificar persistência produtiva. Clone /tmp/pops-manuais-20261024, ramo codex/manuais-escola-20261024. Vínculo por ID/revisão, cursos em rascunho, vídeos da biblioteca, atribuição individual RH/equipe existente, pontos e Silk existentes. Preservar permissões, históricos e dados reais.
+
+Prévia implementada e conferida: 463 testes aprovados; fluxo administrativo e aluno em viewport de 390 px; salvar curso, jornada por RH/equipe e avanço com Silk e 10 pontos confirmados. Nenhum dado produtivo alterado. Servidor e interface ainda não publicados. Ver docs/MANUAIS-ESCOLA.md.
+
 ## Trabalho atual · Publicação das capas 3D e presença do Silk
 
 Agente: codex. Léo autorizou em 20/10/2026: "ficou bom pode subir essas melhorias da escola com as imagens 3d e o Silk". Escopo: capas ilustradas por assunto, atalhos acessíveis somente em cursos liberados e Silk nas áreas personalizadas, aulas e biblioteca/vídeos. Preservados conteúdos, IDs, pontuação e acesso. Nenhuma mudança de servidor ou de dados reais nesta publicação.

@@ -23,13 +23,13 @@ export function jwtAluno(payload = {}, { chave = chaveAluno, cabecalho = { alg: 
 }
 export const lerPayload = token => JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
 
-export function backend({ rows = [], config = {}, queryError = false, revocationError = false, revoked = false, tables = {}, persistWrites = false, storageFiles = {}, rpcs = {} } = {}) {
+export function backend({ rows = [], config = {}, queryError = false, revocationError = false, revoked = false, tables = {}, persistWrites = false, storageFiles = {}, rpcs = {}, painel = null } = {}) {
   let handler;
   const writes = [];
   const queries = [];
   const files=new Map(Object.entries(storageFiles));
   const sb = {
-    storage:{from(bucket){return {upload:async(path,bytes)=>{const key=bucket+'/'+path;if(files.has(key))return {error:{statusCode:'409'}};files.set(key,new Uint8Array(bytes));return {error:null};},download:async(path)=>{const bytes=files.get(bucket+'/'+path);return bytes?{data:{arrayBuffer:async()=>bytes.buffer},error:null}:{data:null,error:{message:'not found'}};}}}},
+    storage:{from(bucket){return {createSignedUrl:async(path)=>({data:{signedUrl:'https://example.org/signed/'+encodeURIComponent(path)},error:null}),upload:async(path,bytes)=>{const key=bucket+'/'+path;if(files.has(key))return {error:{statusCode:'409'}};files.set(key,new Uint8Array(bytes));return {error:null};},download:async(path)=>{const bytes=files.get(bucket+'/'+path);return bytes?{data:{arrayBuffer:async()=>bytes.buffer},error:null}:{data:null,error:{message:'not found'}};}}}},
     rpc: async (name, args) => {
       if (name === 'acesso_revogado') return { data: revoked, error: revocationError ? { message: 'banco fora' } : null };
       writes.push({ rpc: name, args });
@@ -87,11 +87,12 @@ export function backend({ rows = [], config = {}, queryError = false, revocation
       }; return chain;
     }
   };
-  const ctx = vm.createContext({ __sb: sb, Deno:{env:{get:k=>k==='EQUIPE_JWT_SECRET'?secret:k==='POPS_TOKEN'?'maquina-ficticia':'http://exemplo.test'},serve:fn=>handler=fn}, crypto:webcrypto, TextEncoder,TextDecoder,Uint8Array,atob,btoa,Request,Response,URL,console:{error(){}} });
+  const ctx = vm.createContext({ __sb: sb, Deno:{env:{get:k=>k==='EQUIPE_JWT_SECRET'?secret:k==='POPS_TOKEN'?'maquina-ficticia':'http://exemplo.test'},serve:fn=>handler=fn}, crypto:webcrypto, TextEncoder,TextDecoder,Uint8Array,atob,btoa,Request,Response,URL,AbortSignal,fetch:async(u,o)=>{if(!painel)throw new Error('Sem origem simulada');return new Response(JSON.stringify(await painel(JSON.parse(o.body))),{status:200});},console:{error(){}} });
   // O módulo da escola entra no mesmo script, sem os export; o que o pops-sync
   // importa dele (escola e entradaAlunoCfg) passa pelo global do contexto.
   const escolaSource=fs.readFileSync(new URL('supabase/functions/_shared/escola.ts',root),'utf8').replace(/^export /gm,'');
-  const source=fs.readFileSync(new URL('supabase/functions/pops-sync/index.ts',root),'utf8').replace(/^import .*createClient.*;$/m,'const createClient = () => __sb;').replace(/^import .*escola.*;$/m,()=> '{ '+escolaSource+'; globalThis.__escola = escola; globalThis.__entradaAlunoCfg = entradaAlunoCfg; } const escola = globalThis.__escola, entradaAlunoCfg = globalThis.__entradaAlunoCfg;');
+  const maquinasSource=fs.readFileSync(new URL('supabase/functions/_shared/maquinas-escola.ts',root),'utf8').replace(/^export /gm,'');
+  const source=fs.readFileSync(new URL('supabase/functions/pops-sync/index.ts',root),'utf8').replace(/^import .*createClient.*;$/m,'const createClient = () => __sb;').replace(/^import .*criarMaquinasEscola.*;$/m,()=>'{ '+maquinasSource+'; globalThis.__maquinas = criarMaquinasEscola; } const criarMaquinasEscola=globalThis.__maquinas;').replace(/^import \{ escola, entradaAlunoCfg \}.*;$/m,()=> '{ '+escolaSource+'; globalThis.__escola = escola; globalThis.__entradaAlunoCfg = entradaAlunoCfg; } const escola = globalThis.__escola, entradaAlunoCfg = globalThis.__entradaAlunoCfg;');
   // Relógio do contexto avançável, para testar caches com validade.
   ctx.__deslocamentoMs=0;
   vm.runInContext('{const real=Date.now;Date.now=()=>real()+globalThis.__deslocamentoMs;}',ctx);

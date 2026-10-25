@@ -1,6 +1,7 @@
 // POPs: credencial pessoal conferida no servidor; x-token exclusivo da automação.
 // verify_jwt=false: esta porta valida o JWT da equipe, não um JWT Supabase Auth.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { criarMaquinasEscola } from "../_shared/maquinas-escola.ts";
 import { escola, entradaAlunoCfg } from "../_shared/escola.ts";
 const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
 const TOKEN = Deno.env.get("POPS_TOKEN") ?? "";
@@ -10,7 +11,7 @@ const COLS = new Set(["pops", "jornadas", "treinamentos", "pessoas", "atribuicoe
 // Coleções da escola: só a ação "escola" lê e grava. Entram na listagem completa
 // apenas para o backup do Hub (x-token de serviço), nunca para a tela.
 const COLS_ESCOLA = ["formacoes", "aprendizagem", "materiais", "estudos", "instrumentos", "perfis", "capacitacoes", "planos_aprendizagem"];
-const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-token", "Access-Control-Allow-Methods": "POST, OPTIONS" };
+const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-token, x-painel-cracha", "Access-Control-Allow-Methods": "POST, OPTIONS" };
 const resp = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { ...CORS, "Content-Type": "application/json" } });
 const norm = (s: unknown) => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
 class Falha extends Error { status: number; constructor(message: string, status = 400) { super(message); this.status = status; } }
@@ -484,7 +485,7 @@ Deno.serve(async (req: Request) => {
     }
     if (["delete", "restore", "setCfg", "sincronizarPessoas", "putFoto", "deleteFoto"].includes(action) && !admin) negar();
     switch (action) {
-      case "escola": return resp(await escola(body, { sb, cracha, maquina, identidadeRH, config: aluno && !maquina ? configAluno : config, registro, conferir, Falha }));
+      case "escola": return resp(await escola(body, { sb, cracha, maquina, identidadeRH, config: aluno && !maquina ? configAluno : config, registro, conferir, Falha, criarMaquinasEscola, painelToken: req.headers.get("x-painel-cracha") }));
       case "ping": return resp({ ok: true, agora: new Date().toISOString() });
       case "identidadeRH": return resp(await identidadeRH(cracha));
       case "conhecimento": {

@@ -136,7 +136,7 @@ const STORE = (() => {
     const ctrl = new AbortController(), t = setTimeout(() => ctrl.abort(), timeoutMs || 15000);
     try {
       const r = await fetch(window.API_BASE + '/' + window.API_FN.sync, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', authorization: 'Bearer ' + cracha },
+        method: 'POST', headers: { 'Content-Type': 'application/json', authorization: 'Bearer ' + cracha, ...(action==='escola'&&String(body?.operacao||'').startsWith('maquinas.')&&perfil(u)==='admin'?{'x-painel-cracha':localStorage.getItem('painel_auth_token')||''}:{}) },
         body: JSON.stringify({ action, ...(body || {}) }), signal: ctrl.signal,
       });
       let data; try { data = await r.json(); } catch { throw new Error('Resposta incompleta do servidor.'); }

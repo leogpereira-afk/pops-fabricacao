@@ -41,14 +41,14 @@ export function indexedDBFicticio(){
     entradas(){return [...(bancos.get('impresilk-escola-cache')?.get('consultas')?.entries()||[])];}};
 }
 // sessao: {usuario,nome,papel,pessoaRH}; api(payload,acao,tempo) ou backend b.
-export function telaEscola({sessao={},api,backend:b,storage=new Map(),idb,arquivos=['treinamentos.js','educacao.js','academia.js','escola-gestao.js','escola-catalogo.js','escola-jornadas.js'],cfgSetores=['Produção'],versaoTela='teste-1'}={}){
+export function telaEscola({sessao={},api,backend:b,storage=new Map(),idb,arquivos=['treinamentos.js','educacao.js','academia.js','escola-gestao.js','escola-catalogo.js','escola-jornadas.js','escola-maquinas.js'],cfgSetores=['Produção'],versaoTela='teste-1'}={}){
   const app=new Element('main',{id:'app'}),calls=[],toasts=[],ouvintes=[];
   const SESSAO={usuario:'ana',nome:'Ana Fictícia',papel:'equipe',pessoaRH:{colaboradorId:'rh1'},...sessao};
   const node=(s,root=app)=>s==='#app'?app:root.querySelector(s);
   const sessionStorage={getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,String(v)),removeItem:k=>storage.delete(k)};
   // window é o próprio global, como no navegador: window.ACADEMIA vira ACADEMIA.
   const global={sessionStorage,addEventListener(){},removeEventListener(){},ESCOLA_TELA_VERSAO:versaoTela};global.window=global;
-  const ctx=vm.createContext(Object.assign(global,{SESSAO,ROTA:{nome:'inicio',arg:''},location:{hash:'#/'},crypto:webcrypto,TextEncoder,URL,console,setTimeout,clearTimeout,
+  const ctx=vm.createContext(Object.assign(global,{AUTH:{crachaDe:()=>"demo"},SESSAO,ROTA:{nome:'inicio',arg:''},location:{hash:'#/'},crypto:webcrypto,TextEncoder,URL,console,setTimeout,clearTimeout,
     document:{createElement:t=>new Element(t),getElementById:id=>node('#'+id),querySelector:()=>null,addEventListener:(ev,fn)=>ouvintes.push([ev,fn])},
     ...(idb?{indexedDB:idb}:{}),
     STORE:{um:()=>null,col:()=>[],api:async(action,payload,tempo)=>{calls.push({action,...plain(payload),_tempo:tempo});if(api)return api(plain(payload),action,tempo);const r=await b.call({action,...payload},{sub:SESSAO.usuario,papel:SESSAO.papel});if(r.status>=400)throw Object.assign(new Error(r.body.erro),{status:r.status});return r.body;}},
@@ -59,7 +59,7 @@ export function telaEscola({sessao={},api,backend:b,storage=new Map(),idb,arquiv
   }));
   for(const f of arquivos)vm.runInContext(fs.readFileSync(new URL('../'+f,import.meta.url),'utf8'),ctx);
   const rotear=(nome,arg='')=>{ctx.ROTA={nome,arg};ctx.location.hash='#/'+nome+(arg?'/'+arg:'');};
-  const route=async(nome='inicio',arg='')=>{rotear(nome,arg);const mod=nome==='jornada-editor'?ctx.window.ESCOLA_JORNADAS:['catalogo','matriz','importar'].includes(nome)?ctx.window.ESCOLA_CATALOGO:['biblioteca','videos','material','material-editor'].includes(nome)?ctx.window.ACADEMIA:['alunos','aluno','avaliacoes','nrs','perfil'].includes(nome)?ctx.window.ESCOLA_GESTAO:ctx.window.EDUCACAO;await mod.render(app);await esperar();};
+  const route=async(nome='inicio',arg='')=>{rotear(nome,arg);const mod=nome==='maquinas-escola'?ctx.window.ESCOLA_MAQUINAS:nome==='jornada-editor'?ctx.window.ESCOLA_JORNADAS:['catalogo','matriz','importar'].includes(nome)?ctx.window.ESCOLA_CATALOGO:['biblioteca','videos','material','material-editor'].includes(nome)?ctx.window.ACADEMIA:['alunos','aluno','avaliacoes','nrs','perfil'].includes(nome)?ctx.window.ESCOLA_GESTAO:ctx.window.EDUCACAO;await mod.render(app);await esperar();};
   const click=async s=>{const n=typeof s==='string'?node(s):s;if(!n||typeof n.onclick!=='function')throw new Error('Ação ausente '+s);await n.onclick({preventDefault(){},target:n});await esperar();};
   const submit=async s=>{const n=node(s);if(!n||typeof n.onsubmit!=='function')throw new Error('Formulário ausente '+s);await n.onsubmit({preventDefault(){},target:n});await esperar();};
   const marcar=(fieldset,valor,sim=true)=>{const box=node('#'+fieldset);const x=box?.querySelectorAll('input[type=checkbox]').find(i=>i.value===valor);if(!x)throw new Error('Opção ausente '+fieldset+':'+valor);x.checked=sim;x.onchange?.();return x;};
